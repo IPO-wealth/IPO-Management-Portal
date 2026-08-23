@@ -253,6 +253,13 @@ table.dt tr.clickable{cursor:pointer;}
 .small-muted{color:var(--text-dim);font-size:11.5px;}
 .hint{font-size:11px;color:var(--text-dim);margin-top:4px;}
 
+@media print{
+  #sidebar, #topbar, #sidebar-overlay, .tabs, .no-print, #appLockOverlay, #modalOverlay, #toastWrap{ display:none !important; }
+  #main{ margin-left:0 !important; }
+  body{ background:#fff !important; }
+  .printable-report{ box-shadow:none !important; border:none !important; }
+  .kpi-card{ box-shadow:none !important; border:1px solid #ccc !important; }
+}
 @media (max-width:900px){
   #sidebar{transform:translateX(-100%);}
   #sidebar.open{transform:translateX(0);}
@@ -2726,6 +2733,7 @@ function viewReports(){
     <button class="${reportsTab==='bank'?'active':''}" onclick="setReportsTab('bank')">Bank Analysis</button>
     <button class="${reportsTab==='profit'?'active':''}" onclick="setReportsTab('profit')">Profit Analysis</button>
     <button class="${reportsTab==='trends'?'active':''}" onclick="setReportsTab('trends')">Trends &amp; Charts</button>
+    <button class="${reportsTab==='yearly'?'active':''}" onclick="setReportsTab('yearly')">Yearly Summary</button>
     <button class="${reportsTab==='capacity'?'active':''}" onclick="setReportsTab('capacity')">Bank Capacity Analysis</button>
     <button class="${reportsTab==='planning'?'active':''}" onclick="setReportsTab('planning')">Planning Performance</button>
     <button class="${reportsTab==='pva'?'active':''}" onclick="setReportsTab('pva')">Planned vs Actual</button>
@@ -2739,6 +2747,7 @@ function reportsTabContent(){
   if (reportsTab==='bank') return reportBankAnalysis();
   if (reportsTab==='profit') return reportProfitAnalysis();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
+  if (reportsTab==='yearly') return reportYearlySummary();
   if (reportsTab==='capacity') return planningCapacityTab();
   if (reportsTab==='planning') return reportPlanningPerformance();
   if (reportsTab==='pva') return planningVarianceTab();
@@ -2769,6 +2778,14 @@ function reportTrends(){
   <div class="section-card">
     <div class="sc-head"><h3>Application Lifecycle Funnel</h3></div>
     <div class="sc-body"><canvas id="chartFunnel" height="90"></canvas></div>
+  </div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>Year-over-Year Comparison</h3></div>
+    <div class="sc-body">
+      <div id="yoySummaryWrap"></div>
+      <canvas id="chartYoY" height="90" style="margin-top:14px;"></canvas>
+    </div>
   </div>
 
   <div class="section-card">
@@ -2869,6 +2886,48 @@ function renderTrendsCharts(){
     options:{ indexAxis:'y', responsive:true, plugins:{legend:{display:false}} }
   });
 
+  // ---- Year-over-Year comparison ----
+  const thisYear = new Date().getFullYear();
+  const lastYear = thisYear - 1;
+  function yearTotals(year){
+    const sold = S.applications.filter(a=>a.saleStatus==='Sold' && a.saleDate && new Date(a.saleDate).getFullYear()===year);
+    const apps = S.applications.filter(a=>a.applicationDate && new Date(a.applicationDate).getFullYear()===year);
+    let gross=0, our=0, client=0;
+    sold.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable){ gross+=c.grossFinal; our+=c.ourFinal; client+=c.clientFinal; } });
+    return { applications:apps.length, sold:sold.length, gross, our, client };
+  }
+  const yThis = yearTotals(thisYear), yLast = yearTotals(lastYear);
+  const pctChange = (a,b) => b===0 ? (a===0?'—':'New') : `${a>=b?'+':''}${Math.round(((a-b)/Math.abs(b))*100)}%`;
+  const yoyRows = [
+    ['Applications', yLast.applications, yThis.applications, pctChange(yThis.applications, yLast.applications)],
+    ['Sold', yLast.sold, yThis.sold, pctChange(yThis.sold, yLast.sold)],
+    ['Gross Received', fmtMoney(yLast.gross), fmtMoney(yThis.gross), pctChange(yThis.gross, yLast.gross)],
+    ['Our Profit', fmtMoney(yLast.our), fmtMoney(yThis.our), pctChange(yThis.our, yLast.our)],
+    ['Client Profit', fmtMoney(yLast.client), fmtMoney(yThis.client), pctChange(yThis.client, yLast.client)],
+  ];
+  const yoyWrap = document.getElementById('yoySummaryWrap');
+  if (yoyWrap) yoyWrap.innerHTML = `<div class="table-wrap"><table class="dt"><thead><tr><th></th><th>${lastYear}</th><th>${thisYear}</th><th>Change</th></tr></thead><tbody>${yoyRows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}</tbody></table></div>`;
+
+  // Monthly Our Profit, this year vs last year, month-by-month (Jan-Dec)
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function monthlyProfitForYear(year){
+    return monthNames.map((_,idx)=>{
+      const sold = S.applications.filter(a=>{ if(a.saleStatus!=='Sold'||!a.saleDate) return false; const d=new Date(a.saleDate); return d.getFullYear()===year && d.getMonth()===idx; });
+      let our=0; sold.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable) our+=c.ourFinal; });
+      return our;
+    });
+  }
+  destroyChart('yoy');
+  const ctxYoy = document.getElementById('chartYoY');
+  if (ctxYoy) window.__trendCharts['yoy'] = new Chart(ctxYoy, {
+    type:'bar',
+    data:{ labels: monthNames, datasets:[
+      { label:String(lastYear), data: monthlyProfitForYear(lastYear), backgroundColor:'#93a7bd' },
+      { label:String(thisYear), data: monthlyProfitForYear(thisYear), backgroundColor:'#c8963e' }
+    ]},
+    options:{ responsive:true, plugins:{legend:{display:true}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+  });
+
   // ---- Top 10 Clients by Profit ----
   const clientProfits = S.clients.map(c=>{
     const apps = S.applications.filter(a=>a.clientId===c.id);
@@ -2900,6 +2959,67 @@ function renderTrendsCharts(){
     : '<p class="small-muted">Nothing pending — everything sold has been recovered.</p>';
 }
 
+let yearlySummaryYear = new Date().getFullYear();
+function setYearlySummaryYear(y){ yearlySummaryYear = Number(y); render(); }
+function reportYearlySummary(){
+  const year = yearlySummaryYear;
+  const yearsWithData = Array.from(new Set(
+    S.applications.map(a=>a.applicationDate).filter(Boolean).map(d=>new Date(d).getFullYear())
+  )).sort((a,b)=>b-a);
+  if (!yearsWithData.includes(year)) yearsWithData.unshift(year);
+
+  const appsThisYear = S.applications.filter(a=>a.applicationDate && new Date(a.applicationDate).getFullYear()===year);
+  const allotted = appsThisYear.filter(a=>a.allotmentStatus==='Allotted');
+  const notAllotted = appsThisYear.filter(a=>a.allotmentStatus==='Not Allotted');
+  const sold = appsThisYear.filter(a=>a.saleStatus==='Sold');
+  const ipoIdsThisYear = new Set(appsThisYear.map(a=>a.ipoId));
+  const amountApplied = appsThisYear.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+  let gross=0, our=0, client=0;
+  appsThisYear.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable){ gross+=c.grossFinal; our+=c.ourFinal; client+=c.clientFinal; } });
+
+  const bankRows = S.bankAccounts.map(b=>{
+    const bApps = appsThisYear.filter(a=>a.bankAccountId===b.id);
+    if (!bApps.length) return null;
+    let bOur=0; bApps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable) bOur+=c.ourFinal; });
+    return `<tr><td>${escapeHtml(b.bankName)}</td><td>${bApps.length}</td><td>${fmtMoney(bApps.reduce((s,a)=>s+(Number(a.amountApplied)||0),0))}</td><td>${fmtMoney(bOur)}</td></tr>`;
+  }).filter(Boolean).join('') || `<tr class="empty-row"><td colspan="4">No data for ${year}.</td></tr>`;
+
+  return `
+  <div class="section-card no-print">
+    <div class="sc-body" style="display:flex;gap:8px;align-items:center;">
+      <select onchange="setYearlySummaryYear(this.value)">
+        ${yearsWithData.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+  </div>
+
+  <div class="section-card printable-report">
+    <div class="sc-body">
+      <div style="text-align:center;margin-bottom:20px;">
+        <h2 style="margin:0;">IPO Management Portal</h2>
+        <p class="small-muted" style="margin:4px 0;">Yearly Summary — ${year}</p>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="lbl">Applications</div><div class="val">${appsThisYear.length}</div></div>
+        <div class="kpi-card"><div class="lbl">IPOs Participated</div><div class="val">${ipoIdsThisYear.size}</div></div>
+        <div class="kpi-card"><div class="lbl">Allotted</div><div class="val ok">${allotted.length}</div></div>
+        <div class="kpi-card"><div class="lbl">Not Allotted</div><div class="val danger">${notAllotted.length}</div></div>
+        <div class="kpi-card"><div class="lbl">Sold</div><div class="val">${sold.length}</div></div>
+        <div class="kpi-card"><div class="lbl">Amount Applied</div><div class="val">${fmtMoney(amountApplied)}</div></div>
+        <div class="kpi-card"><div class="lbl">Gross Received</div><div class="val">${fmtMoney(gross)}</div></div>
+        <div class="kpi-card"><div class="lbl">Our Profit</div><div class="val gold">${fmtMoney(our)}</div></div>
+        <div class="kpi-card"><div class="lbl">Client Profit</div><div class="val">${fmtMoney(client)}</div></div>
+      </div>
+
+      <h3 style="margin-top:24px;">Bank-wise Breakdown</h3>
+      <div class="table-wrap"><table class="dt"><thead><tr><th>Bank</th><th>Applications</th><th>Amount Applied</th><th>Our Profit</th></tr></thead><tbody>${bankRows}</tbody></table></div>
+
+      <p class="small-muted" style="margin-top:20px;text-align:center;">Generated ${fmtDate(todayStr())} from IPO Management Portal.</p>
+    </div>
+  </div>`;
+}
 let caFilters = { reference:'', subReference:'' };
 function setCaFilter(key, val){ caFilters[key] = val; render(); }
 function reportClientAnalysis(){
