@@ -378,6 +378,15 @@ async function loadAll(){
   S.settings = {};
   settingsArr.forEach(s => S.settings[s.key] = s.value);
   if (!S.settings.references) S.settings.references = ['Karan','Paras'];
+  if (!S.settings.subReferences) S.settings.subReferences = [];
+  // Sub Reference used to be free text — auto-collect any existing distinct values
+  // so they remain selectable as a proper managed list instead of disappearing.
+  let __subRefSeeded = false;
+  S.clients.forEach(c => {
+    const sr = (c.subReference||'').trim();
+    if (sr && !S.settings.subReferences.includes(sr)){ S.settings.subReferences.push(sr); __subRefSeeded = true; }
+  });
+  if (__subRefSeeded) await saveSetting('subReferences', S.settings.subReferences);
   if (!S.settings.driveClientId) S.settings.driveClientId = '';
   if (!S.settings.authorizedEmail) S.settings.authorizedEmail = '';
   if (!S.settings.driveConnectedEmail) S.settings.driveConnectedEmail = '';
@@ -849,7 +858,10 @@ function viewClients(){
       data: S.clients,
       searchFn: (r,q) => (r.clientId+' '+r.clientName+' '+(r.referenceName||'')+' '+(r.subReference||'')).toLowerCase().includes(q),
       searchPlaceholder: 'Search by ID, name, reference...',
-      filters: [{ key:'referenceName', label:'Reference', options:S.settings.references }],
+      filters: [
+        { key:'referenceName', label:'Reference', options:S.settings.references },
+        { key:'subReference', label:'Sub Reference', options:S.settings.subReferences }
+      ],
       pageSize: 10,
       rowClick: 'openClientDetail',
       columns: [
@@ -879,7 +891,7 @@ function clientFields(c){
   return [
     { key:'clientName', label:'Client Name', required:true },
     { key:'referenceName', label:'Reference', type:'select', options:S.settings.references, required:true },
-    { key:'subReference', label:'Sub Reference' },
+    { key:'subReference', label:'Sub Reference', type:'select', options:['',...(S.settings.subReferences||[])], placeholder:'None' },
     { key:'status', label:'Status', type:'select', options:['Active','Inactive'] }
   ].map(f => fieldHtml(f, c ? c[f.key] : (f.key==='status'?'Active':''))).join('');
 }
@@ -2590,12 +2602,30 @@ function reportsTabContent(){
   if (reportsTab==='pva') return planningVarianceTab();
   return '';
 }
+let caFilters = { reference:'', subReference:'' };
+function setCaFilter(key, val){ caFilters[key] = val; render(); }
 function reportClientAnalysis(){
-  const rows = S.clients.map(c=>{
+  const filtered = S.clients.filter(c =>
+    (!caFilters.reference || c.referenceName===caFilters.reference) &&
+    (!caFilters.subReference || c.subReference===caFilters.subReference)
+  );
+  const rows = filtered.map(c=>{
     const st = clientStats(c.id);
-    return `<tr><td>${escapeHtml(c.clientName)}</td><td>${st.apps.length}</td><td>${st.allotted.length}</td><td>${st.notAllotted.length}</td><td>${st.sold.length}</td><td>${fmtMoney(st.amountApplied)}</td><td>${fmtMoney(st.grossReceived)}</td><td>${fmtMoney(st.profit)}</td><td>${fmtMoney(st.clientProfit)}</td></tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="9">No clients yet.</td></tr>`;
-  return `<div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    return `<tr><td>${escapeHtml(c.clientName)}</td><td>${escapeHtml(c.subReference||'—')}</td><td>${st.apps.length}</td><td>${st.allotted.length}</td><td>${st.notAllotted.length}</td><td>${st.sold.length}</td><td>${fmtMoney(st.amountApplied)}</td><td>${fmtMoney(st.grossReceived)}</td><td>${fmtMoney(st.profit)}</td><td>${fmtMoney(st.clientProfit)}</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="10">No clients match.</td></tr>`;
+  return `<div class="section-card">
+    <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;">
+      <select onchange="setCaFilter('reference', this.value)">
+        <option value="">Reference: All</option>
+        ${(S.settings.references||[]).map(r=>`<option value="${escapeHtml(r)}" ${caFilters.reference===r?'selected':''}>${escapeHtml(r)}</option>`).join('')}
+      </select>
+      <select onchange="setCaFilter('subReference', this.value)">
+        <option value="">Sub Reference: All</option>
+        ${(S.settings.subReferences||[]).map(r=>`<option value="${escapeHtml(r)}" ${caFilters.subReference===r?'selected':''}>${escapeHtml(r)}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Sub Reference</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 function reportIpoAnalysis(){
   const rows = S.ipos.map(i=>{
@@ -2624,7 +2654,7 @@ function reportBankAnalysis(){
   <div class="sc-body"><p class="small-muted">Amount Blocked = amount currently tied up in applications still awaiting an allotment decision (excludes Not Allotted and already-resolved applications). Pending Receivables = count of sold applications whose recovery is still outstanding.</p></div></div>`;
 }
 let praRange = { preset:'thisMonth', from:null, to:null };
-let praFilters = { ipoId:'', clientId:'', bankId:'', reference:'' };
+let praFilters = { ipoId:'', clientId:'', bankId:'', reference:'', subReference:'' };
 function resolvePraRange(){
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth();
@@ -2652,9 +2682,10 @@ function reportProfitAnalysis(){
     if (praFilters.ipoId && String(a.ipoId)!==praFilters.ipoId) return false;
     if (praFilters.bankId && String(a.bankAccountId)!==praFilters.bankId) return false;
     if (praFilters.clientId && String(a.clientId)!==praFilters.clientId) return false;
-    if (praFilters.reference){
+    if (praFilters.reference || praFilters.subReference){
       const c = findClient(a.clientId);
-      if (!c || c.referenceName !== praFilters.reference) return false;
+      if (praFilters.reference && (!c || c.referenceName !== praFilters.reference)) return false;
+      if (praFilters.subReference && (!c || c.subReference !== praFilters.subReference)) return false;
     }
     return true;
   };
@@ -2700,6 +2731,10 @@ function reportProfitAnalysis(){
         <option value="">Reference: All</option>
         ${(S.settings.references||[]).map(rf=>`<option value="${escapeHtml(rf)}" ${praFilters.reference===rf?'selected':''}>${escapeHtml(rf)}</option>`).join('')}
       </select>
+      <select onchange="setPraFilter('subReference', this.value)">
+        <option value="">Sub Reference: All</option>
+        ${(S.settings.subReferences||[]).map(rf=>`<option value="${escapeHtml(rf)}" ${praFilters.subReference===rf?'selected':''}>${escapeHtml(rf)}</option>`).join('')}
+      </select>
     </div>
   </div>
 
@@ -2743,6 +2778,7 @@ function reportPlanningPerformance(){
 /* =================== SETTINGS =================== */
 function viewSettings(){
   const refs = S.settings.references || [];
+  const subRefs = S.settings.subReferences || [];
   return `
   <div class="section-card">
     <div class="sc-head"><h3>Reference Names</h3></div>
@@ -2753,6 +2789,20 @@ function viewSettings(){
       <div style="display:flex;gap:8px;">
         <input type="text" id="newRefInput" placeholder="Add reference name" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
         <button class="btn btn-primary btn-sm" onclick="addReference()">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>Sub Reference Names</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Managed list used for the Sub Reference dropdown on clients and as a filter throughout the portal. Any sub-references you'd already typed in before this list existed were automatically added here.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 12px 0;">
+        ${subRefs.length ? subRefs.map(r=>`<span class="badge teal" style="padding:5px 10px;">${escapeHtml(r)} <span style="cursor:pointer;margin-left:5px;" onclick="removeSubReference('${escapeHtml(r)}')">&times;</span></span>`).join('') : '<span class="small-muted">None yet.</span>'}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="newSubRefInput" placeholder="Add sub reference name" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+        <button class="btn btn-primary btn-sm" onclick="addSubReference()">Add</button>
       </div>
     </div>
   </div>
@@ -2872,6 +2922,19 @@ async function addReference(){
   if (!val) return;
   if (!S.settings.references.includes(val)) S.settings.references.push(val);
   await saveSetting('references', S.settings.references);
+  navigate('settings');
+}
+async function addSubReference(){
+  const input = document.getElementById('newSubRefInput');
+  const val = input.value.trim();
+  if (!val) return;
+  if (!S.settings.subReferences.includes(val)) S.settings.subReferences.push(val);
+  await saveSetting('subReferences', S.settings.subReferences);
+  navigate('settings');
+}
+async function removeSubReference(val){
+  S.settings.subReferences = S.settings.subReferences.filter(r=>r!==val);
+  await saveSetting('subReferences', S.settings.subReferences);
   navigate('settings');
 }
 async function removeReference(val){
