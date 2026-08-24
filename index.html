@@ -544,7 +544,11 @@ function badge(status){ return `<span class="badge ${statusBadgeClass(status)}">
 // ---- bank capacity ----
 function bankCapacity(bankAccountId, dateStr){
   const plans = S.ipoPlans.filter(p => p.bankAccountId === bankAccountId && p.plannedDate === dateStr && p.planStatus !== 'Cancelled');
-  const planned = plans.length;
+  // Mandates = total individual client applications planned through this bank on this
+  // date, NOT the number of IPO-plan rows. One IPO planned for 6 different clients is
+  // 6 mandates, not 1 — each client needs their own separate application/mandate
+  // regardless of how many share the same IPO/bank/date.
+  const planned = plans.reduce((s,p) => s + (p.plannedClientCount||0), 0);
   const capacity = 6;
   const available = capacity - planned;
   const utilisation = Math.round((planned / capacity) * 1000) / 10;
@@ -1632,15 +1636,16 @@ async function savePlan(id, forceOverride){
     return;
   }
 
-  // capacity check
+  // capacity check — count actual mandates (plannedClientCount), not a flat +1 per plan
   const cap = bankCapacity(data.bankAccountId, data.plannedDate);
-  const alreadyCounted = id ? S.ipoPlans.some(x=>x.id===id && x.bankAccountId===data.bankAccountId && x.plannedDate===data.plannedDate) : false;
-  const projected = alreadyCounted ? cap.planned : cap.planned + 1;
+  const existingPlanSameSlot = id ? S.ipoPlans.find(x=>x.id===id && x.bankAccountId===data.bankAccountId && x.plannedDate===data.plannedDate) : null;
+  const previousMandatesForThisPlan = existingPlanSameSlot ? (existingPlanSameSlot.plannedClientCount||0) : 0;
+  const projected = cap.planned - previousMandatesForThisPlan + (data.plannedClientCount||0);
   if (projected > 6 && !forceOverride){
     const bank = findBank(data.bankAccountId);
     openModal('⚠️ Capacity Warning',
-      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> IPO(s) planned for ${fmtDate(data.plannedDate)}.<br>
-       Maximum recommended capacity: <b>6</b><br>Current planned: <b>${cap.planned}</b><br>Available: <b>${cap.available}</b><br><br>Do you want to continue anyway?</p>`,
+      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(data.plannedDate)}.<br>
+       Maximum recommended capacity: <b>6</b><br>This plan would bring it to: <b>${projected}</b><br>Available: <b>${cap.available}</b><br><br>Do you want to continue anyway?</p>`,
       `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
        <button class="btn btn-danger" onclick="savePlan(${id||'null'}, true)">Continue Anyway</button>`);
     return;
@@ -1745,7 +1750,7 @@ function bulkPlanClients(){
       <div class="f-group"><label>IPO *</label><select id="bpIpo" onchange="renderBulkPlanClientList()"><option value="">Select IPO</option>${ipoOpts}</select></div>
       <div class="f-group"><label>Planned Date *</label><input type="date" id="bpDate"></div>
       <div class="f-group"><label>Bank Account *</label><select id="bpBank"><option value="">Select Bank</option>${bankOpts}</select></div>
-      <div class="f-group"><label>&nbsp;</label><div class="small-muted">6-IPO/bank/day capacity rule applies to the plan slot, not client count.</div></div>
+      <div class="f-group"><label>&nbsp;</label><div class="small-muted">6-mandate/bank/day capacity rule — each client counts as one mandate, regardless of how many share the same IPO.</div></div>
     </div>
     <div class="f-group span2" style="margin-top:12px;">
       <label>Select Clients</label>
@@ -1814,15 +1819,16 @@ async function submitBulkPlan(force){
   if (!clientIds.length){ toast('All selected clients are already planned for this IPO','warn'); return; }
 
   let plan = S.ipoPlans.find(x=>x.ipoId===ipoId && x.bankAccountId===bankAccountId && x.plannedDate===plannedDate);
+  const cap = bankCapacity(bankAccountId, plannedDate);
+  const projected = cap.planned + clientIds.length;
+  if (projected > 6 && !force){
+    const bank = findBank(bankAccountId);
+    openModal('⚠️ Capacity Warning',
+      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(plannedDate)}.<br>Adding these ${clientIds.length} client(s) would bring it to <b>${projected}</b>.<br>Maximum recommended capacity: <b>6</b><br>Available: <b>${cap.available}</b><br><br>Continue anyway?</p>`,
+      `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" onclick="submitBulkPlan(true)">Continue Anyway</button>`);
+    return;
+  }
   if (!plan){
-    const cap = bankCapacity(bankAccountId, plannedDate);
-    if (cap.planned + 1 > 6 && !force){
-      const bank = findBank(bankAccountId);
-      openModal('⚠️ Capacity Warning',
-        `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> IPO(s) planned for ${fmtDate(plannedDate)}.<br>Maximum recommended capacity: <b>6</b><br>Available: <b>${cap.available}</b><br><br>Continue anyway?</p>`,
-        `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" onclick="submitBulkPlan(true)">Continue Anyway</button>`);
-      return;
-    }
     const rec = { ipoId, plannedDate, bankAccountId, plannedClientCount: clientIds.length, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
     const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec;
     await audit('Plan Creation','IPOPlan', id, null, rec);
@@ -1915,7 +1921,7 @@ function planningCapacityTab(){
   <div class="section-card">
     <div class="sc-head"><h3>Bank Capacity Dashboard</h3></div>
     <div class="sc-body table-wrap">
-      <table class="dt"><thead><tr><th>Bank</th><th>Date</th><th>Planned IPOs</th><th>Capacity</th><th>Available</th><th>Utilisation</th><th>Status</th></tr></thead>
+      <table class="dt"><thead><tr><th>Bank</th><th>Date</th><th>Planned Mandates</th><th>Capacity</th><th>Available</th><th>Utilisation</th><th>Status</th></tr></thead>
       <tbody>${trs}</tbody></table>
     </div>
   </div>`;
