@@ -144,6 +144,12 @@ button{font-family:inherit;cursor:pointer;}
 .kpi-card .val.gold{color:var(--gold);}
 .kpi-card .val.danger{color:var(--danger);}
 .kpi-card .val.ok{color:var(--ok);}
+/* Standalone versions of the same utility classes, for use outside KPI cards
+   (table cells, Reports rows) — these were previously only scoped to
+   .kpi-card .val, so using them anywhere else silently had no effect at all. */
+.danger{color:var(--danger);}
+.ok{color:var(--ok);}
+.gold{color:var(--gold);}
 
 .section-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;}
 .section-card .sc-head{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
@@ -197,7 +203,7 @@ table.dt tr.clickable{cursor:pointer;}
 .btn-danger{background:var(--danger);color:#fff;}
 .btn-sm{padding:5px 10px;font-size:11.5px;}
 .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
-.link-btn{background:none;border:none;color:#2757a8;font-size:12px;font-weight:600;padding:2px 4px;}
+.link-btn{background:none;border:none;color:var(--gold);font-size:12px;font-weight:600;padding:2px 4px;}
 
 /* toolbar for lists */
 .list-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
@@ -279,6 +285,14 @@ table.dt tr.clickable{cursor:pointer;}
   #topbar{padding-top:calc(env(safe-area-inset-top, 0px));height:calc(56px + env(safe-area-inset-top, 0px));}
   #sidebar{padding-top:env(safe-area-inset-top, 0px);padding-bottom:env(safe-area-inset-bottom, 0px);}
   body{padding-bottom:env(safe-area-inset-bottom, 0px);}
+
+  /* Notification panel and search results: on desktop these are positioned
+     relative to their trigger icon, which works fine since the topbar never
+     wraps there. On mobile the topbar DOES wrap, so the trigger can end up
+     anywhere in the row — anchoring the panel to it was pushing it partly
+     off-screen. Anchor to the viewport instead. */
+  #notifPanel{position:fixed !important;left:10px !important;right:10px !important;top:60px !important;width:auto !important;max-width:none !important;}
+  #globalSearchResults{position:fixed !important;left:10px !important;right:10px !important;width:auto !important;}
 
   /* Topbar: search bar wraps to its own full-width row instead of squeezing
      against the title, bell, and export button on a narrow screen. */
@@ -1352,10 +1366,65 @@ function ipoStats(ipoId){
   const profit = apps.reduce((s,a)=>s+calcProfit(a).final,0);
   return { apps, plans, allotted, profit };
 }
+function showNote(el){
+  const note = el.getAttribute('data-note');
+  openModal('Note', `<p style="font-size:13px;white-space:pre-wrap;">${escapeHtml(note)}</p>`, `<button class="btn btn-primary" onclick="closeModal()">Close</button>`);
+}
 function goFiltered(el){
   const p = JSON.parse(el.getAttribute('data-nav'));
   navigate(p.view, { presetFilter: p.presetFilter });
 }
+/* =================== DATA HEALTH CHECK =================== */
+/* Scans every relationship in the data model for dangling references — e.g. an
+   application pointing at a client, bank, or IPO that no longer exists. This is
+   diagnostic-only: it reports issues so you can decide what to do, it never
+   silently deletes or repairs anything on its own. */
+function runDataHealthCheck(){
+  const issues = [];
+  const clientIds = new Set(S.clients.map(c=>c.id));
+  const ipoIds = new Set(S.ipos.map(i=>i.id));
+  const bankIds = new Set(S.bankAccounts.map(b=>b.id));
+  const planIds = new Set(S.ipoPlans.map(p=>p.id));
+  const upiIds = new Set(S.bankUpiIds.map(u=>u.id));
+
+  S.applications.forEach(a=>{
+    if (!clientIds.has(a.clientId)) issues.push({ entity:'Application', id:a.id, message:`References a Client that no longer exists (clientId: ${a.clientId})` });
+    if (!ipoIds.has(a.ipoId)) issues.push({ entity:'Application', id:a.id, message:`References an IPO that no longer exists (ipoId: ${a.ipoId})` });
+    if (!bankIds.has(a.bankAccountId)) issues.push({ entity:'Application', id:a.id, message:`References a Bank Account that no longer exists (bankAccountId: ${a.bankAccountId})` });
+    if (a.upiId!=null && !upiIds.has(a.upiId)) issues.push({ entity:'Application', id:a.id, message:`References a UPI ID that no longer exists (upiId: ${a.upiId})` });
+    if (a.planId!=null && !planIds.has(a.planId)) issues.push({ entity:'Application', id:a.id, message:`References a Plan that no longer exists (planId: ${a.planId})` });
+  });
+  S.ipoPlans.forEach(p=>{
+    if (!ipoIds.has(p.ipoId)) issues.push({ entity:'IPO Plan', id:p.id, message:`References an IPO that no longer exists (ipoId: ${p.ipoId})` });
+    if (!bankIds.has(p.bankAccountId)) issues.push({ entity:'IPO Plan', id:p.id, message:`References a Bank Account that no longer exists (bankAccountId: ${p.bankAccountId})` });
+  });
+  S.plannedClients.forEach(pc=>{
+    if (!clientIds.has(pc.clientId)) issues.push({ entity:'Planned Client', id:pc.id, message:`References a Client that no longer exists (clientId: ${pc.clientId})` });
+    if (!planIds.has(pc.planId)) issues.push({ entity:'Planned Client', id:pc.id, message:`References a Plan that no longer exists (planId: ${pc.planId})` });
+  });
+  S.bankUpiIds.forEach(u=>{
+    if (!bankIds.has(u.bankAccountId)) issues.push({ entity:'Bank UPI ID', id:u.id, message:`References a Bank Account that no longer exists (bankAccountId: ${u.bankAccountId})` });
+  });
+  return issues;
+}
+function renderHealthCheckResults(){
+  const wrap = document.getElementById('healthCheckWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<p class="small-muted">Checking...</p>';
+  setTimeout(()=>{
+    const issues = runDataHealthCheck();
+    if (!issues.length){
+      wrap.innerHTML = `<p style="color:var(--ok);font-size:13px;">✓ No issues found — every record's relationships check out correctly (${S.clients.length} clients, ${S.ipos.length} IPOs, ${S.bankAccounts.length} banks, ${S.ipoPlans.length} plans, ${S.applications.length} applications checked).</p>`;
+      return;
+    }
+    wrap.innerHTML = `<p style="color:var(--danger);font-size:13px;margin-bottom:8px;">⚠️ Found ${issues.length} issue(s):</p>
+      <div class="table-wrap" style="max-height:300px;overflow-y:auto;"><table class="dt"><thead><tr><th>Record Type</th><th>Record ID</th><th>Issue</th></tr></thead><tbody>
+      ${issues.map(i=>`<tr><td>${escapeHtml(i.entity)}</td><td>${i.id}</td><td>${escapeHtml(i.message)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="small-muted" style="margin-top:8px;">This is a diagnostic report only — nothing has been changed. If you see issues here, it usually means a record was deleted directly in a way that skipped this app's normal cascade-delete logic (e.g. restoring an old/partial backup).</p>`;
+  }, 50);
+}
+
 function navAttr(view, filterVals, tableId){
   return `data-nav='${escapeHtml(JSON.stringify({ view, presetFilter:{ tableId: tableId||'allotTbl', filterVals } }))}' onclick="goFiltered(this)"`;
 }
@@ -2089,7 +2158,7 @@ function viewApplications(){
         { key:'applicationDate', label:'App Date', render:r=>fmtDate(r.applicationDate) },
         { key:'upiId', label:'UPI ID', render:r=>{ const u=S.bankUpiIds.find(x=>x.id===r.upiId); return escapeHtml(u?u.upiId:'—'); } },
         { key:'amountApplied', label:'Amount Applied', render:r=>fmtMoney(r.amountApplied) },
-        { key:'applicationStatus', label:'Status', render:r=>badge(r.applicationStatus) },
+        { key:'applicationStatus', label:'Status', render:r=>badge(r.applicationStatus) + (r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : '') },
         { key:'plan', label:'From Plan', render:r=>r.planId?'Yes':'No' }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editApplication(${r.id})">Edit</button>
@@ -2150,7 +2219,8 @@ function appFields(a){
     { key:'applicationDate', label:'Application Date', type:'date', required:true },
     { key:'amountApplied', label:'Amount Applied', type:'number', required:true },
     { key:'applicationStatus', label:'Application Status', type:'select', options: APP_STATUSES },
-    { key:'planId', label:'Originating Plan (optional)', type:'select', placeholder:'None', options: planOpts, span2:true }
+    { key:'planId', label:'Originating Plan (optional)', type:'select', placeholder:'None', options: planOpts, span2:true },
+    { key:'notes', label:'Notes (optional)', type:'textarea', span2:true, placeholder:'Anything unusual about this application — a client request, a bank delay, etc.' }
   ].map(f => fieldHtml(f, a ? a[f.key] : (f.key==='applicationStatus'?'To Be Applied':(f.key==='applicationDate'?todayStr():'')))).join('');
 }
 function editApplication(id){
@@ -2168,12 +2238,12 @@ function dateWarnings(data){
   return warns;
 }
 async function saveApplication(id, force){
-  const fields = [{key:'clientId',type:'number'},{key:'ipoId',type:'number'},{key:'bankAccountId',type:'number'},{key:'applicationDate'},{key:'amountApplied',type:'number'},{key:'applicationStatus'},{key:'planId',type:'number'}];
+  const fields = [{key:'clientId',type:'number'},{key:'ipoId',type:'number'},{key:'bankAccountId',type:'number'},{key:'applicationDate'},{key:'amountApplied',type:'number'},{key:'applicationStatus'},{key:'planId',type:'number'},{key:'notes'}];
   const data = readFields(fields);
   const upiEl = document.getElementById('fld_upiId');
   data.upiId = upiEl ? (upiEl.value ? Number(upiEl.value) : null) : null;
-  if (!data.clientId || !data.ipoId || !data.bankAccountId || !data.applicationDate || !data.amountApplied){ toast('Client, IPO, bank, date and amount are required','warn'); return; }
-  if (Number(data.amountApplied) <= 0){ toast('Amount Applied must be a positive number','warn'); return; }
+  if (!data.clientId || !data.ipoId || !data.bankAccountId || !data.applicationDate || data.amountApplied===''||data.amountApplied==null){ toast('Client, IPO, bank, date and amount are required','warn'); return; }
+  if (Number(data.amountApplied) < 0){ toast('Amount Applied cannot be negative','warn'); return; }
   if (!data.planId) data.planId = null;
 
   const warns = dateWarnings(data);
@@ -2321,7 +2391,7 @@ function viewAllotments(){
         { key:'clientId', label:'Client', render:r=>{ const c=findClient(r.clientId); return escapeHtml(c?c.clientName:'—'); } },
         { key:'ipoId', label:'IPO', render:r=>{ const i=findIpo(r.ipoId); return escapeHtml(i?i.ipoName:'—'); } },
         { key:'amountApplied', label:'Amount Applied', render:r=>fmtMoney(r.amountApplied) },
-        { key:'allotmentStatus', label:'Allotment', render:r=>badge(r.allotmentStatus||'Pending') },
+        { key:'allotmentStatus', label:'Allotment', render:r=>badge(r.allotmentStatus||'Pending') + (r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : '') },
         { key:'allotmentDate', label:'Allotment Date', render:r=>fmtDate(r.allotmentDate) },
         { key:'saleStatus', label:'Sale', render:r=>r.saleStatus?badge(r.saleStatus):'—' },
         { key:'saleDate', label:'Sale Date', render:r=>fmtDate(r.saleDate) },
@@ -2805,6 +2875,7 @@ function viewReports(){
     <button class="${reportsTab==='profit'?'active':''}" onclick="setReportsTab('profit')">Profit Analysis</button>
     <button class="${reportsTab==='trends'?'active':''}" onclick="setReportsTab('trends')">Trends &amp; Charts</button>
     <button class="${reportsTab==='yearly'?'active':''}" onclick="setReportsTab('yearly')">Yearly Summary</button>
+    <button class="${reportsTab==='subref'?'active':''}" onclick="setReportsTab('subref')">Profit by Sub-Reference</button>
     <button class="${reportsTab==='capacity'?'active':''}" onclick="setReportsTab('capacity')">Bank Capacity Analysis</button>
     <button class="${reportsTab==='planning'?'active':''}" onclick="setReportsTab('planning')">Planning Performance</button>
     <button class="${reportsTab==='pva'?'active':''}" onclick="setReportsTab('pva')">Planned vs Actual</button>
@@ -2819,6 +2890,7 @@ function reportsTabContent(){
   if (reportsTab==='profit') return reportProfitAnalysis();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
   if (reportsTab==='yearly') return reportYearlySummary();
+  if (reportsTab==='subref') return reportSubReferenceProfit();
   if (reportsTab==='capacity') return planningCapacityTab();
   if (reportsTab==='planning') return reportPlanningPerformance();
   if (reportsTab==='pva') return planningVarianceTab();
@@ -2935,14 +3007,19 @@ function renderTrendsCharts(){
   const ipoProfits = S.ipos.map(i=>{
     const apps = S.applications.filter(a=>a.ipoId===i.id);
     let our=0; apps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable) our+=c.ourFinal; });
-    return { name:i.ipoName, our };
+    return { id:i.id, name:i.ipoName, our };
   }).filter(x=>x.our!==0).sort((a,b)=>b.our-a.our).slice(0,10);
   if (chartsAvailable) { destroyChart('profitByIpo');
   const ctxIpo = document.getElementById('chartProfitByIpo');
+  const isNarrow = window.innerWidth <= 900;
   if (ctxIpo) window.__trendCharts['profitByIpo'] = new Chart(ctxIpo, {
     type:'bar',
     data:{ labels: ipoProfits.map(x=>x.name), datasets:[{ label:'Our Profit', data: ipoProfits.map(x=>x.our), backgroundColor:'#2f8f7f' }] },
-    options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+    options:{ responsive:true, indexAxis: isNarrow?'y':'x', plugins:{legend:{display:false}},
+      scales: isNarrow
+        ? { x:{ ticks:{ callback:v=>fmtMoney(v) } } }
+        : { y:{ ticks:{ callback:v=>fmtMoney(v) } }, x:{ ticks:{ autoSkip:false, maxRotation:60, minRotation:0 } } }
+    }
   }); }
 
   // ---- Applications by Bank ----
@@ -2952,7 +3029,9 @@ function renderTrendsCharts(){
   if (ctxBank) window.__trendCharts['appsByBank'] = new Chart(ctxBank, {
     type:'bar',
     data:{ labels: bankCounts.map(x=>x.name), datasets:[{ label:'Applications', data: bankCounts.map(x=>x.count), backgroundColor:'#16263f' }] },
-    options:{ responsive:true, plugins:{legend:{display:false}} }
+    options:{ responsive:true, indexAxis: isNarrow?'y':'x', plugins:{legend:{display:false}},
+      scales: isNarrow ? {} : { x:{ ticks:{ autoSkip:false, maxRotation:60, minRotation:0 } } }
+    }
   }); }
 
   // ---- Lifecycle funnel ----
@@ -3014,17 +3093,17 @@ function renderTrendsCharts(){
   const clientProfits = S.clients.map(c=>{
     const apps = S.applications.filter(a=>a.clientId===c.id);
     let our=0; apps.forEach(a=>{ const cal=calcAllotmentSale(a); if(cal.applicable) our+=cal.ourFinal; });
-    return { name:c.clientName, id:c.clientId, our };
+    return { dbId:c.id, name:c.clientName, id:c.clientId, our };
   }).filter(x=>x.our!==0).sort((a,b)=>b.our-a.our).slice(0,10);
   const topClientsWrap = document.getElementById('topClientsWrap');
   if (topClientsWrap) topClientsWrap.innerHTML = clientProfits.length
-    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Our Profit</th></tr></thead><tbody>${clientProfits.map(x=>`<tr><td>${escapeHtml(x.id)} — ${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Our Profit</th></tr></thead><tbody>${clientProfits.map(x=>`<tr class="clickable" onclick="navigate('clients',{id:${x.dbId}})"><td>${escapeHtml(x.id)} — ${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small-muted">No profit recorded yet.</p>';
 
   // ---- Top 10 IPOs by Profit (table alongside the chart) ----
   const topIposWrap = document.getElementById('topIposWrap');
   if (topIposWrap) topIposWrap.innerHTML = ipoProfits.length
-    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Our Profit</th></tr></thead><tbody>${ipoProfits.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Our Profit</th></tr></thead><tbody>${ipoProfits.map(x=>`<tr class="clickable" onclick="navigate('ipos',{id:${x.id}})"><td>${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small-muted">No profit recorded yet.</p>';
 
   // ---- Aging report: sold + receivable, sorted by longest outstanding ----
@@ -3033,11 +3112,11 @@ function renderTrendsCharts(){
     const c = findClient(a.clientId), b = findBank(a.bankAccountId), i = findIpo(a.ipoId);
     const days = Math.round((today - new Date(a.saleDate)) / 86400000);
     const calc = calcAllotmentSale(a);
-    return { client:c?c.clientName:'—', ipo:i?i.ipoName:'—', bank:b?b.bankName:'—', saleDate:a.saleDate, days, amount: calc.applicable?calc.grossFinal:0 };
+    return { clientDbId:a.clientId, client:c?c.clientName:'—', ipo:i?i.ipoName:'—', bank:b?b.bankName:'—', saleDate:a.saleDate, days, amount: calc.applicable?calc.grossFinal:0 };
   }).sort((a,b)=>b.days-a.days);
   const agingWrap = document.getElementById('agingReportWrap');
   if (agingWrap) agingWrap.innerHTML = aging.length
-    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>IPO</th><th>Bank</th><th>Sale Date</th><th>Days Outstanding</th><th>Amount</th></tr></thead><tbody>${aging.map(a=>`<tr><td>${escapeHtml(a.client)}</td><td>${escapeHtml(a.ipo)}</td><td>${escapeHtml(a.bank)}</td><td>${fmtDate(a.saleDate)}</td><td class="${a.days>15?'danger':''}">${a.days} day${a.days===1?'':'s'}${a.days>15?' ⚠️':''}</td><td>${fmtMoney(a.amount)}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>IPO</th><th>Bank</th><th>Sale Date</th><th>Days Outstanding</th><th>Amount</th></tr></thead><tbody>${aging.map(a=>`<tr class="clickable" onclick="navigate('clients',{id:${a.clientDbId}})"><td>${escapeHtml(a.client)}</td><td>${escapeHtml(a.ipo)}</td><td>${escapeHtml(a.bank)}</td><td>${fmtDate(a.saleDate)}</td><td class="${a.days>15?'danger':''}">${a.days} day${a.days===1?'':'s'}${a.days>15?' ⚠️':''}</td><td>${fmtMoney(a.amount)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small-muted">Nothing pending — everything sold has been recovered.</p>';
 }
 
@@ -3102,6 +3181,59 @@ function reportYearlySummary(){
     </div>
   </div>`;
 }
+function reportSubReferenceProfit(){
+  // Group: Reference -> Sub-Reference -> clients -> profit, so you can see each
+  // individual sub-reference's contribution plus the combined total for the
+  // reference it rolls up under.
+  function clientProfitTotal(clientId){
+    let our=0, gross=0, clientShare=0;
+    S.applications.filter(a=>a.clientId===clientId).forEach(a=>{
+      const c = calcAllotmentSale(a);
+      if (c.applicable){ our+=c.ourFinal; gross+=c.grossFinal; clientShare+=c.clientFinal; }
+    });
+    return { our, gross, clientShare };
+  }
+
+  const references = ['(No Reference)', ...(S.settings.references||[])];
+  let anyData = false;
+  const sections = references.map(refName=>{
+    const isNone = refName === '(No Reference)';
+    const clientsInRef = S.clients.filter(c => isNone ? !c.referenceName : c.referenceName===refName);
+    if (!clientsInRef.length) return '';
+
+    const subRefNames = ['(No Sub-Reference)', ...(S.settings.subReferences||[])];
+    const subRows = subRefNames.map(subName=>{
+      const isNoneSub = subName === '(No Sub-Reference)';
+      const clientsInSub = clientsInRef.filter(c => isNoneSub ? !c.subReference : c.subReference===subName);
+      if (!clientsInSub.length) return null;
+      let our=0, gross=0, clientShare=0;
+      clientsInSub.forEach(c=>{ const t=clientProfitTotal(c.id); our+=t.our; gross+=t.gross; clientShare+=t.clientShare; });
+      if (our===0 && gross===0 && clientShare===0) return null;
+      anyData = true;
+      return { subName, clientCount:clientsInSub.length, our, gross, clientShare };
+    }).filter(Boolean);
+
+    if (!subRows.length) return '';
+    const refTotalOur = subRows.reduce((s,r)=>s+r.our,0);
+    const refTotalGross = subRows.reduce((s,r)=>s+r.gross,0);
+    const refTotalClient = subRows.reduce((s,r)=>s+r.clientShare,0);
+
+    return `
+    <div class="section-card">
+      <div class="sc-head"><h3>${escapeHtml(refName)}</h3><div class="spacer"></div><span class="small-muted">Total Our Profit: <b class="gold">${fmtMoney(refTotalOur)}</b></span></div>
+      <div class="sc-body table-wrap">
+        <table class="dt"><thead><tr><th>Sub-Reference</th><th>Clients</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead>
+        <tbody>
+          ${subRows.map(r=>`<tr><td>${escapeHtml(r.subName)}</td><td>${r.clientCount}</td><td>${fmtMoney(r.gross)}</td><td>${fmtMoney(r.our)}</td><td>${fmtMoney(r.clientShare)}</td></tr>`).join('')}
+          <tr style="font-weight:700;border-top:2px solid var(--border);"><td>Total</td><td>${clientsInRef.length}</td><td>${fmtMoney(refTotalGross)}</td><td>${fmtMoney(refTotalOur)}</td><td>${fmtMoney(refTotalClient)}</td></tr>
+        </tbody></table>
+      </div>
+    </div>`;
+  }).join('');
+
+  return anyData ? sections : `<div class="section-card"><div class="sc-body"><p class="small-muted">No profit recorded against any Reference/Sub-Reference yet.</p></div></div>`;
+}
+
 let caFilters = { reference:'', subReference:'' };
 function setCaFilter(key, val){ caFilters[key] = val; render(); }
 function reportClientAnalysis(){
@@ -3111,7 +3243,7 @@ function reportClientAnalysis(){
   );
   const rows = filtered.map(c=>{
     const st = clientStats(c.id);
-    return `<tr><td>${escapeHtml(c.clientName)}</td><td>${escapeHtml(c.subReference||'—')}</td><td>${st.apps.length}</td><td>${st.allotted.length}</td><td>${st.notAllotted.length}</td><td>${st.sold.length}</td><td>${fmtMoney(st.amountApplied)}</td><td>${fmtMoney(st.grossReceived)}</td><td>${fmtMoney(st.profit)}</td><td>${fmtMoney(st.clientProfit)}</td></tr>`;
+    return `<tr class="clickable" onclick="navigate('clients',{id:${c.id}})"><td>${escapeHtml(c.clientName)}</td><td>${escapeHtml(c.subReference||'—')}</td><td>${st.apps.length}</td><td>${st.allotted.length}</td><td>${st.notAllotted.length}</td><td>${st.sold.length}</td><td>${fmtMoney(st.amountApplied)}</td><td>${fmtMoney(st.grossReceived)}</td><td>${fmtMoney(st.profit)}</td><td>${fmtMoney(st.clientProfit)}</td></tr>`;
   }).join('') || `<tr class="empty-row"><td colspan="10">No clients match.</td></tr>`;
   return `<div class="section-card">
     <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;">
@@ -3148,7 +3280,7 @@ function reportBankAnalysis(){
     // matches the same definition used on the Dashboard and IPO Command Center.
     const amountBlocked = st.apps.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending').reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
     const pendingReceivablesCount = st.apps.filter(a=>a.amountReceiveStatus==='Receivable').length;
-    return `<tr><td>${escapeHtml(b.bankName)}</td><td>${st.plans.length}</td><td>${actualIpoIds.size}</td>
+    return `<tr><td class="clickable" onclick="navigate('banks')">${escapeHtml(b.bankName)}</td><td>${st.plans.length}</td><td>${actualIpoIds.size}</td>
       <td class="clickable" ${navAttr('applications', {bankAccountId:b.bankName}, 'appsTbl')}>${st.apps.length}</td>
       <td class="clickable" ${navAttr('allotments', {bankAccountId:b.bankName, allotmentStatus:'Allotted'})}>${st.apps.filter(a=>a.allotmentStatus==='Allotted').length}</td>
       <td>${fmtMoney(amountApplied)}</td><td>${fmtMoney(amountBlocked)}</td>
@@ -3396,6 +3528,17 @@ function viewSettings(){
           <button class="btn btn-primary" onclick="driveConnect()">Connect Google Drive</button>
         </div>
       `}
+    </div>
+  </div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>Data Health Check</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Scans every relationship in your data (applications, plans, planned clients, UPI IDs) for dangling references — e.g. an application pointing at a client that no longer exists. Diagnostic only — never changes anything automatically.</p>
+      <div class="btn-row" style="justify-content:flex-start;margin-bottom:10px;">
+        <button class="btn btn-primary" onclick="renderHealthCheckResults()">Run Health Check</button>
+      </div>
+      <div id="healthCheckWrap"></div>
     </div>
   </div>
 
@@ -3660,7 +3803,7 @@ function importFromExcel(file){
       if (!ipoName || !bankName){ plan.errors.push(`Row ${rowNum}: missing IPO or Bank name — skipped.`); return; }
 
       const amountApplied = Number(row['Amount Applied']) || 0;
-      if (amountApplied <= 0){ plan.errors.push(`Row ${rowNum} (${clientName}): Amount Applied must be a positive number — skipped.`); return; }
+      if (amountApplied < 0){ plan.errors.push(`Row ${rowNum} (${clientName}): Amount Applied cannot be negative — skipped.`); return; }
 
       const applicationDate = parseExcelDate(row['Application Date']);
       if (!applicationDate){ plan.errors.push(`Row ${rowNum} (${clientName}): missing or invalid Application Date — skipped.`); return; }
