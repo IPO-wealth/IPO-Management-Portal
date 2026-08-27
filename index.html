@@ -3009,9 +3009,9 @@ function renderTrendsCharts(){
     let our=0; apps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable) our+=c.ourFinal; });
     return { id:i.id, name:i.ipoName, our };
   }).filter(x=>x.our!==0).sort((a,b)=>b.our-a.our).slice(0,10);
+  const isNarrow = window.innerWidth <= 900;
   if (chartsAvailable) { destroyChart('profitByIpo');
   const ctxIpo = document.getElementById('chartProfitByIpo');
-  const isNarrow = window.innerWidth <= 900;
   if (ctxIpo) window.__trendCharts['profitByIpo'] = new Chart(ctxIpo, {
     type:'bar',
     data:{ labels: ipoProfits.map(x=>x.name), datasets:[{ label:'Our Profit', data: ipoProfits.map(x=>x.our), backgroundColor:'#2f8f7f' }] },
