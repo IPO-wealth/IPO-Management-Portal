@@ -449,6 +449,7 @@ async function loadAll(){
   settingsArr.forEach(s => S.settings[s.key] = s.value);
   if (!S.settings.references) S.settings.references = ['Karan','Paras'];
   if (!S.settings.subReferences) S.settings.subReferences = [];
+  if (!S.settings.mandateCapacityPerBankPerDay) S.settings.mandateCapacityPerBankPerDay = 6;
   // Sub Reference used to be free text — auto-collect any existing distinct values
   // so they remain selectable as a proper managed list instead of disappearing.
   let __subRefSeeded = false;
@@ -574,13 +575,13 @@ function bankCapacity(bankAccountId, dateStr){
   // 6 mandates, not 1 — each client needs their own separate application/mandate
   // regardless of how many share the same IPO/bank/date.
   const planned = plans.reduce((s,p) => s + (p.plannedClientCount||0), 0);
-  const capacity = 6;
+  const capacity = Number(S.settings.mandateCapacityPerBankPerDay) || 6;
   const available = capacity - planned;
   const utilisation = Math.round((planned / capacity) * 1000) / 10;
   let status = 'Available';
-  if (planned >= 7) status = 'Over Capacity';
-  else if (planned === 6) status = 'Full';
-  else if (planned >= 4) status = 'Near Capacity';
+  if (planned > capacity) status = 'Over Capacity';
+  else if (planned === capacity) status = 'Full';
+  else if (planned >= capacity - 2) status = 'Near Capacity';
   return { planned, capacity, available, utilisation, status, plans };
 }
 function capClass(status){
@@ -1772,11 +1773,11 @@ async function savePlan(id, forceOverride){
   const existingPlanSameSlot = id ? S.ipoPlans.find(x=>x.id===id && x.bankAccountId===data.bankAccountId && x.plannedDate===data.plannedDate) : null;
   const previousMandatesForThisPlan = existingPlanSameSlot ? (existingPlanSameSlot.plannedClientCount||0) : 0;
   const projected = cap.planned - previousMandatesForThisPlan + (data.plannedClientCount||0);
-  if (projected > 6 && !forceOverride){
+  if (projected > cap.capacity && !forceOverride){
     const bank = findBank(data.bankAccountId);
     openModal('⚠️ Capacity Warning',
       `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(data.plannedDate)}.<br>
-       Maximum recommended capacity: <b>6</b><br>This plan would bring it to: <b>${projected}</b><br>Available: <b>${cap.available}</b><br><br>Do you want to continue anyway?</p>`,
+       Maximum recommended capacity: <b>${cap.capacity}</b><br>This plan would bring it to: <b>${projected}</b><br>Available: <b>${cap.available}</b><br><br>Do you want to continue anyway?</p>`,
       `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
        <button class="btn btn-danger" onclick="savePlan(${id||'null'}, true)">Continue Anyway</button>`);
     return;
@@ -1881,7 +1882,7 @@ function bulkPlanClients(){
       <div class="f-group"><label>IPO *</label><select id="bpIpo" onchange="renderBulkPlanClientList()"><option value="">Select IPO</option>${ipoOpts}</select></div>
       <div class="f-group"><label>Planned Date *</label><input type="date" id="bpDate"></div>
       <div class="f-group"><label>Bank Account *</label><select id="bpBank"><option value="">Select Bank</option>${bankOpts}</select></div>
-      <div class="f-group"><label>&nbsp;</label><div class="small-muted">6-mandate/bank/day capacity rule — each client counts as one mandate, regardless of how many share the same IPO.</div></div>
+      <div class="f-group"><label>&nbsp;</label><div class="small-muted">${Number(S.settings.mandateCapacityPerBankPerDay)||6}-mandate/bank/day capacity rule — each client counts as one mandate, regardless of how many share the same IPO.</div></div>
     </div>
     <div class="f-group span2" style="margin-top:12px;">
       <label>Select Clients</label>
@@ -1952,10 +1953,10 @@ async function submitBulkPlan(force){
   let plan = S.ipoPlans.find(x=>x.ipoId===ipoId && x.bankAccountId===bankAccountId && x.plannedDate===plannedDate);
   const cap = bankCapacity(bankAccountId, plannedDate);
   const projected = cap.planned + clientIds.length;
-  if (projected > 6 && !force){
+  if (projected > cap.capacity && !force){
     const bank = findBank(bankAccountId);
     openModal('⚠️ Capacity Warning',
-      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(plannedDate)}.<br>Adding these ${clientIds.length} client(s) would bring it to <b>${projected}</b>.<br>Maximum recommended capacity: <b>6</b><br>Available: <b>${cap.available}</b><br><br>Continue anyway?</p>`,
+      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(plannedDate)}.<br>Adding these ${clientIds.length} client(s) would bring it to <b>${projected}</b>.<br>Maximum recommended capacity: <b>${cap.capacity}</b><br>Available: <b>${cap.available}</b><br><br>Continue anyway?</p>`,
       `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" onclick="submitBulkPlan(true)">Continue Anyway</button>`);
     return;
   }
@@ -3431,6 +3432,17 @@ function viewSettings(){
   </div>
 
   <div class="section-card">
+    <div class="sc-head"><h3>Mandate Capacity</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Maximum client mandates allowed per bank per day. Used for capacity warnings across Planning, Bulk Plan Clients, and the Capacity Dashboard. Change this if bank policy changes.</p>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="number" id="mandateCapInput" value="${S.settings.mandateCapacityPerBankPerDay||6}" min="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+        <button class="btn btn-primary btn-sm" onclick="saveMandateCapacity()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-card">
     <div class="sc-head"><h3>Sub Reference Names</h3></div>
     <div class="sc-body">
       <p class="small-muted">Managed list used for the Sub Reference dropdown on clients and as a filter throughout the portal. Any sub-references you'd already typed in before this list existed were automatically added here.</p>
@@ -3596,6 +3608,13 @@ function renderAuditLogTable(){
     }));
   };
   window.__tableRerender['auditTbl']();
+}
+async function saveMandateCapacity(){
+  const val = Number(document.getElementById('mandateCapInput').value);
+  if (!val || val < 1){ toast('Enter a valid capacity (1 or more)','warn'); return; }
+  await saveSetting('mandateCapacityPerBankPerDay', val);
+  toast('Mandate capacity updated','ok');
+  navigate('settings');
 }
 async function addReference(){
   const input = document.getElementById('newRefInput');
