@@ -412,8 +412,14 @@ function openDB(){
 function storeTx(name, mode='readonly'){ return db.transaction(name, mode).objectStore(name); }
 function getAll(name){ return new Promise((res,rej)=>{ const r=storeTx(name).getAll(); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 function getOne(name,id){ return new Promise((res,rej)=>{ const r=storeTx(name).get(id); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
-function putRec(name,obj){ return new Promise((res,rej)=>{ const r=storeTx(name,'readwrite').put(obj); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
-function delRec(name,id){ return new Promise((res,rej)=>{ const r=storeTx(name,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
+function assertNotReadOnly(){
+  if (window.__drive && window.__drive.role === 'viewer'){
+    toast('You have view-only access to this portal — changes cannot be saved','danger');
+    throw new Error('READ_ONLY_ACCESS');
+  }
+}
+function putRec(name,obj){ assertNotReadOnly(); return new Promise((res,rej)=>{ const r=storeTx(name,'readwrite').put(obj); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function delRec(name,id){ assertNotReadOnly(); return new Promise((res,rej)=>{ const r=storeTx(name,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
 function clearStore(name){ return new Promise((res,rej)=>{ const r=storeTx(name,'readwrite').clear(); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
 
 // ---- App state ----
@@ -3545,6 +3551,43 @@ function viewSettings(){
   </div>
 
   <div class="section-card">
+    <div class="sc-head"><h3>Share Portal Access</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Give someone else their own login to this portal, keeping their Google account separate from yours — not a shared password. They'll see the exact same live data as you, kept in sync the same way.</p>
+      ${!window.__drive.signedIn ? `
+        <p class="small-muted">Connect Google Drive above first (as the owner) before you can share access with anyone else.</p>
+      ` : window.__drive.role==='owner' ? `
+        <div class="form-grid" style="margin:10px 0;">
+          <div class="f-group span2"><label>Google Picker API Key <span class="small-muted">(one-time setup — separate from your OAuth Client ID)</span></label>
+            <input type="text" id="googlePickerApiKeyInput" value="${escapeHtml(S.settings.googlePickerApiKey||'')}" placeholder="AIza...">
+          </div>
+        </div>
+        <div class="btn-row" style="justify-content:flex-start;margin-bottom:14px;">
+          <button class="btn btn-ghost btn-sm" onclick="saveSetting('googlePickerApiKey', document.getElementById('googlePickerApiKeyInput').value.trim()).then(()=>toast('Picker API key saved','ok'))">Save Key</button>
+        </div>
+        <div class="form-grid" style="margin-bottom:10px;">
+          <div class="f-group"><label>Collaborator's Email</label><input type="text" id="collabEmailInput" placeholder="someone@gmail.com"></div>
+          <div class="f-group"><label>Access Level</label><select id="collabRoleSelect"><option value="editor">Editor — can view and edit</option><option value="viewer">Viewer — read-only</option></select></div>
+        </div>
+        <div class="btn-row" style="justify-content:flex-start;margin-bottom:14px;">
+          <button class="btn btn-primary" onclick="grantCollaboratorAccess()">Grant Access</button>
+        </div>
+        ${(S.settings.collaborators||[]).length ? `
+          <div class="table-wrap"><table class="dt"><thead><tr><th>Email</th><th>Access</th><th></th></tr></thead><tbody>
+            ${(S.settings.collaborators||[]).map(c=>`<tr><td>${escapeHtml(c.email)}</td><td>${badge(c.role==='editor'?'Editor':'Viewer')}</td><td><button class="btn btn-sm btn-danger" onclick="revokeCollaboratorAccess('${escapeHtml(c.email)}')">Remove</button></td></tr>`).join('')}
+          </tbody></table></div>
+        ` : '<p class="small-muted">No one else has access yet.</p>'}
+      ` : `
+        <p class="small-muted">Only the portal owner can manage sharing. ${window.__drive.role ? `You're currently signed in as a ${escapeHtml(window.__drive.role)}.` : ''}</p>
+      `}
+      <p class="small-muted" style="margin-top:12px;">
+        <b>What they need to do:</b> open this same portal link, go to Settings → Cloud Storage, enter the same Google OAuth Client ID you're using, and click Connect Google Drive with their own Google account (the one you granted access to). They'll be prompted to pick the shared data file the first time — after that it works automatically.<br><br>
+        <b>Viewer limitation, stated plainly:</b> a Viewer's changes are blocked at the point of saving (not just hidden buttons) — so even if they click Save somewhere, nothing is written. But this app has no server, so a technically determined Viewer could still find ways to poke at their own local browser copy. Treat this as a strong deterrent for normal use, not airtight security against a deliberately hostile user.
+      </p>
+    </div>
+  </div>
+
+  <div class="section-card">
     <div class="sc-head"><h3>Data Health Check</h3></div>
     <div class="sc-body">
       <p class="small-muted">Scans every relationship in your data (applications, plans, planned clients, UPI IDs) for dangling references — e.g. an application pointing at a client that no longer exists. Diagnostic only — never changes anything automatically.</p>
@@ -4053,6 +4096,78 @@ function loadGis(){
     document.head.appendChild(s);
   });
 }
+function loadPicker(){
+  return new Promise((resolve) => {
+    if (window.google && window.google.picker) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://apis.google.com/js/api.js';
+    s.onload = () => { gapi.load('picker', resolve); };
+    s.onerror = resolve;
+    document.head.appendChild(s);
+  });
+}
+async function openCollaboratorFilePicker(){
+  const apiKey = S.settings.googlePickerApiKey;
+  if (!apiKey){
+    openModal('One More Setup Step',
+      `<p style="font-size:13px;line-height:1.6;">To access a portal shared with you, the owner needs to add a Google Picker API key in Settings → Share Portal Access first (a one-time setup, separate from the OAuth Client ID). Ask them to complete that, then reconnect here.</p>`,
+      `<button class="btn btn-primary" onclick="closeModal()">OK</button>`);
+    return;
+  }
+  await loadPicker();
+  if (!window.google || !window.google.picker){ toast('Could not load Google Picker — check your connection','danger'); return; }
+  const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+    .setMimeTypes('application/json')
+    .setIncludeFolders(true);
+  const picker = new google.picker.PickerBuilder()
+    .addView(view)
+    .setOAuthToken(window.__drive.accessToken)
+    .setDeveloperKey(apiKey)
+    .setCallback(async (data) => {
+      if (data.action === google.picker.Action.PICKED){
+        const file = data.docs[0];
+        const email = (window.__drive.email||'').toLowerCase();
+        await saveSetting('collabFileId_'+email, file.id);
+        if (file.parentId) await saveSetting('collabFolderId_'+email, file.parentId);
+        window.__drive.fileId = file.id;
+        toast('Portal data connected','ok');
+        await refreshFromDrive(true);
+        startDrivePolling();
+        navigate('dashboard');
+      }
+    })
+    .build();
+  picker.setVisible(true);
+}
+/* ---- Owner-side: grant/revoke access for a collaborator ---- */
+async function grantCollaboratorAccess(){
+  const email = document.getElementById('collabEmailInput').value.trim().toLowerCase();
+  const role = document.getElementById('collabRoleSelect').value;
+  if (!email || !email.includes('@')){ toast('Enter a valid email address','warn'); return; }
+  if (!window.__drive.fileId){ toast('Connect Google Drive yourself first, before sharing access','warn'); return; }
+  try {
+    const driveRole = role === 'editor' ? 'writer' : 'reader';
+    for (const id of [window.__drive.fileId, window.__drive.folderId].filter(Boolean)){
+      await driveApi(`https://www.googleapis.com/drive/v3/files/${id}/permissions`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ role: driveRole, type:'user', emailAddress: email })
+      });
+    }
+    const collaborators = (S.settings.collaborators || []).filter(c=>c.email!==email);
+    collaborators.push({ email, role });
+    await saveSetting('collaborators', collaborators);
+    toast(`Access granted to ${email} (${role})`,'ok');
+    navigate('settings');
+  } catch(err){ toast('Could not grant access — check the Picker API key is set and try again','danger'); }
+}
+async function revokeCollaboratorAccess(email){
+  confirmAction(`Remove ${escapeHtml(email)}'s access to this portal? They will need to be re-invited to get access again.`, async () => {
+    const collaborators = (S.settings.collaborators || []).filter(c=>c.email!==email);
+    await saveSetting('collaborators', collaborators);
+    toast('Access removed — note: this stops future syncing for them, but does not retroactively revoke the Google Drive file permission. Remove that separately in Drive if needed.','ok');
+    navigate('settings');
+  });
+}
 function setDriveStatus(status){
   window.__drive.status = status;
   renderSyncIndicator();
@@ -4134,12 +4249,15 @@ async function driveVerifyAndBootstrap(silent){
     const info = await res.json();
     const email = (info.email || '').toLowerCase();
     const authorized = (S.settings.authorizedEmail || '').toLowerCase();
-    if (authorized && email !== authorized){
+    const collaborators = S.settings.collaborators || [];
+    const collab = collaborators.find(c => c.email.toLowerCase() === email);
+
+    if (authorized && email !== authorized && !collab){
       setDriveStatus('denied');
       if (!silent){
         openModal('Access Denied',
           `<p style="font-size:13px;">Access Denied — This Google account is not authorized to use the IPO Management Portal.</p>
-           <p class="small-muted">Signed in as ${escapeHtml(info.email||'')}. Authorized account: ${escapeHtml(S.settings.authorizedEmail)}.</p>`,
+           <p class="small-muted">Signed in as ${escapeHtml(info.email||'')}. Ask the portal owner to grant you access in Settings → Share Portal Access.</p>`,
           `<button class="btn btn-primary" onclick="closeModal()">OK</button>`);
       }
       window.__drive.accessToken = null;
@@ -4149,11 +4267,29 @@ async function driveVerifyAndBootstrap(silent){
     if (!authorized){ await saveSetting('authorizedEmail', email); }
     window.__drive.email = info.email;
     window.__drive.signedIn = true;
+    window.__drive.role = (email === authorized) ? 'owner' : collab.role;
     await saveSetting('driveConnectedEmail', info.email);
-    if (!silent){ toast('Google Drive connected — this account is now the authorized account for this portal','ok'); }
-    await driveBootstrapFolderAndFile();
-    startDrivePolling();
-    if (!silent) navigate('settings');
+    if (!silent){ toast(`Google Drive connected as ${window.__drive.role}`,'ok'); }
+
+    if (window.__drive.role === 'owner'){
+      await driveBootstrapFolderAndFile();
+      startDrivePolling();
+    } else {
+      // Collaborators didn't create this file, so the app's own drive.file
+      // permission can't just "find" it the way it can for the owner —
+      // Google Picker is what lets them explicitly select the file the owner
+      // shared with them, granting the app access to that specific file only.
+      const savedCollabFileId = S.settings['collabFileId_'+email];
+      if (savedCollabFileId){
+        window.__drive.fileId = savedCollabFileId;
+        window.__drive.folderId = S.settings['collabFolderId_'+email] || null;
+        await refreshFromDrive(true);
+        startDrivePolling();
+      } else if (!silent){
+        openCollaboratorFilePicker();
+      }
+    }
+    if (!silent && !(window.__drive.role !== 'owner' && !S.settings['collabFileId_'+email])) navigate('settings');
   } catch(err){ if (!silent) toast('Google Drive sign-in failed','danger'); }
 }
 
