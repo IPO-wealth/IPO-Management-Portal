@@ -274,9 +274,12 @@ table.dt tr.clickable{cursor:pointer;}
      breakpoint — the existing @media (max-width:900px) rules below are
      untouched, so the mobile experience (left sidebar via hamburger menu)
      stays exactly as it was. */
+  body{ flex-direction:column; } /* was a row (sidebar beside content) — must be
+     a column now so the horizontal nav sits ABOVE the content, not squeezed
+     beside it fighting #main for the same horizontal space. */
   #sidebar{
     width:100%; height:60px; position:sticky; top:0; left:auto; right:auto; bottom:auto;
-    flex-direction:row; align-items:center; z-index:210;
+    flex-direction:row; align-items:center; flex-shrink:0; z-index:210;
     box-shadow:0 1px 3px rgba(16,32,55,.15);
   }
   #sidebar .brand{
@@ -289,7 +292,7 @@ table.dt tr.clickable{cursor:pointer;}
     flex-shrink:0;
   }
   #sidebar .nav-item.active{ border-left-color:transparent; border-bottom-color:var(--gold); }
-  #main{ margin-left:0; }
+  #main{ margin-left:0; width:100%; flex:1; }
   #topbar{ top:60px; }
   #menuToggle{ display:none !important; }
 }
@@ -4172,12 +4175,15 @@ async function grantCollaboratorAccess(){
   if (!window.__drive.fileId){ toast('Connect Google Drive yourself first, before sharing access','warn'); return; }
   try {
     const driveRole = role === 'editor' ? 'writer' : 'reader';
-    for (const id of [window.__drive.fileId, window.__drive.folderId].filter(Boolean)){
-      await driveApi(`https://www.googleapis.com/drive/v3/files/${id}/permissions`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ role: driveRole, type:'user', emailAddress: email })
-      });
-    }
+    // Only share the file itself, not the folder — Google's Drive API rejects
+    // folder-permission changes under this app's narrow file-scoped access
+    // when it doesn't already have explicit permission on every child file
+    // inside that folder. The collaborator only ever needs the data file.
+    if (!window.__drive.fileId) throw new Error('No connected data file to share yet — try reconnecting Google Drive first.');
+    await driveApi(`https://www.googleapis.com/drive/v3/files/${window.__drive.fileId}/permissions`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ role: driveRole, type:'user', emailAddress: email })
+    });
     const collaborators = (S.settings.collaborators || []).filter(c=>c.email!==email);
     collaborators.push({ email, role });
     await saveSetting('collaborators', collaborators);
