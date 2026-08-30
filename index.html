@@ -268,6 +268,31 @@ table.dt tr.clickable{cursor:pointer;}
   .kpi-card{ box-shadow:none !important; border:1px solid #ccc !important; }
   .print-only{ display:block !important; }
 }
+@media (min-width:901px){
+  /* Desktop: navigation moves to a horizontal bar across the top instead of
+     a vertical sidebar down the left. This only applies above the mobile
+     breakpoint — the existing @media (max-width:900px) rules below are
+     untouched, so the mobile experience (left sidebar via hamburger menu)
+     stays exactly as it was. */
+  #sidebar{
+    width:100%; height:60px; position:sticky; top:0; left:auto; right:auto; bottom:auto;
+    flex-direction:row; align-items:center; z-index:210;
+    box-shadow:0 1px 3px rgba(16,32,55,.15);
+  }
+  #sidebar .brand{
+    padding:12px 18px; border-bottom:none; border-right:1px solid rgba(255,255,255,.08);
+    flex-shrink:0; white-space:nowrap;
+  }
+  #navList{ display:flex; flex-direction:row; align-items:stretch; overflow-x:auto; flex:1; height:100%; }
+  #sidebar .nav-item{
+    padding:0 16px; height:100%; border-left:none; border-bottom:3px solid transparent;
+    flex-shrink:0;
+  }
+  #sidebar .nav-item.active{ border-left-color:transparent; border-bottom-color:var(--gold); }
+  #main{ margin-left:0; }
+  #topbar{ top:60px; }
+  #menuToggle{ display:none !important; }
+}
 @media (max-width:900px){
   #sidebar{transform:translateX(-100%);}
   #sidebar.open{transform:translateX(0);}
@@ -4158,7 +4183,13 @@ async function grantCollaboratorAccess(){
     await saveSetting('collaborators', collaborators);
     toast(`Access granted to ${email} (${role})`,'ok');
     navigate('settings');
-  } catch(err){ toast('Could not grant access — check the Picker API key is set and try again','danger'); }
+  } catch(err){
+    console.error('grantCollaboratorAccess failed:', err);
+    openModal('Could Not Grant Access',
+      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(err.message||'Unknown error')}</p>
+       <p class="small-muted">This is the exact error from Google's API — if you're not sure what it means, copy this message and send it over.</p>`,
+      `<button class="btn btn-primary" onclick="closeModal()">Close</button>`);
+  }
 }
 async function revokeCollaboratorAccess(email){
   confirmAction(`Remove ${escapeHtml(email)}'s access to this portal? They will need to be re-invited to get access again.`, async () => {
@@ -4321,7 +4352,13 @@ async function checkRemoteChanges(){
 
 async function driveApi(url, opts={}){
   const res = await fetch(url, { ...opts, headers: { ...(opts.headers||{}), Authorization: `Bearer ${window.__drive.accessToken}` } });
-  if (!res.ok) throw new Error('Drive API error ' + res.status);
+  if (!res.ok){
+    let detail = '';
+    try { const j = await res.json(); detail = j.error && j.error.message ? j.error.message : JSON.stringify(j); } catch(e){ /* response wasn't JSON */ }
+    const err = new Error(`Drive API error ${res.status}${detail ? ': ' + detail : ''}`);
+    err.status = res.status;
+    throw err;
+  }
   return res;
 }
 async function driveFindFolder(){
