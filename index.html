@@ -441,6 +441,7 @@ function storeTx(name, mode='readonly'){ return db.transaction(name, mode).objec
 function getAll(name){ return new Promise((res,rej)=>{ const r=storeTx(name).getAll(); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 function getOne(name,id){ return new Promise((res,rej)=>{ const r=storeTx(name).get(id); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 function assertNotReadOnly(){
+  if (window.__suppressReadOnlyCheck) return; // system sync-write, not a user edit — never blocked
   if (window.__drive && window.__drive.role === 'viewer'){
     toast('You have view-only access to this portal — changes cannot be saved','danger');
     throw new Error('READ_ONLY_ACCESS');
@@ -4060,16 +4061,21 @@ function daysSinceLastBackup(){
   return Math.floor((Date.now() - mostRecent) / 86400000);
 }
 async function restoreSnapshot(data){
-  for (const [store, keyPath] of Object.entries(STORES)){
-    if (store === 'settings') continue;
-    await clearStore(store);
-    const arr = data[store] || [];
-    for (const rec of arr) await putRec(store, rec);
+  window.__suppressReadOnlyCheck = true; // this is the system syncing real data in, not a user edit — must never be blocked by viewer read-only mode
+  try {
+    for (const [store, keyPath] of Object.entries(STORES)){
+      if (store === 'settings') continue;
+      await clearStore(store);
+      const arr = data[store] || [];
+      for (const rec of arr) await putRec(store, rec);
+    }
+    if (data.settings){
+      for (const [k,v] of Object.entries(data.settings)) await saveSetting(k, v);
+    }
+    await loadAll();
+  } finally {
+    window.__suppressReadOnlyCheck = false;
   }
-  if (data.settings){
-    for (const [k,v] of Object.entries(data.settings)) await saveSetting(k, v);
-  }
-  await loadAll();
 }
 function localBackupRestore(file){
   if (!file) return;
@@ -4114,6 +4120,23 @@ window.__drive = {
   pendingChanges: false, syncTimer: null, pollTimer: null
 };
 
+async function driveConnectAsNewOwner(email){
+  await saveSetting('authorizedEmail', email);
+  window.__drive.signedIn = true;
+  window.__drive.role = 'owner';
+  await saveSetting('driveConnectedEmail', email);
+  toast('Google Drive connected — this is now the owner account for this portal','ok');
+  await driveBootstrapFolderAndFile();
+  startDrivePolling();
+  navigate('settings');
+}
+async function driveConnectAsCollaborator(email){
+  window.__drive.email = email;
+  window.__drive.signedIn = true;
+  window.__drive.role = 'pending'; // real role isn't known until we pull the actual shared settings below
+  await saveSetting('driveConnectedEmail', email);
+  await openCollaboratorFilePicker();
+}
 function loadGis(){
   return new Promise((resolve) => {
     if (window.google && window.google.accounts) return resolve();
@@ -4158,8 +4181,21 @@ async function openCollaboratorFilePicker(){
         await saveSetting('collabFileId_'+email, file.id);
         if (file.parentId) await saveSetting('collabFolderId_'+email, file.parentId);
         window.__drive.fileId = file.id;
-        toast('Portal data connected','ok');
         await refreshFromDrive(true);
+        // Only now, after pulling the REAL shared settings, do we actually know
+        // whether this person is an Editor or Viewer — trusting anything set
+        // before this point would be a guess, which is exactly what caused the
+        // original bug.
+        const realCollaborators = S.settings.collaborators || [];
+        const realCollab = realCollaborators.find(c => c.email.toLowerCase() === email);
+        const realOwner = (S.settings.authorizedEmail||'').toLowerCase();
+        if (email === realOwner){ window.__drive.role = 'owner'; }
+        else if (realCollab){ window.__drive.role = realCollab.role; }
+        else {
+          window.__drive.role = 'viewer'; // safest possible fallback if something's inconsistent
+          toast('Connected, but you\'re not on this portal\'s access list — showing view-only until the owner adds you','warn');
+        }
+        toast(`Portal data connected as ${window.__drive.role}`,'ok');
         startDrivePolling();
         navigate('dashboard');
       }
@@ -4301,7 +4337,26 @@ async function driveVerifyAndBootstrap(silent){
       window.__drive.signedIn = false;
       return;
     }
-    if (!authorized){ await saveSetting('authorizedEmail', email); }
+
+    // This is the actual bug fix: a blank local "authorizedEmail" used to mean
+    // "nobody's set up yet, so whoever connects first becomes the owner" — but
+    // that's ALSO true on a brand-new device belonging to someone who was
+    // actually invited as a collaborator (their device has never seen the real
+    // owner/collaborator list either, since that only exists inside the shared
+    // file itself). Silently assuming "owner" in that case is exactly what
+    // silently forked a new, empty portal instead of joining the real one.
+    // So: ask explicitly instead of guessing, whenever there's no local context.
+    if (!authorized){
+      if (silent) { window.__drive.accessToken = null; window.__drive.signedIn = false; return; } // can't ask silently — require a manual connect
+      window.__drive.email = info.email;
+      openModal('One Quick Question',
+        `<p style="font-size:13px;line-height:1.6;">Signed in as <b>${escapeHtml(info.email)}</b>. This device hasn't connected before — which applies to you?</p>`,
+        `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+         <button class="btn btn-ghost" onclick="closeModal(); driveConnectAsCollaborator('${escapeHtml(email)}')">Someone shared a portal with me</button>
+         <button class="btn btn-primary" onclick="closeModal(); driveConnectAsNewOwner('${escapeHtml(email)}')">This is my own new portal</button>`);
+      return;
+    }
+
     window.__drive.email = info.email;
     window.__drive.signedIn = true;
     window.__drive.role = (email === authorized) ? 'owner' : collab.role;
@@ -4456,7 +4511,8 @@ async function refreshFromDrive(silent){
       await restoreSnapshot(data);
       window.__drive.remoteModifiedTime = meta.modifiedTime;
       window.__drive.pendingChanges = false;
-      await saveSetting('lastSynced', new Date().toISOString());
+      window.__suppressReadOnlyCheck = true;
+      try { await saveSetting('lastSynced', new Date().toISOString()); } finally { window.__suppressReadOnlyCheck = false; }
       setDriveStatus('idle');
       if (!silent){ toast('Refreshed from Google Drive','ok'); navigate('dashboard'); }
     } catch(err){ setDriveStatus('error'); if (!silent) toast('Could not refresh from Google Drive','danger'); }
