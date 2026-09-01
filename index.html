@@ -3583,17 +3583,22 @@ function viewSettings(){
     <div class="sc-head"><h3>Share Portal Access</h3></div>
     <div class="sc-body">
       <p class="small-muted">Give someone else their own login to this portal, keeping their Google account separate from yours — not a shared password. They'll see the exact same live data as you, kept in sync the same way.</p>
+
+      <div class="form-grid" style="margin:10px 0;">
+        <div class="f-group span2"><label>Google Picker API Key <span class="small-muted">(one-time setup — separate from your OAuth Client ID)</span></label>
+          <input type="text" id="googlePickerApiKeyInput" value="${escapeHtml(S.settings.googlePickerApiKey||'')}" placeholder="AIza...">
+        </div>
+      </div>
+      <div class="btn-row" style="justify-content:flex-start;margin-bottom:14px;">
+        <button class="btn btn-ghost btn-sm" onclick="saveSetting('googlePickerApiKey', document.getElementById('googlePickerApiKeyInput').value.trim()).then(()=>toast('Picker API key saved','ok'))">Save Key</button>
+      </div>
+      <p class="small-muted" style="margin-bottom:14px;">
+        <b>Important — this field is per-device, not synced:</b> just like the OAuth Client ID above it, a collaborator's very first connection happens before any data has synced to their device — so this key can't reach them automatically that first time. <b>The owner needs to send this exact key to anyone being invited, and they paste it in here on their own device before clicking Connect Google Drive.</b> After their first successful connection, everything else syncs normally.
+      </p>
+
       ${!window.__drive.signedIn ? `
-        <p class="small-muted">Connect Google Drive above first (as the owner) before you can share access with anyone else.</p>
+        <p class="small-muted">Connect Google Drive above first (as the owner) to grant access to others.</p>
       ` : window.__drive.role==='owner' ? `
-        <div class="form-grid" style="margin:10px 0;">
-          <div class="f-group span2"><label>Google Picker API Key <span class="small-muted">(one-time setup — separate from your OAuth Client ID)</span></label>
-            <input type="text" id="googlePickerApiKeyInput" value="${escapeHtml(S.settings.googlePickerApiKey||'')}" placeholder="AIza...">
-          </div>
-        </div>
-        <div class="btn-row" style="justify-content:flex-start;margin-bottom:14px;">
-          <button class="btn btn-ghost btn-sm" onclick="saveSetting('googlePickerApiKey', document.getElementById('googlePickerApiKeyInput').value.trim()).then(()=>toast('Picker API key saved','ok'))">Save Key</button>
-        </div>
         <div class="form-grid" style="margin-bottom:10px;">
           <div class="f-group"><label>Collaborator's Email</label><input type="text" id="collabEmailInput" placeholder="someone@gmail.com"></div>
           <div class="f-group"><label>Access Level</label><select id="collabRoleSelect"><option value="editor">Editor — can view and edit</option><option value="viewer">Viewer — read-only</option></select></div>
@@ -3610,7 +3615,7 @@ function viewSettings(){
         <p class="small-muted">Only the portal owner can manage sharing. ${window.__drive.role ? `You're currently signed in as a ${escapeHtml(window.__drive.role)}.` : ''}</p>
       `}
       <p class="small-muted" style="margin-top:12px;">
-        <b>What they need to do:</b> open this same portal link, go to Settings → Cloud Storage, enter the same Google OAuth Client ID you're using, and click Connect Google Drive with their own Google account (the one you granted access to). They'll be prompted to pick the shared data file the first time — after that it works automatically.<br><br>
+        <b>What they need to do:</b> open this same portal link, go to Settings → Cloud Storage, enter the same Google OAuth Client ID you're using — <b>and paste the Picker API key above too</b> — then click Connect Google Drive with their own Google account (the one you granted access to). They'll be prompted to pick the shared data file the first time — after that it works automatically.<br><br>
         <b>Viewer limitation, stated plainly:</b> a Viewer's changes are blocked at the point of saving (not just hidden buttons) — so even if they click Save somewhere, nothing is written. But this app has no server, so a technically determined Viewer could still find ways to poke at their own local browser copy. Treat this as a strong deterrent for normal use, not airtight security against a deliberately hostile user.
       </p>
     </div>
