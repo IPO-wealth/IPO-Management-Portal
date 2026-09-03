@@ -2279,7 +2279,6 @@ async function saveApplication(id, force){
   const upiEl = document.getElementById('fld_upiId');
   data.upiId = upiEl ? (upiEl.value ? Number(upiEl.value) : null) : null;
   if (!data.clientId || !data.ipoId || !data.bankAccountId || !data.applicationDate || data.amountApplied===''||data.amountApplied==null){ toast('Client, IPO, bank, date and amount are required','warn'); return; }
-  if (Number(data.amountApplied) < 0){ toast('Amount Applied cannot be negative','warn'); return; }
   if (!data.planId) data.planId = null;
 
   const warns = dateWarnings(data);
@@ -2616,10 +2615,6 @@ async function saveAllotmentSale(id, force){
   if (data.allotmentStatus !== 'Allotted'){ data.saleStatus = null; }
   if (data.allotmentStatus === 'Allotted' && !data.saleStatus) data.saleStatus = 'Pending to Sell';
   if (!data.amountReceiveStatus) data.amountReceiveStatus = null;
-
-  if (data.saleAmount!=null && Number(data.saleAmount) < 0){ toast('Sale Amount cannot be negative','warn'); return; }
-  if (data.grossReceived!=null && Number(data.grossReceived) < 0){ toast('Gross Received cannot be negative','warn'); return; }
-  if (data.ourProfit!=null && Number(data.ourProfit) < 0){ toast('Our Profit cannot be negative — if this is intentional (e.g. a loss), please flag it for review rather than saving silently','warn'); return; }
 
   const warns = [];
   if (data.saleStatus === 'Sold' && !data.saleDate) warns.push('Sale Date is required when Sale Status is Sold.');
@@ -3900,7 +3895,6 @@ function importFromExcel(file){
       if (!ipoName || !bankName){ plan.errors.push(`Row ${rowNum}: missing IPO or Bank name — skipped.`); return; }
 
       const amountApplied = Number(row['Amount Applied']) || 0;
-      if (amountApplied < 0){ plan.errors.push(`Row ${rowNum} (${clientName}): Amount Applied cannot be negative — skipped.`); return; }
 
       const applicationDate = parseExcelDate(row['Application Date']);
       if (!applicationDate){ plan.errors.push(`Row ${rowNum} (${clientName}): missing or invalid Application Date — skipped.`); return; }
