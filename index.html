@@ -971,13 +971,22 @@ function renderDataTable(id, opts){
       ${opts.extraToolbar || ''}
     </div>`;
 
-  const thead = `<tr>${opts.columns.map(c => c.key==='sel'
-    ? `<th>${c.label}</th>`
-    : `<th onclick="__tblSort('${id}','${c.key}')" style="cursor:pointer;">${c.label}${st.sortKey===c.key?(st.sortDir===1?' ▲':' ▼'):''}</th>`
-  ).join('')}${opts.rowActions?'<th>Actions</th>':''}</tr>`;
+  const hasSelCol = opts.columns[0] && opts.columns[0].key === 'sel';
+  const stickyLeftPx = hasSelCol ? 40 : 0;
+  const thead = `<tr>${opts.columns.map((c,idx) => {
+    const sticky = opts.stickyCol && c.key===opts.stickyCol;
+    const stickyStyle = sticky ? `position:sticky;left:${stickyLeftPx}px;z-index:6;background:var(--table-head-bg);` : (c.key==='sel' ? `position:sticky;left:0;z-index:6;background:var(--table-head-bg);` : '');
+    return c.key==='sel'
+      ? `<th style="${stickyStyle}">${c.label}</th>`
+      : `<th onclick="__tblSort('${id}','${c.key}')" style="cursor:pointer;${stickyStyle}">${c.label}${st.sortKey===c.key?(st.sortDir===1?' ▲':' ▼'):''}</th>`;
+  }).join('')}${opts.rowActions?'<th>Actions</th>':''}</tr>`;
   const tbody = pageRows.length ? pageRows.map(r => `
     <tr class="${opts.rowClick?'clickable':''}" ${opts.rowClick?`onclick="${opts.rowClick}(${JSON.stringify(r.id)})"`:''}>
-      ${opts.columns.map(c => `<td>${c.render ? c.render(r) : escapeHtml(r[c.key])}</td>`).join('')}
+      ${opts.columns.map(c => {
+        const sticky = opts.stickyCol && c.key===opts.stickyCol;
+        const stickyStyle = sticky ? `position:sticky;left:${stickyLeftPx}px;z-index:5;background:var(--card);` : (c.key==='sel' ? `position:sticky;left:0;z-index:5;background:var(--card);` : '');
+        return `<td style="${stickyStyle}">${c.render ? c.render(r) : escapeHtml(r[c.key])}</td>`;
+      }).join('')}
       ${opts.rowActions?`<td onclick="event.stopPropagation()">${opts.rowActions(r)}</td>`:''}
     </tr>`).join('') : `<tr class="empty-row"><td colspan="${opts.columns.length + (opts.rowActions?1:0)}">No records found.</td></tr>`;
 
@@ -2421,15 +2430,14 @@ function viewAllotments(){
         { key:'clientId', label:'Client', options: S.clients.map(c=>c.clientName), match:(r,v)=>{ const c=findClient(r.clientId); return c && c.clientName===v; } }
       ],
       pageSize: 12,
+      stickyCol: 'clientId',
       columns: [
         { key:'sel', label:`<input type="checkbox" onchange="toggleAllAllotSelection(this.checked)">`, render:r=>`<input type="checkbox" class="allotSelCk" ${__selectedAllotIds.has(r.id)?'checked':''} onchange="toggleAllotSelection(${r.id}, this.checked)">` },
         { key:'clientId', label:'Client', render:r=>{ const c=findClient(r.clientId); return escapeHtml(c?c.clientName:'—'); } },
         { key:'ipoId', label:'IPO', render:r=>{ const i=findIpo(r.ipoId); return escapeHtml(i?i.ipoName:'—'); } },
         { key:'amountApplied', label:'Amount Applied', render:r=>fmtMoney(r.amountApplied) },
-        { key:'allotmentStatus', label:'Allotment', render:r=>badge(r.allotmentStatus||'Pending') + (r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : '') },
-        { key:'allotmentDate', label:'Allotment Date', render:r=>fmtDate(r.allotmentDate) },
-        { key:'saleStatus', label:'Sale', render:r=>r.saleStatus?badge(r.saleStatus):'—' },
-        { key:'saleDate', label:'Sale Date', render:r=>fmtDate(r.saleDate) },
+        { key:'allotmentStatus', label:'Allotment', render:r=>`${badge(r.allotmentStatus||'Pending')}${r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : ''}<br><span class="small-muted">${fmtDate(r.allotmentDate)}</span>` },
+        { key:'saleStatus', label:'Sale', render:r=>r.saleStatus?`${badge(r.saleStatus)}<br><span class="small-muted">${fmtDate(r.saleDate)}</span>`:'—' },
         { key:'saleAmount', label:'Sale Amount', render:r=>fmtMoney(r.saleAmount) },
         { key:'grossReceived', label:'Gross Received', render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.grossFinal)+(c.grossOverridden?overrideBadge('Gross Received', c.calculatedGross, c.grossFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
         { key:'amountReceiveStatus', label:'Recovery Status', render:r=>r.amountReceiveStatus?badge(r.amountReceiveStatus):'—' },
@@ -2564,7 +2572,7 @@ function grossOurClientFieldsHtml(a, calc){
 }
 function overrideBadge(fieldLabel, calculated, final, reason, changedAt){
   const payload = escapeHtml(JSON.stringify({ fieldLabel, calculated, final, reason: reason||'Not recorded', changedAt: changedAt?fmtDate(changedAt):'Not recorded' }));
-  return ` <span class="badge gold" style="cursor:pointer;" onclick='showOverrideDetail(this)' data-override="${payload}">&#9888; Manual Override</span>`;
+  return ` <span class="badge gold" style="cursor:pointer;padding:2px 6px;" title="Manual Override — click for details" onclick='showOverrideDetail(this)' data-override="${payload}">&#9888;</span>`;
 }
 function showOverrideDetail(el){
   const d = JSON.parse(el.getAttribute('data-override'));
