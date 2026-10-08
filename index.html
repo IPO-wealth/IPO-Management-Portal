@@ -374,6 +374,7 @@ table.dt tr.clickable{cursor:pointer;}
     <button class="quickBtn secondary" onclick="exportAllToExcel()">Export Excel</button>
   </div>
   <div id="content"></div>
+  <button id="quickAddBtn" onclick="editApplication()" title="Quick Add Application" style="position:fixed;bottom:24px;right:24px;width:52px;height:52px;border-radius:50%;background:var(--navy);color:#fff;border:none;font-size:26px;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,.25);cursor:pointer;z-index:150;">+</button>
 </div>
 
 <div id="modalOverlay">
@@ -735,6 +736,23 @@ function __gsearchGo(idx){
   document.getElementById('globalSearchInput').value = '';
   r.go();
 }
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName||'').toLowerCase();
+  const typing = tag==='input' || tag==='textarea' || tag==='select' || e.target.isContentEditable;
+  if (e.key === '/' && !typing){
+    e.preventDefault();
+    const el = document.getElementById('globalSearchInput');
+    if (el) el.focus();
+  }
+  if (e.key === 'Escape'){
+    const modal = document.getElementById('modalOverlay');
+    if (modal && modal.classList.contains('open')) closeModal();
+    const notif = document.getElementById('notifPanel');
+    if (notif) notif.style.display = 'none';
+    const search = document.getElementById('globalSearchResults');
+    if (search) search.style.display = 'none';
+  }
+});
 document.addEventListener('click', (e)=>{
   const wrap = e.target.closest ? e.target.closest('.gsearch-wrap') : null;
   if (!wrap){
@@ -842,6 +860,7 @@ function navigate(view, params={}){
 function render(){
   const c = document.getElementById('content');
   renderNotifBadge();
+  invalidateTopClientCache();
   switch(S.view){
     case 'dashboard': c.innerHTML = viewDashboard(); afterDashboard(); break;
     case 'planning': c.innerHTML = viewPlanning(); afterPlanning(); break;
@@ -929,6 +948,11 @@ function makeTableController(id, opts){
 function renderDataTable(id, opts){
   const st = makeTableController(id, opts);
   let rows = opts.data.slice();
+  // #1: column customization — hide columns the user has chosen to hide for this table
+  window.__tableColumnDefs = window.__tableColumnDefs || {};
+  window.__tableColumnDefs[id] = opts.columns.filter(c=>c.key!=='sel').map(c=>({ key:c.key, label:(c.label||'').replace(/<[^>]+>/g,'') }));
+  const colVisibility = (S.settings.columnVisibility && S.settings.columnVisibility[id]) || {};
+  const columns = opts.columns.filter(c => c.key==='sel' || colVisibility[c.key] !== false);
   // filters
   (opts.filters||[]).forEach(f => {
     const v = st.filterVals[f.key];
@@ -968,12 +992,20 @@ function renderDataTable(id, opts){
           ${f.options.map(o=>`<option value="${escapeHtml(o)}" ${st.filterVals[f.key]===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}
         </select>`).join('')}
       <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" onclick="openColumnPicker('${id}')" title="Show/hide columns">⚙ Columns</button>
+      ${(opts.filters||[]).length ? `
+        <select onchange="if(this.value) applyTablePreset('${id}', this.value)" style="max-width:160px;">
+          <option value="">Presets: Load...</option>
+          ${((S.settings.savedPresets && S.settings.savedPresets[id]) || []).map((p,idx)=>`<option value="${idx}">${escapeHtml(p.name)}</option>`).join('')}
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="saveTablePreset('${id}')" title="Save current search/filters as a named preset">💾 Save Preset</button>
+      ` : ''}
       ${opts.extraToolbar || ''}
     </div>`;
 
-  const hasSelCol = opts.columns[0] && opts.columns[0].key === 'sel';
+  const hasSelCol = columns[0] && columns[0].key === 'sel';
   const stickyLeftPx = hasSelCol ? 40 : 0;
-  const thead = `<tr>${opts.columns.map((c,idx) => {
+  const thead = `<tr>${columns.map((c,idx) => {
     const sticky = opts.stickyCol && c.key===opts.stickyCol;
     const stickyStyle = sticky ? `position:sticky;left:${stickyLeftPx}px;z-index:6;background:var(--table-head-bg);` : (c.key==='sel' ? `position:sticky;left:0;z-index:6;background:var(--table-head-bg);` : '');
     return c.key==='sel'
@@ -982,13 +1014,13 @@ function renderDataTable(id, opts){
   }).join('')}${opts.rowActions?'<th>Actions</th>':''}</tr>`;
   const tbody = pageRows.length ? pageRows.map(r => `
     <tr class="${opts.rowClick?'clickable':''}" ${opts.rowClick?`onclick="${opts.rowClick}(${JSON.stringify(r.id)})"`:''}>
-      ${opts.columns.map(c => {
+      ${columns.map(c => {
         const sticky = opts.stickyCol && c.key===opts.stickyCol;
         const stickyStyle = sticky ? `position:sticky;left:${stickyLeftPx}px;z-index:5;background:var(--card);` : (c.key==='sel' ? `position:sticky;left:0;z-index:5;background:var(--card);` : '');
         return `<td style="${stickyStyle}">${c.render ? c.render(r) : escapeHtml(r[c.key])}</td>`;
       }).join('')}
       ${opts.rowActions?`<td onclick="event.stopPropagation()">${opts.rowActions(r)}</td>`:''}
-    </tr>`).join('') : `<tr class="empty-row"><td colspan="${opts.columns.length + (opts.rowActions?1:0)}">No records found.</td></tr>`;
+    </tr>`).join('') : `<tr class="empty-row"><td colspan="${columns.length + (opts.rowActions?1:0)}">No records found.</td></tr>`;
 
   const pagination = `<div class="pagination">
     <span class="small-muted">${rows.length} record(s)</span>
@@ -1047,6 +1079,105 @@ function __tblSort(id, key){
 }
 function __tblPage(id, p){ window.__tableState[id].page = p; if(window.__tableRerender[id]) window.__tableRerender[id](); }
 function __tblPageSize(id, val){ window.__tableState[id].pageSize = Number(val); window.__tableState[id].page = 1; if(window.__tableRerender[id]) window.__tableRerender[id](); }
+function openColumnPicker(id){
+  const defs = window.__tableColumnDefs[id] || [];
+  const visibility = (S.settings.columnVisibility && S.settings.columnVisibility[id]) || {};
+  openModal('Show/Hide Columns',
+    `<p class="small-muted" style="margin-bottom:10px;">Choose which columns to show in this table. Your choice is remembered for next time.</p>
+     <div style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;">
+      ${defs.map(d=>`<label class="checkbox-row"><input type="checkbox" ${visibility[d.key]===false?'':'checked'} onchange="toggleColumnVisibility('${id}','${d.key}',this.checked)"> ${escapeHtml(d.label)}</label>`).join('')}
+     </div>`,
+    `<button class="btn btn-ghost" onclick="resetColumnVisibility('${id}')">Reset to Default</button>
+     <button class="btn btn-primary" onclick="closeModal()">Done</button>`);
+}
+async function toggleColumnVisibility(id, key, checked){
+  if (!S.settings.columnVisibility) S.settings.columnVisibility = {};
+  if (!S.settings.columnVisibility[id]) S.settings.columnVisibility[id] = {};
+  S.settings.columnVisibility[id][key] = checked;
+  await saveSetting('columnVisibility', S.settings.columnVisibility);
+  if (window.__tableRerender[id]) window.__tableRerender[id]();
+}
+async function resetColumnVisibility(id){
+  if (S.settings.columnVisibility) { delete S.settings.columnVisibility[id]; await saveSetting('columnVisibility', S.settings.columnVisibility); }
+  closeModal();
+  if (window.__tableRerender[id]) window.__tableRerender[id]();
+}
+async function saveTablePreset(id){
+  const st = window.__tableState[id];
+  if (!st || (!st.search && !Object.values(st.filterVals||{}).some(Boolean))){
+    toast('Set a search term or filter first, then save it as a preset','warn'); return;
+  }
+  openModal('Save Preset',
+    `<div class="f-group"><label>Preset Name</label><input type="text" id="presetNameInput" placeholder="e.g. Karan's pending allotments"></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+     <button class="btn btn-primary" onclick="confirmSaveTablePreset('${id}')">Save</button>`);
+}
+async function confirmSaveTablePreset(id){
+  const name = document.getElementById('presetNameInput').value.trim();
+  if (!name){ toast('Enter a name for this preset','warn'); return; }
+  const st = window.__tableState[id];
+  if (!S.settings.savedPresets) S.settings.savedPresets = {};
+  if (!S.settings.savedPresets[id]) S.settings.savedPresets[id] = [];
+  S.settings.savedPresets[id].push({ name, search: st.search||'', filterVals: { ...st.filterVals } });
+  await saveSetting('savedPresets', S.settings.savedPresets);
+  closeModal();
+  toast('Preset saved','ok');
+  if (window.__tableRerender[id]) window.__tableRerender[id]();
+}
+function quickEditAllotmentStatus(id){
+  const a = findApp(id);
+  if (!a) return;
+  openModal('Quick Update — Allotment Status',
+    `<div class="f-group"><label>Allotment Status</label><select id="quickAllotStatus">${ALLOTMENT_STATUSES.map(s=>`<option value="${s}" ${((a.allotmentStatus||'Pending')===s)?'selected':''}>${s}</option>`).join('')}</select></div>
+     <p class="small-muted">For Sale Date, Sale Amount, or anything else, use the full Update form instead.</p>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="confirmQuickAllotmentStatus(${id})">Save</button>`);
+}
+async function confirmQuickAllotmentStatus(id){
+  const a = findApp(id);
+  if (!a) return;
+  const newStatus = document.getElementById('quickAllotStatus').value;
+  const updated = { ...a };
+  updated.allotmentStatus = newStatus;
+  // Same cascading rules as the full Allotment & Sale form, so a quick-edit
+  // never leaves the record in a state the full form wouldn't allow.
+  if (newStatus === 'Not Allotted'){ updated.saleStatus = null; updated.saleDate = null; updated.saleAmount = null; }
+  if (newStatus !== 'Allotted'){ updated.saleStatus = null; }
+  if (newStatus === 'Allotted' && !updated.saleStatus) updated.saleStatus = 'Pending to Sell';
+  updated.updatedAt = new Date().toISOString();
+  await putRec('applications', updated); Object.assign(a, updated);
+  await audit('Allotment Updates','Application', id, a, updated);
+  closeModal();
+  toast('Allotment status updated','ok');
+  navigate('allotments');
+}
+function quickEditRecoveryStatus(id){
+  const a = findApp(id);
+  if (!a || a.saleStatus !== 'Sold'){ toast('Recovery status only applies to Sold applications','warn'); return; }
+  openModal('Quick Update — Recovery Status',
+    `<div class="f-group"><label>Recovery Status</label><select id="quickRecoveryStatus">${RECEIVE_STATUSES.map(s=>`<option value="${s}" ${(a.amountReceiveStatus===s)?'selected':''}>${s}</option>`).join('')}</select></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="confirmQuickRecoveryStatus(${id})">Save</button>`);
+}
+async function confirmQuickRecoveryStatus(id){
+  const a = findApp(id);
+  if (!a) return;
+  const newStatus = document.getElementById('quickRecoveryStatus').value;
+  const updated = { ...a, amountReceiveStatus: newStatus, updatedAt: new Date().toISOString() };
+  await putRec('applications', updated); Object.assign(a, updated);
+  await audit('Allotment Updates','Application', id, a, updated);
+  closeModal();
+  toast('Recovery status updated','ok');
+  navigate('allotments');
+}
+function applyTablePreset(id, idx){
+  const preset = S.settings.savedPresets && S.settings.savedPresets[id] && S.settings.savedPresets[id][Number(idx)];
+  if (!preset) return;
+  const st = window.__tableState[id];
+  st.search = preset.search || '';
+  st.filterVals = { ...preset.filterVals };
+  st.page = 1;
+  if (window.__tableRerender[id]) window.__tableRerender[id]();
+  toast(`Applied preset: ${preset.name}`,'ok');
+}
 </script>
 <script>
 /* =================== CLIENTS =================== */
@@ -1062,6 +1193,17 @@ function clientStats(clientId){
   const ipoIds = new Set(apps.map(a=>a.ipoId));
   return { apps, allotted, notAllotted, sold, amountApplied, grossReceived, profit, clientProfit, ipoCount: ipoIds.size };
 }
+// Top-client segmentation: top 20% of clients by profit, computed once and cached
+// per render cycle so every place that shows this badge agrees on who's "Top".
+let __topClientIds = null;
+function getTopClientIds(){
+  if (__topClientIds) return __topClientIds;
+  const withProfit = S.clients.map(c=>({ id:c.id, profit: clientStats(c.id).profit })).filter(x=>x.profit>0).sort((a,b)=>b.profit-a.profit);
+  const cutoff = Math.max(1, Math.ceil(withProfit.length * 0.2));
+  __topClientIds = new Set(withProfit.slice(0, cutoff).map(x=>x.id));
+  return __topClientIds;
+}
+function invalidateTopClientCache(){ __topClientIds = null; }
 
 function viewClients(){
   window.__tableRerender['clientsTbl'] = () => {
@@ -1077,7 +1219,7 @@ function viewClients(){
       rowClick: 'openClientDetail',
       columns: [
         { key:'clientId', label:'Client ID' },
-        { key:'clientName', label:'Name' },
+        { key:'clientName', label:'Name', render:r=>escapeHtml(r.clientName) + (getTopClientIds().has(r.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top</span>' : '') },
         { key:'referenceName', label:'Reference' },
         { key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
         { key:'ipos', label:'IPOs', render:r=>clientStats(r.id).ipoCount },
@@ -1203,7 +1345,7 @@ function viewClientDetail(id){
   <button class="link-btn no-print" onclick="navigate('clients')">&larr; Back to Clients</button>
   <div class="section-card printable-report" style="margin-top:10px;">
     <div class="sc-head">
-      <h3>${escapeHtml(c.clientId)} — ${escapeHtml(c.clientName)}</h3>
+      <h3>${escapeHtml(c.clientId)} — ${escapeHtml(c.clientName)}${getTopClientIds().has(c.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top Client</span>' : ''}</h3>
       <div class="spacer"></div>
       <button class="btn btn-ghost btn-sm no-print" onclick="window.print()">Print Statement</button>
       <button class="btn btn-ghost btn-sm no-print" onclick="editClient(${c.id})">Edit Client</button>
@@ -2436,11 +2578,11 @@ function viewAllotments(){
         { key:'clientId', label:'Client', render:r=>{ const c=findClient(r.clientId); return escapeHtml(c?c.clientName:'—'); } },
         { key:'ipoId', label:'IPO', render:r=>{ const i=findIpo(r.ipoId); return escapeHtml(i?i.ipoName:'—'); } },
         { key:'amountApplied', label:'Amount Applied', render:r=>fmtMoney(r.amountApplied) },
-        { key:'allotmentStatus', label:'Allotment', render:r=>`${badge(r.allotmentStatus||'Pending')}${r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : ''}<br><span class="small-muted">${fmtDate(r.allotmentDate)}</span>` },
+        { key:'allotmentStatus', label:'Allotment', render:r=>`<span class="clickable" title="Click to quick-edit" onclick="event.stopPropagation(); quickEditAllotmentStatus(${r.id})">${badge(r.allotmentStatus||'Pending')}</span>${r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="event.stopPropagation(); showNote(this)">📝</span>` : ''}<br><span class="small-muted">${fmtDate(r.allotmentDate)}</span>` },
         { key:'saleStatus', label:'Sale', render:r=>r.saleStatus?`${badge(r.saleStatus)}<br><span class="small-muted">${fmtDate(r.saleDate)}</span>`:'—' },
         { key:'saleAmount', label:'Sale Amount', render:r=>fmtMoney(r.saleAmount) },
         { key:'grossReceived', label:'Gross Received', render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.grossFinal)+(c.grossOverridden?overrideBadge('Gross Received', c.calculatedGross, c.grossFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
-        { key:'amountReceiveStatus', label:'Recovery Status', render:r=>r.amountReceiveStatus?badge(r.amountReceiveStatus):'—' },
+        { key:'amountReceiveStatus', label:'Recovery Status', render:r=>r.amountReceiveStatus?`<span class="clickable" title="Click to quick-edit" onclick="event.stopPropagation(); quickEditRecoveryStatus(${r.id})">${badge(r.amountReceiveStatus)}</span>`:'—' },
         { key:'ourProfit', label:'Our Profit', render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.ourFinal)+(c.ourOverridden?overrideBadge('Our Profit', c.calculatedOur, c.ourFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
         { key:'clientProfit', label:'Client Profit', render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.clientFinal)+(c.clientOverridden?overrideBadge('Client Profit', c.calculatedClient, c.clientFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } }
       ],
@@ -2483,6 +2625,14 @@ function viewAllotments(){
             <button class="btn btn-ghost btn-sm" onclick="bulkUpdateSaleDate()">Apply</button>
           </div>
           <div class="hint">Only applies to selected rows that are already Allotted; also sets Sale Status to Sold.</div>
+        </div>
+        <div class="f-group" style="min-width:200px;">
+          <label>Bulk Update — Recovery Status</label>
+          <div style="display:flex;gap:6px;">
+            <select id="bulkRecoveryStatusSelect">${RECEIVE_STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>
+            <button class="btn btn-ghost btn-sm" onclick="bulkUpdateRecoveryStatus()">Update</button>
+          </div>
+          <div class="hint">Only applies to selected rows that are already Sold.</div>
         </div>
       </div>
       <div id="allotTblWrap"></div>
@@ -2538,6 +2688,21 @@ async function bulkUpdateSaleDate(){
     count++;
   }
   toast(`Sale date applied to ${count} row(s)${skipped?`, ${skipped} skipped (not Allotted)`:''}`, 'ok');
+  navigate('allotments');
+}
+async function bulkUpdateRecoveryStatus(){
+  if (!__selectedAllotIds.size){ toast('No rows selected','warn'); return; }
+  const status = document.getElementById('bulkRecoveryStatusSelect').value;
+  let count = 0, skipped = 0;
+  for (const id of __selectedAllotIds){
+    const a = findApp(id);
+    if (!a || a.saleStatus !== 'Sold'){ skipped++; continue; }
+    const updated = { ...a, amountReceiveStatus: status, updatedAt: new Date().toISOString() };
+    await putRec('applications', updated); Object.assign(a, updated);
+    await audit('Allotment Updates','Application', id, a, updated);
+    count++;
+  }
+  toast(`Recovery status updated for ${count} row(s)${skipped?`, ${skipped} skipped (not Sold)`:''}`, 'ok');
   navigate('allotments');
 }
 
@@ -3232,6 +3397,26 @@ function reportSubReferenceProfit(){
     });
     return { our, gross, clientShare };
   }
+  // #10: month-over-month trend, by Sale Date, for the headline "Our Profit" figure
+  const now = new Date();
+  const thisMonthStart = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  const lastMonthStart = isoDate(new Date(now.getFullYear(), now.getMonth()-1, 1));
+  const lastMonthEnd = isoDate(new Date(now.getFullYear(), now.getMonth(), 0));
+  function clientProfitInMonth(clientId, from, to){
+    let our=0;
+    S.applications.filter(a=>a.clientId===clientId && a.saleStatus==='Sold' && a.saleDate>=from && a.saleDate<=to).forEach(a=>{
+      const c = calcAllotmentSale(a);
+      if (c.applicable) our+=c.ourFinal;
+    });
+    return our;
+  }
+  function trendArrow(thisM, lastM){
+    if (lastM===0) return thisM>0 ? '<span class="ok">▲ New</span>' : '';
+    const pct = Math.round(((thisM-lastM)/Math.abs(lastM))*100);
+    if (pct>0) return `<span class="ok">▲ ${pct}%</span>`;
+    if (pct<0) return `<span class="danger">▼ ${Math.abs(pct)}%</span>`;
+    return '<span class="small-muted">— 0%</span>';
+  }
 
   const references = ['(No Reference)', ...(S.settings.references||[])];
   let anyData = false;
@@ -3245,11 +3430,15 @@ function reportSubReferenceProfit(){
       const isNoneSub = subName === '(No Sub-Reference)';
       const clientsInSub = clientsInRef.filter(c => isNoneSub ? !c.subReference : c.subReference===subName);
       if (!clientsInSub.length) return null;
-      let our=0, gross=0, clientShare=0;
-      clientsInSub.forEach(c=>{ const t=clientProfitTotal(c.id); our+=t.our; gross+=t.gross; clientShare+=t.clientShare; });
+      let our=0, gross=0, clientShare=0, thisMonth=0, lastMonth=0;
+      clientsInSub.forEach(c=>{
+        const t=clientProfitTotal(c.id); our+=t.our; gross+=t.gross; clientShare+=t.clientShare;
+        thisMonth += clientProfitInMonth(c.id, thisMonthStart, todayStr());
+        lastMonth += clientProfitInMonth(c.id, lastMonthStart, lastMonthEnd);
+      });
       if (our===0 && gross===0 && clientShare===0) return null;
       anyData = true;
-      return { subName, clientCount:clientsInSub.length, our, gross, clientShare };
+      return { subName, clientCount:clientsInSub.length, our, gross, clientShare, thisMonth, lastMonth };
     }).filter(Boolean);
 
     if (!subRows.length) return '';
@@ -3261,10 +3450,10 @@ function reportSubReferenceProfit(){
     <div class="section-card">
       <div class="sc-head"><h3>${escapeHtml(refName)}</h3><div class="spacer"></div><span class="small-muted">Total Our Profit: <b class="gold">${fmtMoney(refTotalOur)}</b></span></div>
       <div class="sc-body table-wrap">
-        <table class="dt"><thead><tr><th>Sub-Reference</th><th>Clients</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead>
+        <table class="dt"><thead><tr><th>Sub-Reference</th><th>Clients</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th><th>Trend (vs last month)</th></tr></thead>
         <tbody>
-          ${subRows.map(r=>`<tr><td>${escapeHtml(r.subName)}</td><td>${r.clientCount}</td><td>${fmtMoney(r.gross)}</td><td>${fmtMoney(r.our)}</td><td>${fmtMoney(r.clientShare)}</td></tr>`).join('')}
-          <tr style="font-weight:700;border-top:2px solid var(--border);"><td>Total</td><td>${clientsInRef.length}</td><td>${fmtMoney(refTotalGross)}</td><td>${fmtMoney(refTotalOur)}</td><td>${fmtMoney(refTotalClient)}</td></tr>
+          ${subRows.map(r=>`<tr><td>${escapeHtml(r.subName)}</td><td>${r.clientCount}</td><td>${fmtMoney(r.gross)}</td><td>${fmtMoney(r.our)}</td><td>${fmtMoney(r.clientShare)}</td><td>${trendArrow(r.thisMonth, r.lastMonth)}</td></tr>`).join('')}
+          <tr style="font-weight:700;border-top:2px solid var(--border);"><td>Total</td><td>${clientsInRef.length}</td><td>${fmtMoney(refTotalGross)}</td><td>${fmtMoney(refTotalOur)}</td><td>${fmtMoney(refTotalClient)}</td><td></td></tr>
         </tbody></table>
       </div>
     </div>`;
@@ -3284,6 +3473,20 @@ function reportClientAnalysis(){
     const st = clientStats(c.id);
     return `<tr class="clickable" onclick="navigate('clients',{id:${c.id}})"><td>${escapeHtml(c.clientName)}</td><td>${escapeHtml(c.subReference||'—')}</td><td>${st.apps.length}</td><td>${st.allotted.length}</td><td>${st.notAllotted.length}</td><td>${st.sold.length}</td><td>${fmtMoney(st.amountApplied)}</td><td>${fmtMoney(st.grossReceived)}</td><td>${fmtMoney(st.profit)}</td><td>${fmtMoney(st.clientProfit)}</td></tr>`;
   }).join('') || `<tr class="empty-row"><td colspan="10">No clients match.</td></tr>`;
+
+  // #9: Inactive client flagging — no application in 60+/90+ days, based on their most recent application date
+  const today = new Date(todayStr());
+  const inactiveRows = S.clients.map(c=>{
+    const apps = S.applications.filter(a=>a.clientId===c.id);
+    if (!apps.length) return null; // never applied at all — different case, not "went inactive"
+    const lastDate = apps.map(a=>a.applicationDate).filter(Boolean).sort().pop();
+    if (!lastDate) return null;
+    const daysSince = Math.round((today - new Date(lastDate)) / 86400000);
+    if (daysSince < 60) return null;
+    return { name:c.clientName, id:c.id, lastDate, daysSince };
+  }).filter(Boolean).sort((a,b)=>b.daysSince-a.daysSince);
+  const inactiveTableRows = inactiveRows.map(r=>`<tr class="clickable" onclick="navigate('clients',{id:${r.id}})"><td>${escapeHtml(r.name)}</td><td>${fmtDate(r.lastDate)}</td><td class="${r.daysSince>=90?'danger':''}">${r.daysSince} days${r.daysSince>=90?' ⚠️':''}</td></tr>`).join('');
+
   return `<div class="section-card">
     <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;">
       <select onchange="setCaFilter('reference', this.value)">
@@ -3296,7 +3499,15 @@ function reportClientAnalysis(){
       </select>
     </div>
   </div>
-  <div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Sub Reference</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  <div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Sub Reference</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>Inactive Clients — Re-engagement List</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Clients with no application in 60+ days, sorted by longest inactive first. Past 90 days is flagged.</p>
+      ${inactiveTableRows ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Last Application</th><th>Days Inactive</th></tr></thead><tbody>${inactiveTableRows}</tbody></table></div>` : '<p class="small-muted">No inactive clients right now — everyone has applied within the last 60 days.</p>'}
+    </div>
+  </div>`;
 }
 function reportIpoAnalysis(){
   const rows = S.ipos.map(i=>{
@@ -3305,9 +3516,46 @@ function reportIpoAnalysis(){
     const sold = st.apps.filter(a=>a.saleStatus==='Sold').length;
     const amountApplied = st.apps.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
     const gross = st.apps.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.grossFinal:0); },0);
-    return `<tr><td>${escapeHtml(i.ipoName)}</td><td>${st.apps.length}</td><td>${st.allotted.length}</td><td>${notAllotted}</td><td>${sold}</td><td>${fmtMoney(amountApplied)}</td><td>${fmtMoney(gross)}</td><td>${fmtMoney(st.profit)}</td></tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="8">No IPOs yet.</td></tr>`;
-  return `<div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    const resolvedCount = st.allotted.length + notAllotted;
+    const winRate = resolvedCount ? Math.round((st.allotted.length/resolvedCount)*1000)/10 : null;
+    return { ipoName:i.ipoName, apps:st.apps.length, allotted:st.allotted.length, notAllotted, sold, amountApplied, gross, profit:st.profit, winRate, resolvedCount };
+  });
+  const tableRows = rows.map(r=>`<tr><td>${escapeHtml(r.ipoName)}</td><td>${r.apps}</td><td>${r.allotted}</td><td>${r.notAllotted}</td><td>${r.sold}</td><td>${fmtMoney(r.amountApplied)}</td><td>${fmtMoney(r.gross)}</td><td>${fmtMoney(r.profit)}</td></tr>`).join('') || `<tr class="empty-row"><td colspan="8">No IPOs yet.</td></tr>`;
+
+  const leaderboard = rows.filter(r=>r.resolvedCount>0).sort((a,b)=>b.winRate-a.winRate);
+  const leaderboardRows = leaderboard.map(r=>`<tr><td>${escapeHtml(r.ipoName)}</td><td>${r.allotted}/${r.resolvedCount}</td><td class="${r.winRate>=50?'ok':'danger'}">${r.winRate}%</td></tr>`).join('') || `<tr class="empty-row"><td colspan="3">No resolved allotments yet.</td></tr>`;
+
+  const buckets = [
+    { label:'Under ₹10,000', min:0, max:10000 },
+    { label:'₹10,000 – ₹15,000', min:10000, max:15000 },
+    { label:'₹15,000 – ₹25,000', min:15000, max:25000 },
+    { label:'Above ₹25,000', min:25000, max:Infinity }
+  ];
+  const bucketRows = buckets.map(b=>{
+    const inBucket = S.applications.filter(a=>{
+      const amt = Number(a.amountApplied)||0;
+      return amt>=b.min && amt<b.max && (a.allotmentStatus==='Allotted'||a.allotmentStatus==='Not Allotted');
+    });
+    const allottedInBucket = inBucket.filter(a=>a.allotmentStatus==='Allotted').length;
+    const rate = inBucket.length ? Math.round((allottedInBucket/inBucket.length)*1000)/10 : null;
+    return `<tr><td>${b.label}</td><td>${inBucket.length}</td><td>${allottedInBucket}</td><td>${rate===null?'—':rate+'%'}</td></tr>`;
+  }).join('');
+
+  return `
+  <div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th></tr></thead><tbody>${tableRows}</tbody></table></div></div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>IPO Win-Rate Leaderboard</h3></div>
+    <div class="sc-body table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Allotted / Resolved</th><th>Allotment Rate</th></tr></thead><tbody>${leaderboardRows}</tbody></table></div>
+  </div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>Application Size vs. Allotment Rate</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Does applying a smaller amount actually improve your odds? Bucketed across all resolved applications, all IPOs combined.</p>
+      <div class="table-wrap"><table class="dt"><thead><tr><th>Amount Applied</th><th>Applications</th><th>Allotted</th><th>Allotment Rate</th></tr></thead><tbody>${bucketRows}</tbody></table></div>
+    </div>
+  </div>`;
 }
 function reportBankAnalysis(){
   const rows = S.bankAccounts.map(b=>{
@@ -3562,6 +3810,7 @@ function viewSettings(){
           <div><span class="small-muted">Connected Account</span><br><b>${escapeHtml(window.__drive.email||S.settings.driveConnectedEmail||'—')}</b></div>
           <div><span class="small-muted">Data File</span><br><b>${DRIVE_FILE_NAME}</b></div>
           <div><span class="small-muted">Last Synced</span><br><b>${S.settings.lastSynced ? new Date(S.settings.lastSynced).toLocaleString('en-IN') : '—'}</b></div>
+          <div><span class="small-muted">Last Auto-Backup Snapshot</span><br><b>${S.settings.lastAutoBackupDate ? fmtDate(S.settings.lastAutoBackupDate) : 'Not yet — creates one automatically after your next sync'}</b><br><span class="small-muted">Keeps the last 7 daily snapshots in your Drive folder, separate from the live data file.</span></div>
         </div>
         <div class="btn-row" style="justify-content:flex-start;">
           <button class="btn btn-primary" onclick="syncToDrive()">Sync Now</button>
@@ -4459,6 +4708,40 @@ async function driveCreateFile(folderId){
   });
   return await res.json();
 }
+/* #12: rolling automatic daily backup snapshots, separate from the live data
+   file — a safety net in case something goes wrong between manual exports.
+   Owner-only (collaborators shouldn't create their own independent snapshot
+   chains), and only once per calendar day so this doesn't spam Drive or burn
+   API calls on every sync. */
+async function maybeCreateDailyBackupSnapshot(){
+  if (window.__drive.role !== 'owner' || !window.__drive.folderId) return;
+  const today = todayStr();
+  if (S.settings.lastAutoBackupDate === today) return; // already done today
+  try {
+    const name = `ipo_portal_snapshot_${today}.json`;
+    const metadata = { name, parents: [window.__drive.folderId], mimeType: 'application/json' };
+    const boundary = '-------ipoportalsnap' + Date.now();
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(snapshotData())}\r\n--${boundary}--`;
+    await driveApi('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+      method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+    });
+    await saveSetting('lastAutoBackupDate', today);
+    await pruneOldBackupSnapshots();
+  } catch(err){ /* non-critical background task — don't interrupt normal sync if this fails */ }
+}
+async function pruneOldBackupSnapshots(){
+  try {
+    const q = encodeURIComponent(`name contains 'ipo_portal_snapshot_' and '${window.__drive.folderId}' in parents and trashed=false`);
+    const res = await driveApi(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=name desc`);
+    const json = await res.json();
+    const files = json.files || [];
+    for (const f of files.slice(7)){ // keep the 7 most recent, delete the rest
+      await driveApi(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method:'DELETE' });
+    }
+  } catch(err){ /* non-critical — old snapshots just accumulate until next successful prune */ }
+}
 async function driveBootstrapFolderAndFile(){
   setDriveStatus('syncing');
   let folder = S.settings.driveFolderId ? { id: S.settings.driveFolderId } : await driveFindFolder();
@@ -4503,6 +4786,7 @@ async function syncToDrive(){
     window.__drive.pendingChanges = false;
     await saveSetting('lastSynced', new Date().toISOString());
     setDriveStatus('idle');
+    maybeCreateDailyBackupSnapshot(); // fire-and-forget: internally checks role + once-per-day, never blocks sync
   } catch(err){
     setDriveStatus('error');
   }
