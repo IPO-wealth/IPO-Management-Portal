@@ -502,9 +502,15 @@ async function loadAll(){
   if (!S.settings.lastSynced) S.settings.lastSynced = '';
 }
 
+/* Settings that belong to ONE device/person and must never travel through the shared Drive file
+   (otherwise one person's sign-in, theme, lock PIN etc. overwrite everyone else's). */
+const LOCAL_ONLY_SETTINGS = new Set(['appLockEnabled','appLockPin','autoLockMinutes','browserNotifsEnabled','columnVisibility','driveClientId','driveConnectedEmail','driveFileId','driveFolderId','googlePickerApiKey','lastAutoBackupDate','lastManualBackup','lastRestore','lastSynced','theme','savedPresets']);
+function isLocalOnlySetting(k){ return LOCAL_ONLY_SETTINGS.has(k) || k.startsWith('collabFileId_') || k.startsWith('collabFolderId_'); }
 async function saveSetting(key, value){
   S.settings[key] = value;
   await putRec('settings', { key, value });
+  // shared settings (collaborators, references, etc.) must reach Drive too, not just this device
+  if (!window.__suppressReadOnlyCheck && !isLocalOnlySetting(key) && typeof scheduleSync === 'function') scheduleSync();
 }
 
 async function audit(action, entity, entityId, prevVal, newVal){
@@ -4299,7 +4305,7 @@ function snapshotData(){
     version: DB_VERSION, exportedAt: new Date().toISOString(),
     clients: S.clients, bankAccounts: S.bankAccounts, ipos: S.ipos, ipoPlans: S.ipoPlans,
     plannedClients: S.plannedClients, applications: S.applications, bankUpiIds: S.bankUpiIds,
-    settings: S.settings, auditLogs: S.auditLogs
+    settings: Object.fromEntries(Object.entries(S.settings).filter(([k])=>!isLocalOnlySetting(k))), auditLogs: S.auditLogs
   };
 }
 function localBackupDownload(){
@@ -4326,7 +4332,13 @@ async function restoreSnapshot(data){
       for (const rec of arr) await putRec(store, rec);
     }
     if (data.settings){
-      for (const [k,v] of Object.entries(data.settings)) await saveSetting(k, v);
+      const isOwner = window.__drive && window.__drive.role === 'owner';
+      for (const [k,v] of Object.entries(data.settings)){
+        if (isLocalOnlySetting(k)) continue;
+        if (isOwner && k==='authorizedEmail' && S.settings[k]) continue;
+        if (isOwner && k==='collaborators' && (S.settings[k]||[]).length) continue; // owner's list is the master copy
+        await saveSetting(k, v);
+      }
     }
     await loadAll();
   } finally {
@@ -4479,7 +4491,8 @@ async function grantCollaboratorAccess(){
     const collaborators = (S.settings.collaborators || []).filter(c=>c.email!==email);
     collaborators.push({ email, role });
     await saveSetting('collaborators', collaborators);
-    toast(`Access granted to ${email} (${role})`,'ok');
+    const pushed = await pushSharedSettingsNow();
+    toast(pushed ? `Access granted to ${email} (${role}) and saved to Google Drive` : `Access granted to ${email}, but saving the list to Drive failed — check connection and try again`, pushed ? 'ok' : 'warn');
     navigate('settings');
   } catch(err){
     console.error('grantCollaboratorAccess failed:', err);
@@ -4489,10 +4502,26 @@ async function grantCollaboratorAccess(){
       `<button class="btn btn-primary" onclick="closeModal()">Close</button>`);
   }
 }
+/* Push the owner's access list to the Drive file right now, before any background pull can overwrite it. */
+async function pushSharedSettingsNow(){
+  try {
+    if (window.__drive.syncTimer) clearTimeout(window.__drive.syncTimer);
+    window.__drive.pendingChanges = true;
+    const meta = await driveGetFileMeta(window.__drive.fileId);
+    if (window.__drive.remoteModifiedTime && meta.modifiedTime !== window.__drive.remoteModifiedTime){
+      const res = await driveApi(`https://www.googleapis.com/drive/v3/files/${window.__drive.fileId}?alt=media`);
+      await restoreSnapshot(await res.json()); // owner's access list is preserved by restoreSnapshot
+      window.__drive.remoteModifiedTime = meta.modifiedTime;
+    }
+    await syncToDrive();
+    return window.__drive.status === 'idle';
+  } catch(e){ return false; }
+}
 async function revokeCollaboratorAccess(email){
   confirmAction(`Remove ${escapeHtml(email)}'s access to this portal? They will need to be re-invited to get access again.`, async () => {
     const collaborators = (S.settings.collaborators || []).filter(c=>c.email!==email);
     await saveSetting('collaborators', collaborators);
+    await pushSharedSettingsNow();
     toast('Access removed — note: this stops future syncing for them, but does not retroactively revoke the Google Drive file permission. Remove that separately in Drive if needed.','ok');
     navigate('settings');
   });
