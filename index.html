@@ -4445,6 +4445,7 @@ async function openCollaboratorFilePicker(){
     .addView(view)
     .setOAuthToken(window.__drive.accessToken)
     .setDeveloperKey(apiKey)
+    .setAppId(String(S.settings.driveClientId||'').split('-')[0]) // Cloud project number: required so Google grants this app access to the picked file under drive.file scope
     .setCallback(async (data) => {
       if (data.action === google.picker.Action.PICKED){
         const file = data.docs[0];
@@ -4452,7 +4453,16 @@ async function openCollaboratorFilePicker(){
         await saveSetting('collabFileId_'+email, file.id);
         if (file.parentId) await saveSetting('collabFolderId_'+email, file.parentId);
         window.__drive.fileId = file.id;
-        await refreshFromDrive(true);
+        const ok = await refreshFromDrive(true);
+        if (!ok){
+          window.__drive.role = 'pending';
+          openModal('Could not open the shared file',
+            `<p style="font-size:13px;line-height:1.6;">Google refused to let this portal read the file you picked.</p>
+             <p style="font-size:13px;line-height:1.6;"><b>Error:</b> ${escapeHtml(window.__drive.lastError||'unknown')}</p>
+             <p class="small-muted">Send this message to the portal owner.</p>`,
+            `<button class="btn btn-primary" onclick="closeModal()">Close</button>`);
+          return;
+        }
         // Only now, after pulling the REAL shared settings, do we actually know
         // whether this person is an Editor or Viewer — trusting anything set
         // before this point would be a guess, which is exactly what caused the
@@ -4852,13 +4862,15 @@ async function refreshFromDrive(silent){
       try { await saveSetting('lastSynced', new Date().toISOString()); } finally { window.__suppressReadOnlyCheck = false; }
       setDriveStatus('idle');
       if (!silent){ toast('Refreshed from Google Drive','ok'); navigate('dashboard'); }
+      return true;
     } catch(err){
       setDriveStatus('error'); window.__drive.lastError = err && err.message ? err.message : String(err);
       const hint = (err && (err.status===404||err.status===403)) ? ' — this Google account has not selected the shared file yet. Press "Select Shared Data File".' : '';
       if (!silent) toast('Could not refresh from Google Drive: '+window.__drive.lastError+hint,'danger');
+      return false;
     }
   };
-  if (silent) { await doRefresh(); return; }
+  if (silent) { return await doRefresh(); }
   confirmAction('This will replace your local working copy with the latest data from Google Drive. Continue?', doRefresh);
 }
 async function driveResetDeviceConnection(){
