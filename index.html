@@ -3822,6 +3822,8 @@ function viewSettings(){
           <button class="btn btn-primary" onclick="syncToDrive()">Sync Now</button>
           <button class="btn btn-ghost" onclick="refreshFromDrive()">Refresh From Google Drive</button>
           <button class="btn btn-ghost" onclick="localBackupDownload()">Export Backup</button>
+          ${window.__drive.role && window.__drive.role !== 'owner' ? `<button class="btn btn-gold" onclick="openCollaboratorFilePicker()">Select Shared Data File</button>` : ''}
+          <button class="btn btn-ghost" onclick="driveResetDeviceConnection()">Reset This Device's Connection</button>
           <button class="btn btn-danger" onclick="driveSignOut()">Sign Out</button>
         </div>
       ` : `
@@ -3832,6 +3834,7 @@ function viewSettings(){
         <div class="btn-row" style="justify-content:flex-start;">
           <button class="btn btn-ghost" onclick="saveDriveConfig()">Save Client ID</button>
           <button class="btn btn-primary" onclick="driveConnect()">Connect Google Drive</button>
+          <button class="btn btn-ghost" onclick="driveResetDeviceConnection()">Reset This Device's Connection</button>
         </div>
       `}
     </div>
@@ -4667,7 +4670,14 @@ async function driveVerifyAndBootstrap(silent){
       }
     }
     if (!silent && !(window.__drive.role !== 'owner' && !S.settings['collabFileId_'+email])) navigate('settings');
-  } catch(err){ if (!silent) toast('Google Drive sign-in failed','danger'); }
+  } catch(err){
+    console.error('driveVerifyAndBootstrap failed', err);
+    setDriveStatus('error');
+    if (!silent) openModal('Google Drive sign-in failed',
+      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(err && err.message ? err.message : 'Unknown error')}</p>
+       <p class="small-muted">If this keeps happening on this device, use <b>Reset This Device's Connection</b> in Settings → Cloud Storage and connect again.</p>`,
+      `<button class="btn btn-primary" onclick="closeModal()">Close</button>`);
+  }
 }
 
 /* ---- cross-device auto-pull: periodically check if the Drive file changed
@@ -4773,13 +4783,19 @@ async function pruneOldBackupSnapshots(){
 }
 async function driveBootstrapFolderAndFile(){
   setDriveStatus('syncing');
-  let folder = S.settings.driveFolderId ? { id: S.settings.driveFolderId } : await driveFindFolder();
+  // Validate any remembered ids: they may be stale or belong to a different Google account
+  // (older versions copied them between devices), which used to crash sign-in.
+  let folder = null;
+  if (S.settings.driveFolderId){
+    try { const r = await driveApi(`https://www.googleapis.com/drive/v3/files/${S.settings.driveFolderId}?fields=id,trashed`); const j = await r.json(); if (!j.trashed) folder = { id: j.id }; } catch(e){ folder = null; }
+  }
+  if (!folder) folder = await driveFindFolder();
   if (!folder){ folder = await driveCreateFolder(); }
   window.__drive.folderId = folder.id;
   await saveSetting('driveFolderId', folder.id);
 
   let file = S.settings.driveFileId ? await driveGetFileMeta(S.settings.driveFileId).catch(()=>null) : null;
-  if (!file) file = await driveFindFile(folder.id);
+  if (!file) file = await driveFindFile(folder.id).catch(()=>null);
   if (!file){ file = await driveCreateFile(folder.id); }
   window.__drive.fileId = file.id;
   window.__drive.remoteModifiedTime = file.modifiedTime || null;
@@ -4839,6 +4855,24 @@ async function refreshFromDrive(silent){
   };
   if (silent) { await doRefresh(); return; }
   confirmAction('This will replace your local working copy with the latest data from Google Drive. Continue?', doRefresh);
+}
+async function driveResetDeviceConnection(){
+  confirmAction("Reset this device's Google Drive connection? Your data on Google Drive is not touched. You'll be asked to connect again and say whether this is your own portal or one shared with you.", async () => {
+    stopDrivePolling();
+    window.__suppressReadOnlyCheck = true;
+    try {
+      for (const k of Object.keys(S.settings)){
+        if (['driveFileId','driveFolderId','driveConnectedEmail','authorizedEmail','collaborators','lastSynced'].includes(k) || k.startsWith('collabFileId_') || k.startsWith('collabFolderId_')){
+          await delRec('settings', k); delete S.settings[k];
+        }
+      }
+    } finally { window.__suppressReadOnlyCheck = false; }
+    window.__drive.signedIn = false; window.__drive.accessToken = null; window.__drive.email = null;
+    window.__drive.fileId = null; window.__drive.folderId = null; window.__drive.role = null; window.__drive.pendingChanges = false;
+    setDriveStatus('idle');
+    toast('Connection reset on this device. Click Connect Google Drive.','ok');
+    navigate('settings');
+  });
 }
 function driveSignOut(){
   stopDrivePolling();
