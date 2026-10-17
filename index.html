@@ -514,7 +514,8 @@ async function saveSetting(key, value){
 }
 
 async function audit(action, entity, entityId, prevVal, newVal){
-  const rec = { timestamp: new Date().toISOString(), action, entity, entityId: String(entityId), prev: prevVal ? JSON.stringify(prevVal) : '', next: newVal ? JSON.stringify(newVal) : '' };
+  const by = (window.__drive && window.__drive.email) || (S.settings && S.settings.driveConnectedEmail) || 'This device';
+  const rec = { timestamp: new Date().toISOString(), by, action, entity, entityId: String(entityId), prev: prevVal ? JSON.stringify(prevVal) : '', next: newVal ? JSON.stringify(newVal) : '' };
   const id = await putRec('auditLogs', rec);
   rec.id = id;
   S.auditLogs.unshift(rec);
@@ -525,7 +526,10 @@ async function audit(action, entity, entityId, prevVal, newVal){
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function fmtDate(d){ if(!d) return '—'; const dt = new Date(d); if(isNaN(dt)) return d; return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtMoney(n){ n = Number(n)||0; return '₹' + n.toLocaleString('en-IN',{maximumFractionDigits:0}); }
-function todayStr(){ return new Date().toISOString().slice(0,10); }
+// Local-date helpers: build YYYY-MM-DD from the device's own year/month/day.
+// (toISOString converts to UTC first, which shifts dates back a day in India.)
+function localDateStr(dt){ return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0'); }
+function todayStr(){ return localDateStr(new Date()); }
 
 // ---- shared, safe date-sorting utilities (Point 54) ----
 // Missing/invalid dates always sort to the end regardless of direction, so a
@@ -558,7 +562,12 @@ function sortedPlans(list){
   // Default Plan ordering used everywhere in the app (Points 45-47): newest created first.
   return (list || S.ipoPlans).slice().sort((a,b) => compareDatesDesc(a.createdAt, b.createdAt) || (b.id - a.id));
 }
-function isoDate(d){ if(!d) return ''; const dt = new Date(d); if(isNaN(dt)) return ''; return dt.toISOString().slice(0,10); }
+function isoDate(d){
+  if(!d) return '';
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d; // already a plain date — keep as-is
+  const dt = new Date(d); if(isNaN(dt)) return '';
+  return localDateStr(dt);
+}
 function escapeHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg, kind=''){
   const el = document.createElement('div');
@@ -600,7 +609,7 @@ function statusBadgeClass(status){
     'Allotted':'green','Not Allotted':'red','Pending':'gray',
     'Pending to Sell':'gold','Sold':'purple',
     'Received':'green','Receivable':'gold',
-    'Planned':'blue','Partially Executed':'gold','Executed':'green','Cancelled':'red',
+    'Planned':'blue','Partially Executed':'gold','Executed':'green','Cancelled':'red','Cancelled / Withdrawn':'red','Mandate Failed':'red',
     'Active':'green','Inactive':'gray',
     'Matched':'green','Bank Changed':'gold','Date Changed':'gold','Under Planned':'red','Over Planned':'blue',
     'Not Planned':'red','Partially Planned':'gold'
@@ -609,21 +618,40 @@ function statusBadgeClass(status){
 }
 function badge(status){ return `<span class="badge ${statusBadgeClass(status)}">${escapeHtml(status||'—')}</span>`; }
 
+// ---- planned client count ----
+// The number of planned clients is DERIVED from the clients actually mapped to the plan (never typed by hand),
+// so capacity, variance and reports can't drift. Old plans that were typed by hand and never had clients
+// mapped keep their typed number until you map clients to them (after which the real mapping takes over).
+function planClientCount(plan){
+  if (!plan) return 0;
+  const mapped = S.plannedClients.filter(pc => pc.planId === plan.id && S.clients.some(c => c.id === pc.clientId)).length;
+  if (mapped === 0 && !plan.countSynced) return Number(plan.plannedClientCount) || 0; // legacy hand-typed plan
+  return mapped;
+}
+async function syncPlanClientCount(plan){
+  const n = S.plannedClients.filter(pc => pc.planId === plan.id && S.clients.some(c => c.id === pc.clientId)).length;
+  if (plan.plannedClientCount === n && plan.countSynced) return;
+  plan.plannedClientCount = n; plan.countSynced = true; plan.updatedAt = new Date().toISOString();
+  await putRec('ipoPlans', plan);
+}
+
 // ---- bank capacity ----
+// The per-bank-per-day mandate limit comes ONLY from Settings (any whole number >= 1). 6 is just the starting default.
+function capacityLimit(){ const n = Math.floor(Number(S.settings.mandateCapacityPerBankPerDay)); return n >= 1 ? n : 6; }
 function bankCapacity(bankAccountId, dateStr){
   const plans = S.ipoPlans.filter(p => p.bankAccountId === bankAccountId && p.plannedDate === dateStr && p.planStatus !== 'Cancelled');
   // Mandates = total individual client applications planned through this bank on this
   // date, NOT the number of IPO-plan rows. One IPO planned for 6 different clients is
   // 6 mandates, not 1 — each client needs their own separate application/mandate
   // regardless of how many share the same IPO/bank/date.
-  const planned = plans.reduce((s,p) => s + (p.plannedClientCount||0), 0);
-  const capacity = Number(S.settings.mandateCapacityPerBankPerDay) || 6;
+  const planned = plans.reduce((s,p) => s + planClientCount(p), 0);
+  const capacity = capacityLimit();
   const available = capacity - planned;
   const utilisation = Math.round((planned / capacity) * 1000) / 10;
   let status = 'Available';
   if (planned > capacity) status = 'Over Capacity';
   else if (planned === capacity) status = 'Full';
-  else if (planned >= capacity - 2) status = 'Near Capacity';
+  else if (planned >= capacity - Math.max(1, Math.round(capacity/3))) status = 'Near Capacity'; // within ~a third of the limit
   return { planned, capacity, available, utilisation, status, plans };
 }
 function capClass(status){
@@ -639,8 +667,8 @@ function planVariance(plan){
   const dateChanged = acts.some(a => a.applicationDate !== plan.plannedDate);
   if (bankChanged) return 'Bank Changed';
   if (dateChanged) return 'Date Changed';
-  if (actualCount < (plan.plannedClientCount||0)) return 'Under Planned';
-  if (actualCount > (plan.plannedClientCount||0)) return 'Over Planned';
+  if (actualCount < planClientCount(plan)) return 'Under Planned';
+  if (actualCount > planClientCount(plan)) return 'Over Planned';
   return 'Matched';
 }
 
@@ -648,6 +676,15 @@ function planVariance(plan){
 // Allotment/Sale calculation. No partial sale: an allotted lot is either "Pending to Sell" or fully "Sold".
 // Gross Received / Our Profit / Client Profit are only meaningful once Allotted + Sold, and each is independently overridable.
 function isFilled(v){ return v !== null && v !== undefined && v !== ''; }
+// Our share of the profit, in %. New applications are stamped with the current default (Settings → Profit Sharing,
+// normally 50) when created, and each application can be changed individually. Older applications without a stamp
+// were always 50/50, so they stay 50/50 — changing the default never rewrites history.
+const LEGACY_PROFIT_SHARE = 50;
+function defaultProfitShare(){ const n = Number(S.settings.profitSharePct); return (S.settings.profitSharePct !== undefined && S.settings.profitSharePct !== null && S.settings.profitSharePct !== '' && n >= 0 && n <= 100) ? n : 50; }
+// A client can have their own share (Clients → Edit → "Our profit share %"); blank = use the default.
+function clientOwnShare(c){ if (!c) return null; const v = c.profitSharePct; if (v === undefined || v === null || v === '') return null; const n = Number(v); return (n >= 0 && n <= 100) ? n : null; }
+function shareForClient(clientId){ const own = clientOwnShare(findClient(clientId)); return own !== null ? own : defaultProfitShare(); }
+function appProfitShare(app){ const n = Number(app.profitSharePct); return (app.profitSharePct !== undefined && app.profitSharePct !== null && app.profitSharePct !== '' && n >= 0 && n <= 100) ? n : LEGACY_PROFIT_SHARE; }
 function calcAllotmentSale(app){
   const applicable = app.allotmentStatus === 'Allotted' && app.saleStatus === 'Sold' && isFilled(app.saleAmount);
   if (!applicable){
@@ -655,7 +692,7 @@ function calcAllotmentSale(app){
   }
   const applied = Number(app.amountApplied)||0;
   const sale = Number(app.saleAmount)||0;
-  const calculatedGross = applied + 0.5*(sale-applied);
+  const calculatedGross = applied + (appProfitShare(app)/100)*(sale-applied);
   const grossOverridden = !!app.grossReceivedOverridden && isFilled(app.grossReceived);
   const grossFinal = grossOverridden ? Number(app.grossReceived) : calculatedGross;
   const calculatedOur = grossFinal - applied;
@@ -863,7 +900,9 @@ function navigate(view, params={}){
   window.scrollTo(0,0);
 }
 
+var __drillStore = [];
 function render(){
+  __drillStore = [];
   const c = document.getElementById('content');
   renderNotifBadge();
   invalidateTopClientCache();
@@ -1150,8 +1189,8 @@ async function confirmQuickAllotmentStatus(id){
   if (newStatus !== 'Allotted'){ updated.saleStatus = null; }
   if (newStatus === 'Allotted' && !updated.saleStatus) updated.saleStatus = 'Pending to Sell';
   updated.updatedAt = new Date().toISOString();
-  await putRec('applications', updated); Object.assign(a, updated);
-  await audit('Allotment Updates','Application', id, a, updated);
+  await putRec('applications', updated); const __prev1 = {...a}; Object.assign(a, updated);
+  await audit('Allotment Updates','Application', id, __prev1, updated);
   closeModal();
   toast('Allotment status updated','ok');
   navigate('allotments');
@@ -1168,8 +1207,8 @@ async function confirmQuickRecoveryStatus(id){
   if (!a) return;
   const newStatus = document.getElementById('quickRecoveryStatus').value;
   const updated = { ...a, amountReceiveStatus: newStatus, updatedAt: new Date().toISOString() };
-  await putRec('applications', updated); Object.assign(a, updated);
-  await audit('Allotment Updates','Application', id, a, updated);
+  await putRec('applications', updated); const __prev2 = {...a}; Object.assign(a, updated);
+  await audit('Allotment Updates','Application', id, __prev2, updated);
   closeModal();
   toast('Recovery status updated','ok');
   navigate('allotments');
@@ -1228,6 +1267,7 @@ function viewClients(){
         { key:'clientName', label:'Name', render:r=>escapeHtml(r.clientName) + (getTopClientIds().has(r.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top</span>' : '') },
         { key:'referenceName', label:'Reference' },
         { key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
+        { key:'profitSharePct', label:'Our Share', render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b>${o}%</b>` : `<span class="small-muted">${defaultProfitShare()}% (default)</span>`; } },
         { key:'ipos', label:'IPOs', render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', render:r=>clientStats(r.id).apps.length },
         { key:'allotments', label:'Allotments', render:r=>clientStats(r.id).allotted.length },
@@ -1251,7 +1291,8 @@ function clientFields(c){
     { key:'clientName', label:'Client Name', required:true },
     { key:'referenceName', label:'Reference', type:'select', options:S.settings.references, required:true },
     { key:'subReference', label:'Sub Reference', type:'select', options:['',...(S.settings.subReferences||[])], placeholder:'None' },
-    { key:'status', label:'Status', type:'select', options:['Active','Inactive'] }
+    { key:'status', label:'Status', type:'select', options:['Active','Inactive'] },
+    { key:'profitSharePct', label:'Our Profit Share % (optional)', type:'number', hint:`Leave blank for the standard ${defaultProfitShare()}% (Settings → Profit Sharing). Fill in only for a client with a different deal — it applies to this client's NEW applications.` }
   ].map(f => fieldHtml(f, c ? c[f.key] : (f.key==='status'?'Active':''))).join('');
 }
 function editClient(id){
@@ -1261,13 +1302,15 @@ function editClient(id){
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveClient(${id||'null'})">Save</button>`);
 }
 async function saveClient(id, force){
-  const fields = [{key:'clientName'},{key:'referenceName'},{key:'subReference'},{key:'status'}];
+  const fields = [{key:'clientName'},{key:'referenceName'},{key:'subReference'},{key:'status'},{key:'profitSharePct',type:'number'}];
   const data = readFields(fields);
   // Normalize: trim accidental leading/trailing spaces and collapse doubled internal spaces.
   data.clientName = (data.clientName||'').trim().replace(/\s+/g,' ');
   data.referenceName = (data.referenceName||'').trim().replace(/\s+/g,' ');
   data.subReference = (data.subReference||'').trim().replace(/\s+/g,' ');
   if (!data.clientName){ toast('Client name is required','warn'); return; }
+  if (data.profitSharePct === null || data.profitSharePct === undefined || isNaN(data.profitSharePct)) data.profitSharePct = null;
+  else if (data.profitSharePct < 0 || data.profitSharePct > 100){ toast('Profit share must be between 0 and 100','warn'); return; }
 
   const dupe = S.clients.find(c => c.id!==id && c.clientName.toLowerCase() === data.clientName.toLowerCase());
   if (dupe && !force){
@@ -1280,9 +1323,21 @@ async function saveClient(id, force){
     const existing = findClient(id);
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
     await putRec('clients', updated);
-    Object.assign(existing, updated);
-    await audit('Client Edit','Client', existing.clientId, existing, updated);
+    const __prev3 = {...existing}; Object.assign(existing, updated);
+    await audit('Client Edit','Client', existing.clientId, __prev3, updated);
     toast('Client updated','ok');
+    // If this client's share changed, offer to bring their not-yet-sold applications in line (sold ones are never touched).
+    const newShare = shareForClient(existing.id);
+    const unsold = S.applications.filter(a => a.clientId === existing.id && a.saleStatus !== 'Sold' && appProfitShare(a) !== newShare);
+    if (unsold.length && clientOwnShare(__prev3) !== clientOwnShare(existing)){
+      closeModal(); navigate('clients');
+      confirmAction(`${escapeHtml(existing.clientName)}'s profit share is now ${newShare}%. Apply ${newShare}% to their ${unsold.length} application(s) that are not sold yet? (Sold applications are never changed.)`, async () => {
+        for (const a of unsold){ const u = { ...a, profitSharePct: newShare, updatedAt: new Date().toISOString() }; await putRec('applications', u); Object.assign(a, u); }
+        await audit('Profit Share Bulk Update','Client', existing.clientId, null, { count: unsold.length, share: newShare });
+        toast(`Updated ${unsold.length} application(s)`,'ok'); navigate('clients');
+      });
+      return;
+    }
   } else {
     const clientId = nextCode(S.clients, 'clientId', 'CL');
     const rec = { clientId, ...data, status: data.status||'Active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -1364,6 +1419,7 @@ function viewClientDetail(id){
       <div class="form-grid" style="margin-bottom:14px;">
         <div><span class="small-muted">Reference</span><br><b>${escapeHtml(c.referenceName||'—')}</b></div>
         <div><span class="small-muted">Sub Reference</span><br><b>${escapeHtml(c.subReference||'—')}</b></div>
+        <div><span class="small-muted">Our Profit Share</span><br><b>${shareForClient(c.id)}%</b> <span class="small-muted">${clientOwnShare(c)!==null?'(custom)':'(default)'}</span></div>
         <div><span class="small-muted">Status</span><br>${badge(c.status)}</div>
         <div><span class="small-muted">Added</span><br><b>${fmtDate(c.createdAt)}</b></div>
       </div>
@@ -1414,7 +1470,7 @@ function viewBanks(){
         { key:'apps', label:'Applications', render:r=>bankStats(r.id).apps.length },
         { key:'upis', label:'UPI IDs', render:r=>bankUpis(r.id).length },
         { key:'profit', label:'Our Profit', render:r=>fmtMoney(bankStats(r.id).profit) },
-        { key:'today', label:"Today's Utilisation", render:r=>{ const cap = bankCapacity(r.id, todayStr()); return `<span class="cap-cell ${capClass(cap.status)}">${cap.planned}/6</span>`; } }
+        { key:'today', label:"Today's Utilisation", render:r=>{ const cap = bankCapacity(r.id, todayStr()); return `<span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity}</span>`; } }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editBank(${r.id})">Edit</button>
                          <button class="btn btn-sm btn-danger" onclick="deleteBank(${r.id})">Delete</button>`
@@ -1426,7 +1482,7 @@ function viewBanks(){
     <div class="sc-head"><h3>Bank Accounts</h3><div class="spacer"></div><button class="btn btn-primary" onclick="editBank()">+ Add Bank Account</button></div>
     <div class="sc-body" id="banksTblWrap"></div>
   </div>
-  <p class="small-muted">Rule: maximum 6 IPOs may be planned per bank account per day (soft warning, not enforced as a hard block).</p>`;
+  <p class="small-muted">Rule: maximum ${capacityLimit()} client mandates may be planned per bank account per day (change it in Settings) (soft warning, not enforced as a hard block).</p>`;
 }
 function bankFields(b){
   return [
@@ -1478,8 +1534,8 @@ async function saveBank(id){
   if (id){
     const existing = findBank(id);
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
-    await putRec('bankAccounts', updated); Object.assign(existing, updated);
-    await audit('Bank Account Edit','BankAccount', existing.bankId, existing, updated);
+    await putRec('bankAccounts', updated); const __prev4 = {...existing}; Object.assign(existing, updated);
+    await audit('Bank Account Edit','BankAccount', existing.bankId, __prev4, updated);
     toast('Bank account updated','ok');
   } else {
     const bankId = nextCode(S.bankAccounts, 'bankId', 'BANK');
@@ -1505,8 +1561,8 @@ async function saveBank(id){
       const existingRec = S.bankUpiIds.find(x=>x.id===u.id);
       if (existingRec && existingRec.upiId !== u.upiId){
         const updated = { ...existingRec, upiId: u.upiId, updatedAt: new Date().toISOString() };
-        await putRec('bankUpiIds', updated); Object.assign(existingRec, updated);
-        await audit('UPI Edited','BankUpiId', u.id, existingRec, updated);
+        await putRec('bankUpiIds', updated); const __prev5 = {...existingRec}; Object.assign(existingRec, updated);
+        await audit('UPI Edited','BankUpiId', u.id, __prev5, updated);
       }
     } else {
       const rec = { bankAccountId, upiId: u.upiId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -1628,11 +1684,11 @@ function viewIpoDetail(id){
   if (!ipo) return `<p>IPO not found. <button class="link-btn" onclick="navigate('ipos')">Back</button></p>`;
   const apps = S.applications.filter(a=>a.ipoId===id);
   const plans = S.ipoPlans.filter(p=>p.ipoId===id);
-  const plannedCount = plans.reduce((s,p)=>s+(p.plannedClientCount||0),0);
+  const plannedCount = plans.reduce((s,p)=>s+planClientCount(p),0);
   const appliedCount = apps.filter(a=>a.applicationStatus==='Applied').length;
   const allotted = apps.filter(a=>a.allotmentStatus==='Allotted');
   const notAllotted = apps.filter(a=>a.allotmentStatus==='Not Allotted');
-  const pendingAllotment = apps.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending');
+  const pendingAllotment = apps.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
   const sold = apps.filter(a=>a.saleStatus==='Sold');
   const pendingSale = allotted.filter(a=>a.saleStatus!=='Sold');
   const received = apps.filter(a=>a.amountReceiveStatus==='Received');
@@ -1737,8 +1793,8 @@ async function bulkSetIpoArchiveStatus(status){
     const ipo = findIpo(id);
     if (!ipo || (ipo.archiveStatus||'Active')===status) continue;
     const updated = { ...ipo, archiveStatus: status, updatedAt: new Date().toISOString() };
-    await putRec('ipos', updated); Object.assign(ipo, updated);
-    await audit(status==='Inactive'?'IPO Deactivated':'IPO Reactivated','IPO', ipo.ipoId, ipo, updated);
+    await putRec('ipos', updated); const __prev6 = {...ipo}; Object.assign(ipo, updated);
+    await audit(status==='Inactive'?'IPO Deactivated':'IPO Reactivated','IPO', ipo.ipoId, __prev6, updated);
   }
   toast(`${__selectedIpoIds.size} IPO(s) set to ${status}`,'ok');
   __selectedIpoIds = new Set();
@@ -1766,6 +1822,8 @@ function viewIpos(){
         { key:'openDate', label:'Open', render:r=>fmtDate(r.openDate) },
         { key:'closeDate', label:'Close', render:r=>fmtDate(r.closeDate) },
         { key:'allotmentDate', label:'Allotment Date', render:r=>fmtDate(r.allotmentDate) },
+        { key:'category', label:'Category', render:r=>escapeHtml(r.category||'—') },
+        { key:'listingGain', label:'Listing Gain', render:r=>{ const g=ipoListingGainPct(r); return g==null?'—':`<span class="${g>=0?'ok':'danger'}">${g.toFixed(1)}%</span>`; } },
         { key:'status', label:'Status', render:r=>badge(ipoStatus(r)) },
         { key:'archiveStatus', label:'Active/Inactive', render:r=>badge(r.archiveStatus||'Active') },
         { key:'planned', label:'Planned', render:r=>ipoStats(r.id).plans.length },
@@ -1792,6 +1850,12 @@ function ipoFields(i){
     { key:'openDate', label:'Open Date', type:'date', required:true },
     { key:'closeDate', label:'Close Date', type:'date', required:true },
     { key:'allotmentDate', label:'Allotment Date', type:'date', hint:'Company-wide allotment date for this IPO — automatically applied to every application\u2019s Allotment & Sale record and not editable per-application.' },
+    { key:'category', label:'Category (optional)', type:'select', options:['Mainboard','SME'], placeholder:'—' },
+    { key:'issuePrice', label:'Issue Price per Share (optional)', type:'number' },
+    { key:'lotSize', label:'Lot Size — shares per lot (optional)', type:'number' },
+    { key:'gmp', label:'GMP per Share (optional)', type:'number', hint:'Grey market premium when you applied. Can be negative.' },
+    { key:'listingDate', label:'Listing Date (optional)', type:'date' },
+    { key:'listingPrice', label:'Listing Price per Share (optional)', type:'number', hint:'Fill in after listing — used for Reports → Listing & GMP.' },
     { key:'archiveStatus', label:'Active/Inactive', type:'select', options:['Active','Inactive'], hint:'Separate from the automatic Upcoming/Open/Closed lifecycle status below — this only controls whether the IPO is archived.' }
   ].map(f => fieldHtml(f, i ? (f.key==='archiveStatus' ? (i.archiveStatus||'Active') : i[f.key]) : (f.key==='archiveStatus' ? 'Active' : ''))).join('');
 }
@@ -1801,11 +1865,29 @@ function editIpo(id){
     `<div class="form-grid">${ipoFields(i)}</div><p class="hint">Status (Upcoming / Open / Closed) is calculated automatically from today's date vs open/close dates.</p>`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveIpo(${id||'null'})">Save</button>`);
 }
+/* Keeps every application's stored allotment date in step with its IPO's allotment date.
+   The IPO is the single source of truth for this date, so whenever the IPO changes,
+   all of its existing applications are brought up to date. Returns how many changed. */
+async function syncIpoAllotmentDate(ipo){
+  const newDate = ipo.allotmentDate || null;
+  let count = 0;
+  for (const a of S.applications){
+    if (a.ipoId !== ipo.id) continue;
+    if ((a.allotmentDate || null) === newDate) continue;
+    const updated = { ...a, allotmentDate: newDate, updatedAt: new Date().toISOString() };
+    await putRec('applications', updated); Object.assign(a, updated);
+    count++;
+  }
+  if (count) await audit('Allotment Date Synced','IPO', ipo.ipoId, null, { applicationsUpdated: count, allotmentDate: newDate });
+  return count;
+}
 async function saveIpo(id, force){
-  const data = readFields([{key:'ipoName'},{key:'minimumApplicationAmount',type:'number'},{key:'openDate'},{key:'closeDate'},{key:'allotmentDate'},{key:'archiveStatus'}]);
+  const data = readFields([{key:'ipoName'},{key:'minimumApplicationAmount',type:'number'},{key:'openDate'},{key:'closeDate'},{key:'allotmentDate'},{key:'category'},{key:'issuePrice',type:'number'},{key:'lotSize',type:'number'},{key:'gmp',type:'number'},{key:'listingDate'},{key:'listingPrice',type:'number'},{key:'archiveStatus'}]);
   if (!data.ipoName || !data.openDate || !data.closeDate){ toast('IPO name and dates are required','warn'); return; }
   if (data.closeDate < data.openDate){ toast('Close date cannot be before open date','warn'); return; }
   if (!data.allotmentDate) data.allotmentDate = null;
+  if (!data.category) data.category = null;
+  if (!data.listingDate) data.listingDate = null;
   const dupe = S.ipos.find(i => i.id!==id && i.ipoName.trim().toLowerCase() === data.ipoName.trim().toLowerCase());
   if (dupe && !force){
     openModal('Possible Duplicate IPO',
@@ -1816,9 +1898,10 @@ async function saveIpo(id, force){
   if (id){
     const existing = findIpo(id);
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
-    await putRec('ipos', updated); Object.assign(existing, updated);
-    await audit('IPO Edit','IPO', existing.ipoId, existing, updated);
-    toast('IPO updated','ok');
+    await putRec('ipos', updated); const __prev7 = {...existing}; Object.assign(existing, updated);
+    await audit('IPO Edit','IPO', existing.ipoId, __prev7, updated);
+    const syncedCount = await syncIpoAllotmentDate(existing);
+    toast(syncedCount ? `IPO updated — allotment date refreshed on ${syncedCount} application(s)` : 'IPO updated','ok');
   } else {
     const ipoId = nextCode(S.ipos, 'ipoId', 'IPO');
     const rec = { ipoId, ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -1908,7 +1991,7 @@ function planningPlansTab(){
         { key:'ipoId', label:'IPO', render:r=>{ const i=findIpo(r.ipoId); return escapeHtml(i?i.ipoName:'—'); } },
         { key:'plannedDate', label:'Planned Date', render:r=>fmtDate(r.plannedDate) },
         { key:'bankAccountId', label:'Bank', render:r=>{ const b=findBank(r.bankAccountId); return escapeHtml(b?b.bankName:'—'); } },
-        { key:'plannedClientCount', label:'Planned Clients' },
+        { key:'plannedClientCount', label:'Planned Clients', render:r=>planClientCount(r) },
         { key:'status', label:'Status', render:r=>badge(planStatusComputed(r)) },
         { key:'variance', label:'Vs Actual', render:r=>badge(planVariance(r)) },
         { key:'notes', label:'Notes', render:r=>escapeHtml(r.notes||'—') }
@@ -1934,7 +2017,6 @@ function planFields(p){
     { key:'ipoId', label:'IPO', type:'select', required:true, placeholder:'Select IPO', options: sortedActiveIpos(p?p.ipoId:null).map(i=>({value:i.id,label:i.ipoName})) },
     { key:'plannedDate', label:'Planned Application Date', type:'date', required:true },
     { key:'bankAccountId', label:'Bank Account', type:'select', required:true, placeholder:'Select Bank', options: S.bankAccounts.filter(b=>b.status==='Active').map(b=>({value:b.id,label:b.bankName})) },
-    { key:'plannedClientCount', label:'Planned Number of Client Applications', type:'number' },
     { key:'planStatus', label:'Planned Status', type:'select', options:['Planned','Partially Executed','Executed','Cancelled'] },
     { key:'notes', label:'Notes', type:'textarea', span2:true }
   ].map(f => fieldHtml(f, p ? p[f.key] : (f.key==='planStatus'?'Planned':''))).join('');
@@ -1942,11 +2024,11 @@ function planFields(p){
 function editPlan(id){
   const p = id ? findPlan(id) : null;
   openModal(p ? 'Edit IPO Plan' : 'New IPO Plan',
-    `<div class="form-grid">${planFields(p)}</div>`,
+    `<div class="form-grid">${planFields(p)}</div><p class="hint">Planned client count is worked out automatically from the clients you add with the <b>Clients</b> button${p ? ` (currently <b>${planClientCount(p)}</b>)` : ''} — there is nothing to type.</p>`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="savePlan(${id||'null'})">Save</button>`, true);
 }
 async function savePlan(id, forceOverride){
-  const data = readFields([{key:'ipoId',type:'number'},{key:'plannedDate'},{key:'bankAccountId',type:'number'},{key:'plannedClientCount',type:'number'},{key:'planStatus'},{key:'notes'}]);
+  const data = readFields([{key:'ipoId',type:'number'},{key:'plannedDate'},{key:'bankAccountId',type:'number'},{key:'planStatus'},{key:'notes'}]);
   if (!data.ipoId || !data.plannedDate || !data.bankAccountId){ toast('IPO, date and bank are required','warn'); return; }
 
   // duplicate check
@@ -1963,9 +2045,10 @@ async function savePlan(id, forceOverride){
   // capacity check — count actual mandates (plannedClientCount), not a flat +1 per plan
   const cap = bankCapacity(data.bankAccountId, data.plannedDate);
   const existingPlanSameSlot = id ? S.ipoPlans.find(x=>x.id===id && x.bankAccountId===data.bankAccountId && x.plannedDate===data.plannedDate) : null;
-  const previousMandatesForThisPlan = existingPlanSameSlot ? (existingPlanSameSlot.plannedClientCount||0) : 0;
-  const projected = cap.planned - previousMandatesForThisPlan + (data.plannedClientCount||0);
-  if (projected > cap.capacity && !forceOverride){
+  const thisPlanMandates = id ? planClientCount(findPlan(id)) : 0;       // clients already mapped to this plan
+  const previousMandatesForThisPlan = existingPlanSameSlot ? thisPlanMandates : 0; // already counted in cap.planned if slot unchanged
+  const projected = cap.planned - previousMandatesForThisPlan + thisPlanMandates;
+  if (thisPlanMandates > 0 && projected > cap.capacity && !forceOverride){
     const bank = findBank(data.bankAccountId);
     openModal('⚠️ Capacity Warning',
       `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(data.plannedDate)}.<br>
@@ -1978,11 +2061,11 @@ async function savePlan(id, forceOverride){
   if (id){
     const existing = findPlan(id);
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
-    await putRec('ipoPlans', updated); Object.assign(existing, updated);
-    await audit('Plan Modification','IPOPlan', id, existing, updated);
+    await putRec('ipoPlans', updated); const __prev8 = {...existing}; Object.assign(existing, updated);
+    await audit('Plan Modification','IPOPlan', id, __prev8, updated);
     toast('Plan updated','ok');
   } else {
-    const rec = { ...data, planStatus: data.planStatus||'Planned', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const rec = { ...data, plannedClientCount: 0, countSynced: true, planStatus: data.planStatus||'Planned', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const newId = await putRec('ipoPlans', rec); rec.id = newId; S.ipoPlans.push(rec);
     await audit('Plan Creation','IPOPlan', newId, null, rec);
     toast('Plan created','ok');
@@ -1992,10 +2075,16 @@ async function savePlan(id, forceOverride){
 function deletePlan(id){
   const p = findPlan(id);
   const dependentClients = S.plannedClients.filter(pc=>pc.planId===id);
-  const msg = dependentClients.length
-    ? `This plan has ${dependentClients.length} client(s) mapped to it. Deleting it will release those clients for re-planning against this IPO. Continue?`
-    : `Delete this plan?`;
+  const linkedApps = S.applications.filter(a=>a.planId===id);
+  const parts = [];
+  if (dependentClients.length) parts.push(`${dependentClients.length} client(s) mapped to it, who will be released for re-planning against this IPO`);
+  if (linkedApps.length) parts.push(`${linkedApps.length} application(s) created from it, which will be kept but will no longer be linked to any plan`);
+  const msg = parts.length ? `This plan has ${parts.join(' and ')}. Continue?` : `Delete this plan?`;
   confirmAction(msg, async () => {
+    for (const a of linkedApps){
+      const updated = { ...a, planId: null, updatedAt: new Date().toISOString() };
+      await putRec('applications', updated); Object.assign(a, updated);
+    }
     await delRec('ipoPlans', id);
     S.ipoPlans = S.ipoPlans.filter(x=>x.id!==id);
     for (const pc of dependentClients){ await delRec('plannedClients', pc.id); }
@@ -2054,11 +2143,14 @@ async function togglePlanClient(planId, clientId, checked){
     const rec = { planId, clientId, createdAt: new Date().toISOString() };
     const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec);
     await audit('Plan Modification','PlannedClient', id, null, rec);
+    const cap = bankCapacity(plan.bankAccountId, plan.plannedDate);
+    if (cap.planned > cap.capacity) toast(`Heads up: ${findBank(plan.bankAccountId).bankName} now has ${cap.planned} mandates on ${fmtDate(plan.plannedDate)} (limit ${cap.capacity})`,'warn');
   } else if (!checked && existing){
     await delRec('plannedClients', existing.id);
     S.plannedClients = S.plannedClients.filter(x=>x.id!==existing.id);
     await audit('Plan Modification','PlannedClient', existing.id, existing, null);
   }
+  await syncPlanClientCount(plan);
 }
 
 /* ---- bulk client planning ---- */
@@ -2074,7 +2166,7 @@ function bulkPlanClients(){
       <div class="f-group"><label>IPO *</label><select id="bpIpo" onchange="renderBulkPlanClientList()"><option value="">Select IPO</option>${ipoOpts}</select></div>
       <div class="f-group"><label>Planned Date *</label><input type="date" id="bpDate"></div>
       <div class="f-group"><label>Bank Account *</label><select id="bpBank"><option value="">Select Bank</option>${bankOpts}</select></div>
-      <div class="f-group"><label>&nbsp;</label><div class="small-muted">${Number(S.settings.mandateCapacityPerBankPerDay)||6}-mandate/bank/day capacity rule — each client counts as one mandate, regardless of how many share the same IPO.</div></div>
+      <div class="f-group"><label>&nbsp;</label><div class="small-muted">${capacityLimit()}-mandate/bank/day capacity rule — each client counts as one mandate, regardless of how many share the same IPO.</div></div>
     </div>
     <div class="f-group span2" style="margin-top:12px;">
       <label>Select Clients</label>
@@ -2153,12 +2245,9 @@ async function submitBulkPlan(force){
     return;
   }
   if (!plan){
-    const rec = { ipoId, plannedDate, bankAccountId, plannedClientCount: clientIds.length, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+    const rec = { ipoId, plannedDate, bankAccountId, countSynced:true, plannedClientCount: 0, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
     const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec;
     await audit('Plan Creation','IPOPlan', id, null, rec);
-  } else {
-    plan.plannedClientCount = (plan.plannedClientCount||0) + clientIds.length;
-    await putRec('ipoPlans', plan);
   }
   for (const cid of clientIds){
     if (!S.plannedClients.some(pc=>pc.planId===plan.id && pc.clientId===cid)){
@@ -2166,6 +2255,7 @@ async function submitBulkPlan(force){
       const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec);
     }
   }
+  await syncPlanClientCount(plan); // keep the stored count equal to the clients actually mapped
   toast(`${clientIds.length} client(s) planned for ${findIpo(ipoId).ipoName}${blocked.length?` (${blocked.length} skipped — already planned for this IPO)`:''}`, 'ok');
   closeModal(); navigate('planning');
 }
@@ -2188,7 +2278,7 @@ function planningCalendarTab(){
     const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const bankLines = activeBanks.slice(0,4).map(b=>{
       const cap = bankCapacity(b.id, dateStr);
-      return `<div class="bankline"><span>${escapeHtml(b.bankName.slice(0,10))}</span><span class="cap-cell ${capClass(cap.status)}" style="padding:0 5px;">${cap.planned}/6</span></div>`;
+      return `<div class="bankline"><span>${escapeHtml(b.bankName.slice(0,10))}</span><span class="cap-cell ${capClass(cap.status)}" style="padding:0 5px;">${cap.planned}/${cap.capacity}</span></div>`;
     }).join('');
     cells += `<div class="cal-cell" onclick="openCalendarDate('${dateStr}')"><div class="dnum">${d}</div>${bankLines}${activeBanks.length>4?`<div class="small-muted">+${activeBanks.length-4} more</div>`:''}</div>`;
   }
@@ -2214,9 +2304,9 @@ function openCalendarDate(dateStr){
   const activeBanks = S.bankAccounts.filter(b=>b.status==='Active');
   const blocks = activeBanks.map(b=>{
     const cap = bankCapacity(b.id, dateStr);
-    const list = cap.plans.map(p=>{ const ipo = findIpo(p.ipoId); return `<li>${escapeHtml(ipo?ipo.ipoName:'—')} <span class="small-muted">(${p.plannedClientCount||0} clients planned)</span></li>`; }).join('') || '<li class="small-muted">No IPOs planned</li>';
+    const list = cap.plans.map(p=>{ const ipo = findIpo(p.ipoId); return `<li>${escapeHtml(ipo?ipo.ipoName:'—')} <span class="small-muted">(${planClientCount(p)} clients planned)</span></li>`; }).join('') || '<li class="small-muted">No IPOs planned</li>';
     return `<div style="margin-bottom:12px;">
-      <div style="display:flex;align-items:center;gap:8px;"><b>${escapeHtml(b.bankName)}</b><span class="cap-cell ${capClass(cap.status)}">${cap.planned}/6 used</span><span class="small-muted">${cap.available} slot(s) remaining</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><b>${escapeHtml(b.bankName)}</b><span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity} used</span><span class="small-muted">${cap.available} slot(s) remaining</span></div>
       <ul style="margin:6px 0 0 18px;font-size:12.5px;">${list}</ul>
     </div>`;
   }).join('');
@@ -2262,7 +2352,7 @@ function planningVarianceTab(){
       <td>${escapeHtml(ipo?ipo.ipoName:'—')}</td>
       <td>${fmtDate(p.plannedDate)}</td>
       <td>${escapeHtml(bank?bank.bankName:'—')}</td>
-      <td>${p.plannedClientCount||0}</td>
+      <td>${planClientCount(p)}</td>
       <td>${actualDate?fmtDate(actualDate):'—'}</td>
       <td>${actualBank?escapeHtml(actualBank.bankName):'—'}</td>
       <td>${acts.length}</td>
@@ -2283,7 +2373,7 @@ function planningVarianceTab(){
 function upcomingPlanningStatus(ipo){
   const plans = S.ipoPlans.filter(p=>p.ipoId===ipo.id);
   if (!plans.length) return 'Not Planned';
-  const totalPlannedClients = plans.reduce((s,p)=>s+(p.plannedClientCount||0),0);
+  const totalPlannedClients = plans.reduce((s,p)=>s+planClientCount(p),0);
   const mappedClients = S.plannedClients.filter(pc => plans.some(p=>p.id===pc.planId)).length;
   if (mappedClients >= totalPlannedClients && totalPlannedClients > 0) return 'Planned';
   return 'Partially Planned';
@@ -2312,7 +2402,9 @@ function quickPlan(ipoId){
 </script>
 <script>
 /* =================== APPLICATIONS =================== */
-const APP_STATUSES = ['Not Applied','To Be Applied','Applied'];
+const APP_STATUSES = ['Not Applied','To Be Applied','Applied','Cancelled / Withdrawn','Mandate Failed'];
+// Cancelled / failed applications never block money and never wait for an allotment result.
+function isLiveApp(a){ return a.applicationStatus !== 'Cancelled / Withdrawn' && a.applicationStatus !== 'Mandate Failed'; }
 
 function findApp(id){ return S.applications.find(a=>a.id===id); }
 
@@ -2395,8 +2487,8 @@ async function bulkUpdateAppStatus(){
     const existing = findApp(id);
     if (!existing || existing.applicationStatus === status) continue;
     const updated = { ...existing, applicationStatus: status, updatedAt: new Date().toISOString() };
-    await putRec('applications', updated); Object.assign(existing, updated);
-    await audit('Application Status Change','Application', id, existing, updated);
+    await putRec('applications', updated); const __prev9 = {...existing}; Object.assign(existing, updated);
+    await audit('Application Status Change','Application', id, __prev9, updated);
   }
   toast(`Status updated for ${__selectedAppIds.size} application(s)`, 'ok');
   __selectedAppIds = new Set();
@@ -2406,9 +2498,9 @@ async function bulkUpdateAppStatus(){
 function appFields(a){
   const planOpts = sortedPlans().map(p=>{ const ipo=findIpo(p.ipoId); return {value:p.id, label:`${ipo?ipo.ipoName:''} · ${fmtDate(p.plannedDate)}`}; });
   return [
-    { key:'clientId', label:'Client', type:'select', required:true, placeholder:'Select Client', options: S.clients.map(c=>({value:c.id,label:`${c.clientId} — ${c.clientName}`})) },
+    { key:'clientId', label:'Client', type:'select', required:true, placeholder:'Select Client', options: S.clients.filter(c=>c.status!=='Inactive' || (a && c.id===a.clientId)).map(c=>({value:c.id,label:`${c.clientId} — ${c.clientName}${c.status==='Inactive'?' (Inactive)':''}`})) },
     { key:'ipoId', label:'IPO', type:'select', required:true, placeholder:'Select IPO', options: sortedActiveIpos(a?a.ipoId:null).map(i=>({value:i.id,label:i.ipoName})) },
-    { key:'bankAccountId', label:'Bank Account', type:'select', required:true, placeholder:'Select Bank', onchange:"refreshAppUpiField(this.value,'')", options: S.bankAccounts.map(b=>({value:b.id,label:b.bankName})) },
+    { key:'bankAccountId', label:'Bank Account', type:'select', required:true, placeholder:'Select Bank', onchange:"refreshAppUpiField(this.value,'')", options: S.bankAccounts.filter(b=>b.status==='Active' || (a && b.id===a.bankAccountId)).map(b=>({value:b.id,label:`${b.bankName}${b.status!=='Active'?' (Inactive)':''}`})) },
     { key:'applicationDate', label:'Application Date', type:'date', required:true },
     { key:'amountApplied', label:'Amount Applied', type:'number', required:true },
     { key:'applicationStatus', label:'Application Status', type:'select', options: APP_STATUSES },
@@ -2450,11 +2542,11 @@ async function saveApplication(id, force){
   if (id){
     const existing = findApp(id);
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
-    await putRec('applications', updated); Object.assign(existing, updated);
-    await audit('Application Status Change','Application', id, existing, updated);
+    await putRec('applications', updated); const __prev10 = {...existing}; Object.assign(existing, updated);
+    await audit('Application Status Change','Application', id, __prev10, updated);
     toast('Application updated','ok');
   } else {
-    const rec = { ...data, allotmentStatus:'Pending', allotmentDate:null, saleStatus:null, saleDate:null, saleAmount:null,
+    const rec = { ...data, profitSharePct: shareForClient(data.clientId), allotmentStatus:'Pending', allotmentDate:null, saleStatus:null, saleDate:null, saleAmount:null,
       calculatedGrossReceived:null, grossReceived:null, grossReceivedOverridden:false,
       calculatedOurProfit:null, ourProfit:null, ourProfitOverridden:false,
       calculatedClientProfit:null, clientProfit:null, clientProfitOverridden:false,
@@ -2529,7 +2621,7 @@ async function submitBulkApply(){
     const amt = Number(document.querySelector(`.baAmt[data-cid="${cid}"]`).value) || 0;
     const plan = findPlan(planId);
     const rec = { clientId:cid, ipoId:plan.ipoId, bankAccountId, applicationDate:date, upiId, amountApplied:amt,
-      applicationStatus:'Applied', planId, allotmentStatus:'Pending', allotmentDate:null, saleStatus:null, saleDate:null, saleAmount:null,
+      applicationStatus:'Applied', planId, profitSharePct: shareForClient(cid), allotmentStatus:'Pending', allotmentDate:null, saleStatus:null, saleDate:null, saleAmount:null,
       calculatedGrossReceived:null, grossReceived:null, grossReceivedOverridden:false,
       calculatedOurProfit:null, ourProfit:null, ourProfitOverridden:false,
       calculatedClientProfit:null, clientProfit:null, clientProfitOverridden:false,
@@ -2556,7 +2648,7 @@ function viewAllotments(){
     .sort((a,b) => compareDatesDesc(a.allotmentDate, b.allotmentDate) || (b.id - a.id));
   const allotted = apps.filter(a=>a.allotmentStatus==='Allotted');
   const notAllotted = apps.filter(a=>a.allotmentStatus==='Not Allotted');
-  const pending = apps.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending');
+  const pending = apps.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
   const allotRate = apps.length ? Math.round((allotted.length/apps.length)*1000)/10 : 0;
   const pendingToSell = allotted.filter(a=>a.saleStatus!=='Sold');
   const totalOurProfit = apps.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s + (c.applicable?c.ourFinal:0); },0);
@@ -2644,7 +2736,7 @@ function viewAllotments(){
       <div id="allotTblWrap"></div>
     </div>
   </div>
-  <p class="small-muted">There is no partial sale — the entire allotted lot is sold in a single transaction. Gross Received = Applied Amount + 50% × (Sale Amount − Applied Amount); calculated automatically once Allotted + Sold, and independently overridable. Allotment Date is fixed at the IPO level (see IPOs tab) and cannot be edited per application.</p>`;
+  <p class="small-muted">There is no partial sale — the entire allotted lot is sold in a single transaction. Gross Received = Applied Amount + (your profit share %) × (Sale Amount − Applied Amount) — normally 50%, set in Settings → Profit Sharing and adjustable per application; calculated automatically once Allotted + Sold, and independently overridable. Allotment Date is fixed at the IPO level (see IPOs tab) and cannot be edited per application.</p>`;
 }
 function __refreshAllotSelectionUI(){
   if (window.__tableRerender['allotTbl']) window.__tableRerender['allotTbl']();
@@ -2673,8 +2765,8 @@ async function bulkUpdateAllotmentStatus(){
     else if (status === 'Allotted'){ if (a.saleStatus !== 'Sold') patch.saleStatus = 'Pending to Sell'; }
     else { patch.saleStatus = null; }
     const updated = { ...a, ...patch, updatedAt: new Date().toISOString() };
-    await putRec('applications', updated); Object.assign(a, updated);
-    await audit('Allotment Updates','Application', id, a, updated);
+    await putRec('applications', updated); const __prev11 = {...a}; Object.assign(a, updated);
+    await audit('Allotment Updates','Application', id, __prev11, updated);
     count++;
   }
   toast(`Allotment status updated for ${count} row(s)`, 'ok');
@@ -2689,8 +2781,8 @@ async function bulkUpdateSaleDate(){
     const a = findApp(id);
     if (!a || a.allotmentStatus !== 'Allotted'){ skipped++; continue; }
     const updated = { ...a, saleDate: dateVal, saleStatus: 'Sold', updatedAt: new Date().toISOString() };
-    await putRec('applications', updated); Object.assign(a, updated);
-    await audit('Allotment Updates','Application', id, a, updated);
+    await putRec('applications', updated); const __prev12 = {...a}; Object.assign(a, updated);
+    await audit('Allotment Updates','Application', id, __prev12, updated);
     count++;
   }
   toast(`Sale date applied to ${count} row(s)${skipped?`, ${skipped} skipped (not Allotted)`:''}`, 'ok');
@@ -2704,8 +2796,8 @@ async function bulkUpdateRecoveryStatus(){
     const a = findApp(id);
     if (!a || a.saleStatus !== 'Sold'){ skipped++; continue; }
     const updated = { ...a, amountReceiveStatus: status, updatedAt: new Date().toISOString() };
-    await putRec('applications', updated); Object.assign(a, updated);
-    await audit('Allotment Updates','Application', id, a, updated);
+    await putRec('applications', updated); const __prev13 = {...a}; Object.assign(a, updated);
+    await audit('Allotment Updates','Application', id, __prev13, updated);
     count++;
   }
   toast(`Recovery status updated for ${count} row(s)${skipped?`, ${skipped} skipped (not Sold)`:''}`, 'ok');
@@ -2723,6 +2815,9 @@ function allotmentSaleModalBody(a){
         <option value="">—</option>
         ${SALE_STATUSES.map(s=>`<option value="${s}" ${a.saleStatus===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
+      ${fieldHtml({key:'profitSharePct',label:'Our Profit Share % (this application)',type:'number',hint:`Standard share is ${defaultProfitShare()}% (this client's own share, if set, is used for new applications). The client keeps the rest. Change only if this deal is different.`}, appProfitShare(a))}
+      ${fieldHtml({key:'lotsAllotted',label:'Lots Allotted (optional)',type:'number',hint:'Only if allotted'}, a.lotsAllotted!=null?a.lotsAllotted:'')}
+      ${fieldHtml({key:'sharesAllotted',label:'Shares Allotted (optional)',type:'number',hint:'Only if allotted'}, a.sharesAllotted!=null?a.sharesAllotted:'')}
       ${fieldHtml({key:'saleDate',label:'Sale Date',type:'date'}, a.saleDate||'')}
       ${fieldHtml({key:'saleAmount',label:'Sale Amount (total for the full allotted lot)',type:'number'}, a.saleAmount!=null?a.saleAmount:'')}
     </div>
@@ -2778,7 +2873,7 @@ function onSaleStatusChange(){
   // Gross/Our/Client Profit are (re)computed on save; nothing to do live here beyond enabling/disabling the Sale Status field, handled in onAllotmentStatusChange.
 }
 async function saveAllotmentSale(id, force){
-  const data = readFields([{key:'allotmentStatus'},{key:'saleStatus'},{key:'saleDate'},{key:'saleAmount',type:'number'},{key:'grossReceived',type:'number'},{key:'amountReceiveStatus'},{key:'ourProfit',type:'number'},{key:'clientProfit',type:'number'}]);
+  const data = readFields([{key:'allotmentStatus'},{key:'saleStatus'},{key:'saleDate'},{key:'saleAmount',type:'number'},{key:'profitSharePct',type:'number'},{key:'lotsAllotted',type:'number'},{key:'sharesAllotted',type:'number'},{key:'grossReceived',type:'number'},{key:'amountReceiveStatus'},{key:'ourProfit',type:'number'},{key:'clientProfit',type:'number'}]);
   const a = findApp(id);
   const ipo = findIpo(a.ipoId);
   data.allotmentDate = ipo ? (ipo.allotmentDate || null) : null; // hard-locked to the IPO's allotment date
@@ -2790,8 +2885,22 @@ async function saveAllotmentSale(id, force){
     return;
   }
 
+  if (data.profitSharePct === null || data.profitSharePct === undefined || isNaN(data.profitSharePct)) data.profitSharePct = appProfitShare(a);
+  if (data.profitSharePct < 0 || data.profitSharePct > 100){ toast('Profit share must be between 0 and 100','warn'); return; }
+  // Calculated values shown in the form that the user did not touch must keep auto-calculating (e.g. after changing the
+  // share % or the sale amount) — they are only a manual override if the user typed a different figure.
+  {
+    const oldCalc = calcAllotmentSale({ ...a, grossReceivedOverridden:false, ourProfitOverridden:false, clientProfitOverridden:false });
+    if (oldCalc.applicable){
+      if (!a.grossReceivedOverridden && isFilled(data.grossReceived) && Number(data.grossReceived) === oldCalc.calculatedGross) data.grossReceived = null;
+      if (!a.ourProfitOverridden && isFilled(data.ourProfit) && Number(data.ourProfit) === oldCalc.calculatedOur) data.ourProfit = null;
+      if (!a.clientProfitOverridden && isFilled(data.clientProfit) && Number(data.clientProfit) === oldCalc.calculatedClient) data.clientProfit = null;
+    }
+  }
   if (data.allotmentStatus === 'Not Allotted'){ data.saleStatus = null; data.saleDate = null; data.saleAmount = null; }
-  if (data.allotmentStatus !== 'Allotted'){ data.saleStatus = null; }
+  if (data.allotmentStatus !== 'Allotted'){ data.saleStatus = null; data.lotsAllotted = null; data.sharesAllotted = null; }
+  if (data.lotsAllotted === '' || data.lotsAllotted === undefined) data.lotsAllotted = null;
+  if (data.sharesAllotted === '' || data.sharesAllotted === undefined) data.sharesAllotted = null;
   if (data.allotmentStatus === 'Allotted' && !data.saleStatus) data.saleStatus = 'Pending to Sell';
   if (!data.amountReceiveStatus) data.amountReceiveStatus = null;
 
@@ -2830,8 +2939,8 @@ async function saveAllotmentSale(id, force){
     calculatedOurProfit: calc.applicable ? calc.calculatedOur : null,
     calculatedClientProfit: calc.applicable ? calc.calculatedClient : null,
     updatedAt: new Date().toISOString() };
-  await putRec('applications', updated); Object.assign(a, updated);
-  await audit('Allotment Updates','Application', id, a, updated);
+  await putRec('applications', updated); const __prev14 = {...a}; Object.assign(a, updated);
+  await audit('Allotment Updates','Application', id, __prev14, updated);
   toast('Allotment / sale updated','ok');
   closeModal(); navigate('allotments');
 }
@@ -2847,10 +2956,10 @@ function fyRange(offsetYears){
   fyStartYear -= offsetYears;
   return { from: `${fyStartYear}-04-01`, to: `${fyStartYear+1}-03-31` };
 }
-function resolveDashRange(){
+function resolveDashRange(){ return presetRange(dashRange.preset, dashRange.from, dashRange.to); }
+function presetRange(p, customFrom, customTo){
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
-  const p = dashRange.preset;
   if (p === 'today') return { from: todayStr(), to: todayStr() };
   if (p === 'thisWeek'){
     const dow = now.getDay();
@@ -2862,10 +2971,67 @@ function resolveDashRange(){
   if (p === 'prevMonth') return { from: isoDate(new Date(y,m-1,1)), to: isoDate(new Date(y,m,0)) };
   if (p === 'thisFY') return fyRange(0);
   if (p === 'prevFY') return fyRange(1);
-  if (p === 'custom') return { from: dashRange.from || '0001-01-01', to: dashRange.to || '9999-12-31' };
+  if (p === 'custom') return { from: customFrom || '0001-01-01', to: customTo || '9999-12-31' };
   return { from: '0001-01-01', to: '9999-12-31' };
 }
 function inRange(dateStr, r){ return dateStr && dateStr >= r.from && dateStr <= r.to; }
+
+/* ---- previous-period comparison ---- */
+// The period just before r: previous calendar month for a whole month, previous financial year for a whole FY,
+// otherwise the same number of days immediately before. Returns null for open-ended ("all time") ranges.
+function previousRange(r){
+  if (!r || r.from <= '0001-01-01' || r.to >= '9999-12-31') return null;
+  const [fy, fm, fd] = r.from.split('-').map(Number), [ty, tm, td] = r.to.split('-').map(Number);
+  const lastDay = new Date(fy, fm, 0).getDate();
+  if (fd === 1 && fy === ty && fm === tm && td === lastDay) return { from: localDateStr(new Date(fy, fm-2, 1)), to: localDateStr(new Date(fy, fm-1, 0)) };
+  if (fd === 1 && fm === 4 && ty === fy+1 && tm === 3 && td === 31) return { from: `${fy-1}-04-01`, to: `${fy}-03-31` };
+  const n = dayDiff(r.from, r.to) + 1;
+  return { from: addDaysIso(r.from, -n), to: addDaysIso(r.from, -1) };
+}
+function dashPeriodStats(r){
+  const apps = S.applications.filter(a => inRange(a.applicationDate, r));
+  const allot = S.applications.filter(a => inRange(a.allotmentDate, r));
+  const sold = S.applications.filter(a => inRange(a.saleDate, r) && a.saleStatus === 'Sold');
+  let profit = 0, gross = 0, withProfit = 0;
+  sold.forEach(a => { const c = calcAllotmentSale(a); if (c.applicable){ profit += c.ourFinal; gross += c.grossFinal; withProfit++; } });
+  return {
+    apps: apps.length, amount: apps.reduce((s,a)=>s+(Number(a.amountApplied)||0),0),
+    allotted: allot.filter(a=>a.allotmentStatus==='Allotted').length, notAllotted: allot.filter(a=>a.allotmentStatus==='Not Allotted').length,
+    sold: sold.length, gross, profit, avg: withProfit ? Math.round(profit/withProfit) : 0
+  };
+}
+// Small "▲ 12% vs previous" line. `invert` = true when a rise is bad (e.g. Not Allotted).
+function deltaHtml(cur, prev, opts){
+  opts = opts || {};
+  if (prev === null || prev === undefined) return '';
+  const money = v => opts.money ? fmtMoney(v) : String(v);
+  const label = opts.label || 'previous period';
+  if (cur === 0 && prev === 0) return `<div class="small-muted">— no change vs ${label}</div>`;
+  const tip = escapeHtml(`${label}: ${money(prev)}`);
+  if (prev === 0) return `<div class="small-muted ${opts.invert?'danger':'ok'}" title="${tip}">▲ new vs ${label}</div>`;
+  const pct = Math.round((cur - prev) / Math.abs(prev) * 100);
+  if (pct === 0) return `<div class="small-muted" title="${tip}">— 0% vs ${label}</div>`;
+  const good = opts.invert ? pct < 0 : pct > 0;
+  return `<div class="small-muted ${good?'ok':'danger'}" title="${tip}">${pct>0?'▲':'▼'} ${Math.abs(pct)}% vs ${label}</div>`;
+}
+function profitBetween(from, to){
+  return S.applications.reduce((s,a)=>{ if (a.saleStatus==='Sold' && a.saleDate && a.saleDate>=from && a.saleDate<=to){ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); } return s; }, 0);
+}
+// Goal progress card: progress bar + simple straight-line projection of where the period will end.
+function goalCardHtml(title, profit, goal, elapsedDays, totalDays, periodWord){
+  const pct = goal ? profit / goal * 100 : 0;
+  const projected = elapsedDays > 0 ? profit / elapsedDays * totalDays : 0;
+  const left = Math.max(0, totalDays - elapsedDays);
+  const need = Math.max(0, goal - profit);
+  const onTrack = projected >= goal;
+  const barW = Math.min(100, Math.max(0, pct)).toFixed(0);
+  return `<div style="flex:1;min-width:260px;">
+    <div style="display:flex;justify-content:space-between;"><b>${title}</b><span><b class="${pct>=100?'ok':''}">${Math.round(pct)}%</b> of ${fmtMoney(goal)}</span></div>
+    <div style="height:10px;border-radius:5px;background:var(--border);margin:6px 0;"><div style="height:10px;border-radius:5px;width:${barW}%;background:var(--${pct>=100?'ok':'gold'}, #c9a227);"></div></div>
+    <div class="small-muted">${fmtMoney(profit)} earned · ${profit>=goal?'goal reached 🎉':`${fmtMoney(need)} to go${left?` (≈ ${fmtMoney(need/left)} per remaining day)`:''}`}</div>
+    <div class="small-muted ${onTrack?'ok':'danger'}">Projected ${periodWord}-end: ${fmtMoney(projected)} — ${onTrack?'on track':'behind the goal'}</div>
+  </div>`;
+}
 
 function viewDashboard(){
   return `<div id="dashBody"></div>`;
@@ -2898,19 +3064,41 @@ function dashboardBody(){
   // Capital Blocked: only applications still awaiting an allotment decision — matches the
   // same "Amount Blocked" definition used in Reports > Bank Analysis (Pending only, not
   // Not Allotted or already-resolved applications).
-  const capitalBlocked = S.applications.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending').reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
-  const pendingAllotmentCount = S.applications.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending').length;
+  const capitalBlocked = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+  const pendingAllotmentCount = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).length;
+
+  // like-for-like comparison: this month so far vs the same days last month; this year so far vs the same dates last year
+  const dayOfMonth = now.getDate();
+  const prevMonthFirst = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prevMonthDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  const prevMonthProfit = profitBetween(localDateStr(prevMonthFirst), localDateStr(new Date(prevMonthFirst.getFullYear(), prevMonthFirst.getMonth(), Math.min(dayOfMonth, prevMonthDays))));
+  const prevYearProfit = profitBetween(localDateStr(new Date(now.getFullYear()-1, 0, 1)), localDateStr(new Date(now.getFullYear()-1, now.getMonth(), now.getDate())));
+  const pendingAppsList = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
+  const receivableList = S.applications.filter(a=>a.saleStatus==='Sold' && a.amountReceiveStatus==='Receivable' && calcAllotmentSale(a).applicable);
+  const todayApps = S.applications.filter(a=>a.applicationDate===today);
+  const monthGoal = Number(S.settings.monthlyProfitGoal)||0, yearGoal = Number(S.settings.yearlyProfitGoal)||0;
+  const daysInMonthNow = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const dayOfYear = dayDiff(`${now.getFullYear()}-01-01`, today) + 1;
+  const daysInYearNow = ((now.getFullYear()%4===0 && now.getFullYear()%100!==0) || now.getFullYear()%400===0) ? 366 : 365;
+  const goalsHtml = (monthGoal || yearGoal) ? `
+  <div class="section-card">
+    <div class="sc-head"><h3>Profit Goals</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="navigate('settings')">Change goals</button></div>
+    <div class="sc-body" style="display:flex;gap:24px;flex-wrap:wrap;">
+      ${monthGoal ? goalCardHtml('This Month', monthlyProfit, monthGoal, dayOfMonth, daysInMonthNow, 'month') : ''}
+      ${yearGoal ? goalCardHtml('This Year', yearlyProfit, yearGoal, dayOfYear, daysInYearNow, 'year') : ''}
+    </div>
+  </div>` : `<div class="small-muted no-print" style="margin:6px 2px 10px;">Tip: set monthly / yearly profit goals in <a href="javascript:void(0)" onclick="navigate('settings')">Settings</a> to track progress here.</div>`;
 
   const overviewGrid = `
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="lbl">Monthly Profit</div><div class="val gold">${fmtMoney(monthlyProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Yearly Profit</div><div class="val gold">${fmtMoney(yearlyProfit)}</div></div>
+    <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)}><div class="lbl">Monthly Profit</div><div class="val gold">${fmtMoney(monthlyProfit)}</div>${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
+    <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Yearly Profit</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
     <div class="kpi-card"><div class="lbl">Avg Profit / Month</div><div class="val">${fmtMoney(avgProfitPerMonth)}</div></div>
-    <div class="kpi-card"><div class="lbl">Pending Receivables</div><div class="val ${pendingReceivables>0?'danger':''}">${fmtMoney(pendingReceivables)}</div></div>
+    <div class="kpi-card" ${drillAttr('Sold — payment still receivable', receivableList)}><div class="lbl">Pending Receivables</div><div class="val ${pendingReceivables>0?'danger':''}">${fmtMoney(pendingReceivables)}</div></div>
     <div class="kpi-card"><div class="lbl">Active IPOs</div><div class="val ok">${activeIpos}</div></div>
-    <div class="kpi-card"><div class="lbl">Applications Today</div><div class="val">${appsToday}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Capital Blocked</div><div class="val">${fmtMoney(capitalBlocked)}</div></div>
-    <div class="kpi-card"><div class="lbl">Pending Allotment</div><div class="val ${pendingAllotmentCount>0?'danger':''}">${pendingAllotmentCount}</div></div>
+    <div class="kpi-card" ${drillAttr('Applications today', todayApps)}><div class="lbl">Applications Today</div><div class="val">${appsToday}</div></div>
+    <div class="kpi-card" ${drillAttr('Capital blocked — awaiting allotment', pendingAppsList)}><div class="lbl">Total Capital Blocked</div><div class="val">${fmtMoney(capitalBlocked)}</div></div>
+    <div class="kpi-card" ${drillAttr('Awaiting allotment result', pendingAppsList)}><div class="lbl">Pending Allotment</div><div class="val ${pendingAllotmentCount>0?'danger':''}">${pendingAllotmentCount}</div></div>
   </div>`;
 
   // ---- Today's Work ----
@@ -2956,8 +3144,15 @@ function dashboardBody(){
   const profitInRange = soldInRange.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); }, 0);
   const amountAppliedInRange = appsInRange.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
   const grossInRange = soldInRange.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.grossFinal:0); },0);
-  const avgProfit = allottedInRange.filter(a=>a.allotmentStatus==='Allotted').length ? Math.round(profitInRange / allottedInRange.filter(a=>a.allotmentStatus==='Allotted').length) : 0;
-  const pendingToSell = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').length;
+  // Average profit is measured on the SAME basis as the profit itself: profit from sales made in this period
+  // divided by the number of sales made in this period (not allotments received, which may fall in another period).
+  const soldWithProfit = soldInRange.filter(a => calcAllotmentSale(a).applicable).length;
+  const avgProfit = soldWithProfit ? Math.round(profitInRange / soldWithProfit) : 0;
+  const prevR = previousRange(r);
+  const cur = dashPeriodStats(r), prv = prevR ? dashPeriodStats(prevR) : null;
+  const cmp = (key, o) => prv ? deltaHtml(cur[key], prv[key], o) : '';
+  const pendingToSellList = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold');
+  const pendingToSell = pendingToSellList.length;
   const upcomingIpos = S.ipos.filter(i=>ipoStatus(i)==='Upcoming').length;
   const needPlanning = S.ipos.filter(i=>ipoStatus(i)!=='Closed' && upcomingPlanningStatus(i)==='Not Planned').length;
 
@@ -2972,28 +3167,29 @@ function dashboardBody(){
 
   return `
   ${overviewGrid}
+  ${goalsHtml}
   ${todaysWorkHtml}
 
   <div class="section-card">
     <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
       ${presetBtns}
       ${dashRange.preset==='custom' ? `<input type="date" id="dashFrom" value="${dashRange.from||''}" onchange="setDashCustom()"><span>to</span><input type="date" id="dashTo" value="${dashRange.to||''}" onchange="setDashCustom()">` : ''}
-      <span class="small-muted" style="margin-left:auto;">Showing: ${fmtDate(r.from)} – ${fmtDate(r.to)}</span>
+      <span class="small-muted" style="margin-left:auto;">Showing: ${fmtDate(r.from)} – ${fmtDate(r.to)}${prevR?` · compared with ${fmtDate(prevR.from)} – ${fmtDate(prevR.to)}`:''}</span>
     </div>
   </div>
 
   <div class="kpi-grid">
     <div class="kpi-card"><div class="lbl">Total Clients</div><div class="val">${S.clients.length}</div></div>
     <div class="kpi-card"><div class="lbl">Total IPOs</div><div class="val">${S.ipos.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Applications (period)</div><div class="val">${appsInRange.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Allotments (period)</div><div class="val ok">${allottedInRange.filter(a=>a.allotmentStatus==='Allotted').length}</div></div>
-    <div class="kpi-card"><div class="lbl">Not Allotted (period)</div><div class="val danger">${notAllottedInRange.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Sold (period)</div><div class="val">${soldInRange.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Amount Applied (period)</div><div class="val">${fmtMoney(amountAppliedInRange)}</div></div>
-    <div class="kpi-card"><div class="lbl">Gross Received (period)</div><div class="val">${fmtMoney(grossInRange)}</div></div>
-    <div class="kpi-card"><div class="lbl">Our Profit (period)</div><div class="val gold">${fmtMoney(profitInRange)}</div></div>
-    <div class="kpi-card"><div class="lbl">Avg Profit / Allotment</div><div class="val">${fmtMoney(avgProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Pending to Sell</div><div class="val">${pendingToSell}</div></div>
+    <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Applications (period)</div><div class="val">${appsInRange.length}</div>${cmp('apps')}</div>
+    <div class="kpi-card" ${drillAttr('Allotted in this period', allottedInRange.filter(a=>a.allotmentStatus==='Allotted'))}><div class="lbl">Allotments (period)</div><div class="val ok">${allottedInRange.filter(a=>a.allotmentStatus==='Allotted').length}</div>${cmp('allotted')}</div>
+    <div class="kpi-card" ${drillAttr('Not allotted in this period', notAllottedInRange)}><div class="lbl">Not Allotted (period)</div><div class="val danger">${notAllottedInRange.length}</div>${cmp('notAllotted',{invert:true})}</div>
+    <div class="kpi-card" ${drillAttr('Sold in this period', soldInRange)}><div class="lbl">Sold (period)</div><div class="val">${soldInRange.length}</div>${cmp('sold')}</div>
+    <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Amount Applied (period)</div><div class="val">${fmtMoney(amountAppliedInRange)}</div>${cmp('amount',{money:true})}</div>
+    <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Gross Received (period)</div><div class="val">${fmtMoney(grossInRange)}</div>${cmp('gross',{money:true})}</div>
+    <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Our Profit (period)</div><div class="val gold">${fmtMoney(profitInRange)}</div>${cmp('profit',{money:true})}</div>
+    <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl" title="Profit from sales in this period ÷ number of sales in this period">Avg Profit / Sold Allotment</div><div class="val">${fmtMoney(avgProfit)}</div>${cmp('avg',{money:true})}</div>
+    <div class="kpi-card" ${drillAttr('Allotted — pending to sell', pendingToSellList)}><div class="lbl">Pending to Sell</div><div class="val">${pendingToSell}</div></div>
     <div class="kpi-card"><div class="lbl">Upcoming IPOs</div><div class="val">${upcomingIpos}</div></div>
     <div class="kpi-card"><div class="lbl">IPOs Requiring Planning</div><div class="val danger">${needPlanning}</div></div>
   </div>
@@ -3021,8 +3217,8 @@ function buildAttentionList(){
   });
   S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{
     const cap = bankCapacity(b.id, today);
-    if (cap.status==='Over Capacity') items.push({level:'high', text:`Bank capacity exceeded: ${escapeHtml(b.bankName)} today (${cap.planned}/6)`});
-    else if (cap.status==='Full' || cap.status==='Near Capacity') items.push({level:'med', text:`Bank capacity nearly full: ${escapeHtml(b.bankName)} today (${cap.planned}/6)`});
+    if (cap.status==='Over Capacity') items.push({level:'high', text:`Bank capacity exceeded: ${escapeHtml(b.bankName)} today (${cap.planned}/${cap.capacity})`});
+    else if (cap.status==='Full' || cap.status==='Near Capacity') items.push({level:'med', text:`Bank capacity nearly full: ${escapeHtml(b.bankName)} today (${cap.planned}/${cap.capacity})`});
   });
   S.ipoPlans.forEach(p=>{ if (planVariance(p)==='Pending' && p.plannedDate < today) items.push({level:'med', text:`Planned application not yet executed: ${escapeHtml(findIpo(p.ipoId)?.ipoName||'')} (${fmtDate(p.plannedDate)})`}); });
   S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').forEach(a=>{ const c=findClient(a.clientId); items.push({level:'low', text:`Pending to sell: ${escapeHtml(c?c.clientName:'')} — ${escapeHtml(findIpo(a.ipoId)?.ipoName||'')}`}); });
@@ -3036,7 +3232,7 @@ function operationalDailyPlannerHtml(){
   const bankBlocks = activeBanks.map(b=>{
     const cap = bankCapacity(b.id, today);
     const list = cap.plans.map(p=>{ const ipo=findIpo(p.ipoId); return `<li>${escapeHtml(ipo?ipo.ipoName:'')}</li>`; }).join('');
-    return `<div style="margin-bottom:8px;"><b>${escapeHtml(b.bankName)}</b> — <span class="cap-cell ${capClass(cap.status)}">${cap.planned}/6</span>
+    return `<div style="margin-bottom:8px;"><b>${escapeHtml(b.bankName)}</b> — <span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity}</span>
       ${list?`<ul style="margin:4px 0 0 18px;font-size:12px;">${list}</ul>`:'<div class="small-muted">No IPOs planned today</div>'}</div>`;
   }).join('') || '<div class="small-muted">No active bank accounts.</div>';
 
@@ -3082,9 +3278,16 @@ function viewReports(){
     <button class="${reportsTab==='client'?'active':''}" onclick="setReportsTab('client')">Client Analysis</button>
     <button class="${reportsTab==='ipo'?'active':''}" onclick="setReportsTab('ipo')">IPO Analysis</button>
     <button class="${reportsTab==='bank'?'active':''}" onclick="setReportsTab('bank')">Bank Analysis</button>
+    <button class="${reportsTab==='allotrate'?'active':''}" onclick="setReportsTab('allotrate')">Allotment Rate</button>
+    <button class="${reportsTab==='scorecard'?'active':''}" onclick="setReportsTab('scorecard')">Client Scorecards</button>
+    <button class="${reportsTab==='pivot'?'active':''}" onclick="setReportsTab('pivot')">Report Builder</button>
+    <button class="${reportsTab==='roi'?'active':''}" onclick="setReportsTab('roi')">ROI &amp; Capital</button>
+    <button class="${reportsTab==='cashflow'?'active':''}" onclick="setReportsTab('cashflow')">Cash Flow</button>
+    <button class="${reportsTab==='listing'?'active':''}" onclick="setReportsTab('listing')">Listing &amp; GMP</button>
     <button class="${reportsTab==='profit'?'active':''}" onclick="setReportsTab('profit')">Profit Analysis</button>
     <button class="${reportsTab==='trends'?'active':''}" onclick="setReportsTab('trends')">Trends &amp; Charts</button>
     <button class="${reportsTab==='yearly'?'active':''}" onclick="setReportsTab('yearly')">Yearly Summary</button>
+    <button class="${reportsTab==='settlement'?'active':''}" onclick="setReportsTab('settlement')">Settlement by Reference</button>
     <button class="${reportsTab==='subref'?'active':''}" onclick="setReportsTab('subref')">Profit by Sub-Reference</button>
     <button class="${reportsTab==='capacity'?'active':''}" onclick="setReportsTab('capacity')">Bank Capacity Analysis</button>
     <button class="${reportsTab==='planning'?'active':''}" onclick="setReportsTab('planning')">Planning Performance</button>
@@ -3097,9 +3300,16 @@ function reportsTabContent(){
   if (reportsTab==='client') return reportClientAnalysis();
   if (reportsTab==='ipo') return reportIpoAnalysis();
   if (reportsTab==='bank') return reportBankAnalysis();
+  if (reportsTab==='allotrate') return reportAllotmentRate();
+  if (reportsTab==='scorecard') return reportClientScorecards();
+  if (reportsTab==='pivot') return reportBuilder();
+  if (reportsTab==='roi') return reportRoi();
+  if (reportsTab==='cashflow') return reportCashFlow();
+  if (reportsTab==='listing') return reportListing();
   if (reportsTab==='profit') return reportProfitAnalysis();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
   if (reportsTab==='yearly') return reportYearlySummary();
+  if (reportsTab==='settlement') return reportSettlement();
   if (reportsTab==='subref') return reportSubReferenceProfit();
   if (reportsTab==='capacity') return planningCapacityTab();
   if (reportsTab==='planning') return reportPlanningPerformance();
@@ -3210,7 +3420,9 @@ function renderTrendsCharts(){
   if (ctxTrend) window.__trendCharts['profitTrend'] = new Chart(ctxTrend, {
     type:'line',
     data:{ labels: monthly.map(m=>monthLabel(m.mk)), datasets:[{ label:'Our Profit', data: monthly.map(m=>m.our), borderColor:'#c8963e', backgroundColor:'rgba(200,150,62,.15)', fill:true, tension:.25 }] },
-    options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } } }
+    options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>fmtMoney(v) } } },
+      onHover:(e,els)=>{ if (e.native) e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      onClick:(e,els)=>{ if (els.length){ const m = monthly[els[0].index]; drillNow('Sold in '+monthLabel(m.mk), S.applications.filter(a=>a.saleStatus==='Sold' && monthKey(a.saleDate)===m.mk)); } } }
   }); }
 
   // ---- Profit by IPO (top 10) ----
@@ -3226,6 +3438,8 @@ function renderTrendsCharts(){
     type:'bar',
     data:{ labels: ipoProfits.map(x=>x.name), datasets:[{ label:'Our Profit', data: ipoProfits.map(x=>x.our), backgroundColor:'#2f8f7f' }] },
     options:{ responsive:true, indexAxis: isNarrow?'y':'x', plugins:{legend:{display:false}},
+      onHover:(e,els)=>{ if (e.native) e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      onClick:(e,els)=>{ if (els.length){ const x = ipoProfits[els[0].index]; drillNow(x.name+' — all applications', S.applications.filter(a=>a.ipoId===x.id)); } },
       scales: isNarrow
         ? { x:{ ticks:{ callback:v=>fmtMoney(v) } } }
         : { y:{ ticks:{ callback:v=>fmtMoney(v) } }, x:{ ticks:{ autoSkip:false, maxRotation:60, minRotation:0 } } }
@@ -3240,6 +3454,8 @@ function renderTrendsCharts(){
     type:'bar',
     data:{ labels: bankCounts.map(x=>x.name), datasets:[{ label:'Applications', data: bankCounts.map(x=>x.count), backgroundColor:'#16263f' }] },
     options:{ responsive:true, indexAxis: isNarrow?'y':'x', plugins:{legend:{display:false}},
+      onHover:(e,els)=>{ if (e.native) e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      onClick:(e,els)=>{ if (els.length){ const x = bankCounts[els[0].index]; const b = S.bankAccounts.find(bb=>bb.bankName===x.name); if (b) drillNow(x.name+' — all applications', S.applications.filter(a=>a.bankAccountId===b.id)); } },
       scales: isNarrow ? {} : { x:{ ticks:{ autoSkip:false, maxRotation:60, minRotation:0 } } }
     }
   }); }
@@ -3391,6 +3607,666 @@ function reportYearlySummary(){
     </div>
   </div>`;
 }
+/* =================== ROI, CASH FLOW, LISTING & GMP REPORTS =================== */
+function addDaysIso(iso, n){ const [y,m,d] = iso.split('-').map(Number); return localDateStr(new Date(y, m-1, d+n)); }
+function dayDiff(a, b){
+  const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
+  return Math.round((Date.UTC(pb[0],pb[1]-1,pb[2]) - Date.UTC(pa[0],pa[1]-1,pa[2])) / 86400000);
+}
+// The date an application's money came free again: sale date if sold, allotment (refund) date if not allotted.
+function appReleaseDate(a){
+  if (a.saleStatus==='Sold' && a.saleDate) return a.saleDate;
+  if (a.allotmentStatus==='Not Allotted' && a.allotmentDate) return a.allotmentDate;
+  return null;
+}
+
+/* ---------- 12. ROI & capital efficiency ---------- */
+let roiState = { dim:'bank', from:'', to:'' };
+function setRoi(k, v){ roiState[k] = v; render(); }
+function roiRows(){
+  const dim = ALLOT_DIMS[roiState.dim] || ALLOT_DIMS.bank;
+  const groups = new Map();
+  S.applications.forEach(a=>{
+    if (a.applicationStatus !== 'Applied' || !a.applicationDate) return;
+    if (roiState.from && a.applicationDate < roiState.from) return;
+    if (roiState.to && a.applicationDate > roiState.to) return;
+    const k = dim.key(a);
+    if (!groups.has(k)) groups.set(k, { name:k, done:0, capital:0, capDays:0, daysSum:0, profit:0, open:0, openCapital:0, list:[], openList:[] });
+    const g = groups.get(k), amt = Number(a.amountApplied)||0, rel = appReleaseDate(a);
+    if (rel){
+      const days = Math.max(1, dayDiff(a.applicationDate, rel));
+      g.list.push(a); g.done++; g.capital += amt; g.capDays += amt*days; g.daysSum += days;
+      const c = calcAllotmentSale(a); if (c.applicable) g.profit += c.ourFinal;
+    } else { g.openList.push(a); g.open++; g.openCapital += amt; }
+  });
+  return Array.from(groups.values()).map(g=>({
+    ...g,
+    roi: g.capital ? g.profit / g.capital * 100 : null,
+    avgDays: g.done ? g.daysSum / g.done : null,
+    annual: g.capDays ? g.profit / g.capDays * 365 * 100 : null,
+    turns: g.done && g.daysSum ? 365 / (g.daysSum / g.done) : null
+  }));
+}
+function reportRoi(){
+  const all = roiRows();
+  const T = all.reduce((t,g)=>({ done:t.done+g.done, capital:t.capital+g.capital, capDays:t.capDays+g.capDays, daysSum:t.daysSum+g.daysSum, profit:t.profit+g.profit, openCapital:t.openCapital+g.openCapital, open:t.open+g.open }), { done:0, capital:0, capDays:0, daysSum:0, profit:0, openCapital:0, open:0 });
+  const rows = all.filter(g=>g.done>0).sort((a,b)=>(b.annual ?? -1e9) - (a.annual ?? -1e9));
+  const f1 = v => v==null ? '—' : v.toFixed(1);
+  const dimOpts = Object.entries(ALLOT_DIMS).map(([k,d])=>`<option value="${k}" ${roiState.dim===k?'selected':''}>${d.label}</option>`).join('');
+  const body = rows.map(g=>`<tr>
+    <td>${escapeHtml(roiState.dim==='month' && g.name.length===7 ? new Date(g.name+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : g.name)}</td>
+    ${dcell(g.name+' — completed applications', g.list, g.done)}<td>${fmtMoney(g.capital)}</td><td>${fmtMoney(g.profit)}</td>
+    <td><b class="${g.roi>=0?'ok':'danger'}">${f1(g.roi)}%</b></td>
+    <td>${f1(g.avgDays)}</td><td>${f1(g.turns)}</td>
+    <td><b class="${g.annual>=0?'ok':'danger'}">${f1(g.annual)}%</b></td>
+    ${dcell(g.name+' — money still blocked', g.openList, g.open ? `${g.open} · ${fmtMoney(g.openCapital)}` : '—')}</tr>`).join('') || `<tr><td colspan="9" class="small-muted">No completed applications (sold, or declared Not Allotted with an allotment date) match these filters yet.</td></tr>`;
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>ROI &amp; Capital Efficiency</h3></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-group"><label>Group by</label><select onchange="setRoi('dim', this.value)">${dimOpts}</select></div>
+        <div class="f-group"><label>Applied from</label><input type="date" value="${roiState.from}" onchange="setRoi('from', this.value)"></div>
+        <div class="f-group"><label>Applied to</label><input type="date" value="${roiState.to}" onchange="setRoi('to', this.value)"></div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">Overall Return on Capital</div><div class="val gold">${T.capital ? (T.profit/T.capital*100).toFixed(2)+'%' : '—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Annualised Return</div><div class="val gold">${T.capDays ? (T.profit/T.capDays*365*100).toFixed(1)+'%' : '—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Avg Days Money Blocked</div><div class="val">${T.done ? (T.daysSum/T.done).toFixed(1) : '—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Capital Still Blocked</div><div class="val">${fmtMoney(T.openCapital)}</div></div>
+      </div>
+      <div class="table-wrap"><table class="dt"><thead><tr>
+        <th>${ALLOT_DIMS[roiState.dim].label}</th><th>Completed Apps</th><th>Capital Used</th><th>Our Profit</th><th>Return on Capital</th><th>Avg Days Blocked</th><th>Times Recycled / Year</th><th>Annualised Return</th><th>Still Blocked (apps · ₹)</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+      <p class="hint"><b>How to read this:</b> an application is "completed" once its money is free again — sold (on the sale date) or declared Not Allotted (on the IPO's allotment date). <b>Return on Capital</b> = profit ÷ money applied, counting the applications that got nothing too. <b>Annualised Return</b> = what that profit would be over a full year if the same money kept working at the same pace. Applications still waiting for a result, or allotted but unsold, are shown under "Still Blocked" and are left out of the percentages.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------- 13. Cash-flow calendar & forecast ---------- */
+let cfState = { from:'', to:'' };
+function setCf(k, v){ cfState[k] = v; render(); }
+function cashFlowData(from, to){
+  const apps = S.applications.filter(a => isLiveApp(a) && a.applicationDate);
+  // when does each app's money come free? known date if sold / not allotted; for results still pending, the IPO's allotment date (assumed refund)
+  const info = apps.map(a=>{
+    const amt = Number(a.amountApplied)||0;
+    const ipo = findIpo(a.ipoId);
+    const actual = a.applicationStatus === 'Applied';
+    const planned = a.applicationStatus === 'To Be Applied';
+    let release = appReleaseDate(a), kind = null;
+    if (a.saleStatus==='Sold' && a.saleDate) kind = 'sale';
+    else if (a.allotmentStatus==='Not Allotted' && a.allotmentDate) kind = 'refund';
+    else if (actual && (!a.allotmentStatus || a.allotmentStatus==='Pending')){ release = a.allotmentDate || (ipo && ipo.allotmentDate) || null; kind = release ? 'due' : null; }
+    return { a, amt, actual, planned, release, kind };
+  });
+  const blockedOn = d => info.reduce((s,x)=> s + ((x.actual && x.a.applicationDate <= d && (!x.release || x.release > d)) ? x.amt : 0), 0);
+  const days = [];
+  for (let d = from, n = 0; d <= to && n < 400; d = addDaysIso(d,1), n++){
+    const row = { date:d, out:0, planned:0, refund:0, due:0, sale:0, blocked:0 };
+    info.forEach(x=>{
+      if (x.a.applicationDate === d){ if (x.actual) row.out += x.amt; else if (x.planned) row.planned += x.amt; }
+      if (x.release === d){
+        if (x.kind==='refund') row.refund += x.amt;
+        else if (x.kind==='due') row.due += x.amt;
+        else if (x.kind==='sale') row.sale += Number(x.a.saleAmount)||0;
+      }
+    });
+    row.blocked = blockedOn(d);
+    days.push(row);
+  }
+  return { days, blockedOn };
+}
+function reportCashFlow(){
+  const today = todayStr();
+  const from = cfState.from || addDaysIso(today,-7), to = cfState.to || addDaysIso(today,30);
+  const { days, blockedOn } = cashFlowData(from, to);
+  const active = days.filter(r => r.out||r.planned||r.refund||r.due||r.sale||r.date===today);
+  const maxBlocked = Math.max(1, ...days.map(r=>r.blocked));
+  const peak = days.reduce((p,r)=> r.blocked > p.blocked ? r : p, { blocked:-1, date:'' });
+  const next7 = days.filter(r=>r.date>=today && r.date<=addDaysIso(today,7));
+  const freeing7 = next7.reduce((s,r)=>s+r.refund+r.due,0);
+  const plannedOut = days.filter(r=>r.date>=today).reduce((s,r)=>s+r.planned,0);
+  const toReceive = S.applications.reduce((s,a)=>{ if (a.saleStatus==='Sold' && a.amountReceiveStatus==='Receivable'){ const c=calcAllotmentSale(a); return s + (c.applicable?c.grossFinal:0); } return s; }, 0);
+  const body = active.map(r=>`<tr ${r.date===today?'style="background:var(--table-head-bg);font-weight:600;"':''}>
+    <td>${fmtDate(r.date)}${r.date===today?' <span class="badge gold">Today</span>':''}${r.date<today?' <span class="small-muted">(past)</span>':''}</td>
+    <td>${r.out?fmtMoney(r.out):'—'}</td><td>${r.planned?fmtMoney(r.planned):'—'}</td>
+    <td>${r.refund?fmtMoney(r.refund):'—'}</td><td>${r.due?fmtMoney(r.due):'—'}</td><td>${r.sale?fmtMoney(r.sale):'—'}</td>
+    <td>${fmtMoney(r.blocked)}<div style="height:5px;border-radius:3px;background:var(--border);margin-top:3px;min-width:80px;"><div style="height:5px;border-radius:3px;width:${(r.blocked/maxBlocked*100).toFixed(0)}%;background:var(--gold, #c9a227);"></div></div></td></tr>`).join('') || `<tr><td colspan="7" class="small-muted">No money movement in this date range.</td></tr>`;
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>Cash-Flow Calendar &amp; Forecast</h3></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-group"><label>From</label><input type="date" value="${from}" onchange="setCf('from', this.value)"></div>
+        <div class="f-group"><label>To</label><input type="date" value="${to}" onchange="setCf('to', this.value)"></div>
+        <button class="btn btn-ghost btn-sm" onclick="cfState={from:'',to:''}; render();">Reset (last 7 days + next 30)</button>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">Capital Blocked Today</div><div class="val">${fmtMoney(blockedOn(today))}</div></div>
+        <div class="kpi-card"><div class="lbl">Peak Capital Needed (this range)</div><div class="val gold">${fmtMoney(Math.max(0,peak.blocked))}</div><div class="small-muted">${peak.date?fmtDate(peak.date):''}</div></div>
+        <div class="kpi-card"><div class="lbl">Freeing Up in Next 7 Days</div><div class="val ok">${fmtMoney(freeing7)}</div></div>
+        <div class="kpi-card"><div class="lbl">Planned Applications (to be blocked)</div><div class="val">${fmtMoney(plannedOut)}</div></div>
+        <div class="kpi-card"><div class="lbl">Still to Receive From Clients</div><div class="val gold">${fmtMoney(toReceive)}</div></div>
+      </div>
+      <div class="table-wrap"><table class="dt"><thead><tr>
+        <th>Date</th><th>Blocked (applied)</th><th>Planned to apply</th><th>Refund (not allotted)</th><th>Result due (refund or shares)</th><th>Sale proceeds</th><th>Capital blocked at day end</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+      <p class="hint">Only days with activity are listed. <b>Blocked</b> = money tied up when the application is made. <b>Result due</b> = applications still waiting for a result, on the IPO's allotment date — the money comes back if they are not allotted. <b>Capital blocked at day end</b> assumes those pending applications are refunded on the allotment date; allotted shares that aren't sold yet stay blocked. Cancelled / Mandate Failed applications are ignored. Set each IPO's allotment date so the forecast is accurate.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------- 14. Listing & GMP analysis ---------- */
+let listingState = { cat:'' };
+function setListing(k, v){ listingState[k] = v; render(); }
+function ipoGmpPct(i){ return (Number(i.issuePrice)>0 && i.gmp!=null && i.gmp!=='') ? Number(i.gmp)/Number(i.issuePrice)*100 : null; }
+function ipoListingGainPct(i){ return (Number(i.issuePrice)>0 && i.listingPrice!=null && i.listingPrice!=='') ? (Number(i.listingPrice)-Number(i.issuePrice))/Number(i.issuePrice)*100 : null; }
+function ipoGainPerLot(i){ return (Number(i.lotSize)>0 && ipoListingGainPct(i)!=null) ? (Number(i.listingPrice)-Number(i.issuePrice))*Number(i.lotSize) : null; }
+function pearson(xs, ys){
+  const n = xs.length; if (n < 3) return null;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let sxy=0, sxx=0, syy=0; for (let k=0;k<n;k++){ sxy+=(xs[k]-mx)*(ys[k]-my); sxx+=(xs[k]-mx)**2; syy+=(ys[k]-my)**2; }
+  return (sxx && syy) ? sxy/Math.sqrt(sxx*syy) : null;
+}
+function reportListing(){
+  const list = S.ipos.filter(i => (!listingState.cat || i.category===listingState.cat) && (i.issuePrice || i.gmp!=null || i.listingPrice!=null));
+  const f1 = v => v==null ? '—' : v.toFixed(1);
+  const rows = list.slice().sort((a,b)=>(b.openDate||'').localeCompare(a.openDate||'')).map(i=>{
+    const st = ipoStats(i.id), gp = ipoGmpPct(i), lg = ipoListingGainPct(i), lot = ipoGainPerLot(i);
+    const gmpErr = (lg!=null && gp!=null) ? lg - gp : null;
+    return { i, gp, lg, lot, gmpErr, allotted: st.allotted.length, profit: st.profit, perAllot: st.allotted.length ? st.profit/st.allotted.length : null };
+  });
+  const withBoth = rows.filter(r=>r.gp!=null && r.lg!=null);
+  const withListing = rows.filter(r=>r.lg!=null);
+  const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+  const corr = pearson(withBoth.map(r=>r.gp), withBoth.map(r=>r.lg));
+  const corrText = corr==null ? 'Needs GMP and listing price on at least 3 IPOs' : (Math.abs(corr)>=0.7 ? 'Strong' : Math.abs(corr)>=0.4 ? 'Moderate' : 'Weak') + (corr>=0?' — higher GMP usually meant a higher listing gain':' — GMP pointed the wrong way');
+  // does GMP predict YOUR profit? bucket IPOs by GMP %
+  const buckets = [['Below 0%',-1e9,0],['0% – 10%',0,10],['10% – 25%',10,25],['25% and above',25,1e9]].map(([label,lo,hi])=>{
+    const rs = rows.filter(r=>r.gp!=null && r.gp>=lo && r.gp<hi);
+    const al = rs.reduce((s,r)=>s+r.allotted,0), pr = rs.reduce((s,r)=>s+r.profit,0);
+    return `<tr><td>${label}</td><td>${rs.length}</td><td>${f1(avg(rs.filter(r=>r.lg!=null).map(r=>r.lg)))}${rs.some(r=>r.lg!=null)?'%':''}</td><td>${al}</td><td>${fmtMoney(pr)}</td><td>${al?fmtMoney(pr/al):'—'}</td></tr>`;
+  }).join('');
+  const body = rows.map(r=>`<tr>
+    ${dcell(r.i.ipoName+' — all applications', S.applications.filter(a=>a.ipoId===r.i.id), escapeHtml(r.i.ipoName))}<td>${escapeHtml(r.i.category||'—')}</td>
+    <td>${r.i.issuePrice?fmtMoney(r.i.issuePrice):'—'}</td><td>${r.i.lotSize||'—'}</td>
+    <td>${r.i.gmp!=null?fmtMoney(r.i.gmp):'—'}</td><td>${f1(r.gp)}${r.gp!=null?'%':''}</td>
+    <td>${r.i.listingDate?fmtDate(r.i.listingDate):'—'}</td><td>${r.i.listingPrice!=null?fmtMoney(r.i.listingPrice):'—'}</td>
+    <td>${r.lg==null?'—':`<b class="${r.lg>=0?'ok':'danger'}">${r.lg.toFixed(1)}%</b>`}</td>
+    <td>${r.lot==null?'—':`<span class="${r.lot>=0?'ok':'danger'}">${fmtMoney(r.lot)}</span>`}</td>
+    <td>${r.gmpErr==null?'—':(r.gmpErr>=0?'+':'')+r.gmpErr.toFixed(1)+' pts'}</td>
+    <td>${r.allotted}</td><td><span class="${r.profit<0?'danger':''}">${fmtMoney(r.profit)}</span>${r.profit<0?' <span class="badge red">Loss</span>':''}</td></tr>`).join('') || `<tr><td colspan="13" class="small-muted">No IPOs have price details yet. Open an IPO → Edit and fill in Issue Price, GMP, Listing Price etc.</td></tr>`;
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>Listing &amp; GMP Analysis</h3></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-group"><label>Category</label><select onchange="setListing('cat', this.value)">
+          ${['','Mainboard','SME'].map(c=>`<option value="${c}" ${listingState.cat===c?'selected':''}>${c||'All'}</option>`).join('')}</select></div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">IPOs With Listing Data</div><div class="val">${withListing.length}</div></div>
+        <div class="kpi-card"><div class="lbl">Avg Listing Gain</div><div class="val gold">${withListing.length?f1(avg(withListing.map(r=>r.lg)))+'%':'—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Listed Above Issue Price</div><div class="val ok">${withListing.length?Math.round(withListing.filter(r=>r.lg>0).length/withListing.length*100)+'%':'—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Avg GMP Miss</div><div class="val">${withBoth.length?f1(avg(withBoth.map(r=>Math.abs(r.gmpErr))))+' pts':'—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Loss-Making IPOs (yours)</div><div class="val danger">${rows.filter(r=>r.profit<0).length}</div></div>
+      </div>
+      <p style="font-size:13px;margin:0 0 14px;"><b>Does GMP predict listing gain?</b> ${corrText}.</p>
+      <div class="table-wrap"><table class="dt"><thead><tr>
+        <th>IPO</th><th>Category</th><th>Issue Price</th><th>Lot Size</th><th>GMP</th><th>GMP %</th><th>Listing Date</th><th>Listing Price</th><th>Listing Gain %</th><th>Gain / Lot</th><th>Actual − GMP</th><th>Your Allotments</th><th>Your Profit</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+      <h4 style="margin:18px 0 8px;">Your results by GMP level</h4>
+      <div class="table-wrap"><table class="dt"><thead><tr><th>GMP was…</th><th>IPOs</th><th>Avg Listing Gain</th><th>Your Allotments</th><th>Your Profit</th><th>Profit / Allotment</th></tr></thead><tbody>${buckets}</tbody></table></div>
+      <p class="hint">GMP % = GMP ÷ issue price. Listing Gain % = (listing price − issue price) ÷ issue price. "Actual − GMP" shows how far the real listing gain was above (+) or below (−) what the GMP suggested. With only a few IPOs the patterns can be luck — they get more useful as you fill in more.</p>
+    </div>
+  </div>`;
+}
+
+/* ---- Settlement by Reference ----
+   For a chosen period (by SALE date): each Reference → Sub-Reference (→ client) with how much was sold, the total profit,
+   our share vs the clients' share, and how much of the money owed to you has been collected vs is still receivable.
+   Uses each application's own profit share % (so a changed split is respected) and any manual overrides. */
+let settleState = { preset:'thisMonth', from:'', to:'', ref:'', showClients:false };
+function setSettle(k, v){ settleState[k] = v; render(); }
+function settlementData(){
+  const r = presetRange(settleState.preset === 'all' ? 'all' : settleState.preset, settleState.from, settleState.to);
+  const refs = new Map(); // ref -> { subs: Map(sub -> { clients: Map(clientId -> row) }) }
+  const blank = () => ({ sales:0, applied:0, saleAmt:0, our:0, client:0, collected:0, pending:0, apps:[], pApps:[] });
+  const add = (row, a, c) => {
+    row.apps.push(a); row.sales++; row.applied += Number(a.amountApplied)||0; row.saleAmt += Number(a.saleAmount)||0;
+    row.our += c.ourFinal; row.client += c.clientFinal;
+    if (a.amountReceiveStatus === 'Received') row.collected += c.grossFinal;
+    else if (a.amountReceiveStatus === 'Receivable'){ row.pending += c.grossFinal; row.pApps.push(a); }
+  };
+  S.applications.forEach(a=>{
+    if (a.saleStatus !== 'Sold' || !a.saleDate || !inRange(a.saleDate, r)) return;
+    const c = calcAllotmentSale(a); if (!c.applicable) return;
+    const cl = findClient(a.clientId); if (!cl) return;
+    const ref = cl.referenceName || '(No Reference)', sub = cl.subReference || '(No Sub-Reference)';
+    if (settleState.ref && ref !== settleState.ref) return;
+    if (!refs.has(ref)) refs.set(ref, { total: blank(), subs: new Map() });
+    const R = refs.get(ref);
+    if (!R.subs.has(sub)) R.subs.set(sub, { total: blank(), clients: new Map() });
+    const SB = R.subs.get(sub);
+    if (!SB.clients.has(cl.id)) SB.clients.set(cl.id, { name: cl.clientName, ...blank() });
+    add(R.total, a, c); add(SB.total, a, c); add(SB.clients.get(cl.id), a, c);
+  });
+  return { r, refs };
+}
+function reportSettlement(){
+  const { r, refs } = settlementData();
+  const presets = [['thisMonth','This Month'],['prevMonth','Last Month'],['thisFY','Current FY'],['prevFY','Previous FY'],['all','All Time'],['custom','Custom']];
+  const presetBtns = presets.map(([k,l])=>`<button class="btn btn-sm ${settleState.preset===k?'btn-primary':'btn-ghost'}" onclick="setSettle('preset','${k}')">${l}</button>`).join('');
+  const allRefs = Array.from(new Set(S.clients.map(c=>c.referenceName||'(No Reference)'))).sort();
+  const grand = { sales:0, applied:0, saleAmt:0, our:0, client:0, collected:0, pending:0, apps:[], pApps:[] };
+  refs.forEach(R=>{ ['sales','applied','saleAmt','our','client','collected','pending'].forEach(k=>grand[k]+=R.total[k]); grand.apps.push(...R.total.apps); grand.pApps.push(...R.total.pApps); });
+  const effPct = t => { const tot = t.our + t.client; return tot ? (t.our/tot*100).toFixed(1)+'%' : '—'; };
+  const cells = (t, bold, label) => `${dcell((label||'All')+' — sales', t.apps, t.sales)}<td>${fmtMoney(t.applied)}</td><td>${fmtMoney(t.saleAmt)}</td><td>${fmtMoney(t.our+t.client)}</td>
+      <td>${bold?'<b>':''}${fmtMoney(t.our)}${bold?'</b>':''}</td><td>${fmtMoney(t.client)}</td><td>${effPct(t)}</td><td>${fmtMoney(t.collected)}</td>${dcell((label||'All')+' — still to collect', t.pApps, `<span class="${t.pending>0?'danger':''}">${fmtMoney(t.pending)}</span>`)}`;
+  let body = '';
+  Array.from(refs.entries()).sort((a,b)=>b[1].total.our - a[1].total.our).forEach(([ref, R])=>{
+    body += `<tr style="background:var(--table-head-bg);font-weight:700;"><td>${escapeHtml(ref)}</td>${cells(R.total, true, ref)}</tr>`;
+    Array.from(R.subs.entries()).sort((a,b)=>b[1].total.our - a[1].total.our).forEach(([sub, SB])=>{
+      body += `<tr><td style="padding-left:22px;">${escapeHtml(sub)}</td>${cells(SB.total, false, ref+' › '+sub)}</tr>`;
+      if (settleState.showClients){
+        Array.from(SB.clients.values()).sort((a,b)=>b.our-a.our).forEach(cl=>{
+          body += `<tr class="small-muted"><td style="padding-left:44px;">${escapeHtml(cl.name)}</td>${cells(cl, false, cl.name)}</tr>`;
+        });
+      }
+    });
+  });
+  body = body || `<tr><td colspan="10" class="small-muted">No completed sales in this period${settleState.ref?' for this reference':''}.</td></tr>`;
+  const foot = refs.size ? `<tr style="font-weight:700;border-top:2px solid var(--border);"><td>TOTAL</td>${cells(grand, true, 'All references')}</tr>` : '';
+  return `
+  <div class="section-card printable-report">
+    <div class="sc-head"><h3>Settlement by Reference</h3><div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm no-print" onclick="exportSettlement()">Download Excel</button>
+      <button class="btn btn-primary btn-sm no-print" onclick="window.print()">Print / Save as PDF</button></div>
+    <div class="sc-body">
+      <div class="no-print" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+        ${presetBtns}
+        ${settleState.preset==='custom' ? `<input type="date" value="${settleState.from}" onchange="setSettle('from', this.value)"><span>to</span><input type="date" value="${settleState.to}" onchange="setSettle('to', this.value)">` : ''}
+        <select onchange="setSettle('ref', this.value)"><option value="">All references</option>${allRefs.map(x=>`<option value="${escapeHtml(x)}" ${settleState.ref===x?'selected':''}>${escapeHtml(x)}</option>`).join('')}</select>
+        <label class="checkbox-row"><input type="checkbox" ${settleState.showClients?'checked':''} onchange="setSettle('showClients', this.checked)"> Show clients</label>
+      </div>
+      <p style="margin:0 0 12px;font-size:13px;"><b>Period:</b> ${settleState.preset==='all'?'All time':`${fmtDate(r.from)} – ${fmtDate(r.to)}`} (sales made in this period)${settleState.ref?` · <b>Reference:</b> ${escapeHtml(settleState.ref)}`:''} · <span class="small-muted">Generated ${fmtDate(todayStr())}</span></p>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">Total Profit</div><div class="val">${fmtMoney(grand.our+grand.client)}</div></div>
+        <div class="kpi-card"><div class="lbl">Our Share</div><div class="val gold">${fmtMoney(grand.our)}</div></div>
+        <div class="kpi-card"><div class="lbl">Clients' Share</div><div class="val">${fmtMoney(grand.client)}</div></div>
+        <div class="kpi-card"><div class="lbl">Still to Collect</div><div class="val ${grand.pending>0?'danger':''}">${fmtMoney(grand.pending)}</div></div>
+      </div>
+      <div class="table-wrap"><table class="dt"><thead><tr>
+        <th>Reference / Sub-Reference</th><th>Sales</th><th>Applied</th><th>Sale Amount</th><th>Total Profit</th><th>Our Share</th><th>Clients' Share</th><th>Our %</th><th>Collected</th><th>Still to Collect</th>
+      </tr></thead><tbody>${body}${foot}</tbody></table></div>
+      <p class="hint">Total Profit = Sale Amount − Applied. It is split using each application's own profit share % (normally 50%, adjustable in Settings and per application), including any manual overrides — "Our %" shows the actual blended split. <b>Collected</b> / <b>Still to Collect</b> = the gross amount from clients marked Received / Receivable. Only completed sales (Allotted + Sold) are counted, by sale date.</p>
+    </div>
+  </div>`;
+}
+function exportSettlement(){
+  const { refs } = settlementData();
+  const rows = [];
+  refs.forEach((R, ref)=>{
+    R.subs.forEach((SB, sub)=>{
+      SB.clients.forEach(cl=>rows.push({ 'Reference':ref, 'Sub Reference':sub, 'Client':cl.name, 'Sales':cl.sales, 'Applied':cl.applied, 'Sale Amount':cl.saleAmt, 'Total Profit':cl.our+cl.client, 'Our Share':cl.our, 'Clients Share':cl.client, 'Collected':cl.collected, 'Still to Collect':cl.pending }));
+    });
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Settlement');
+  XLSX.writeFile(wb, `Settlement_${settleState.preset}_${todayStr()}.xlsx`);
+}
+
+/* ---- Allotment-rate analysis ----
+   Answers "where do my allotments actually come from?" by grouping applications on any one dimension
+   (bank, UPI, reference, sub-reference, client, IPO, amount, month) and showing the allotment rate.
+   Rate = Allotted ÷ (Allotted + Not Allotted), i.e. only applications whose result is already out —
+   Pending ones are shown separately so they never drag the rate down. Cancelled / failed applications are ignored. */
+let allotRate = { dim:'bank', from:'', to:'', minDecided:1 };
+const ALLOT_DIMS = {
+  bank:   { label:'Bank',            key:a=>{ const b=findBank(a.bankAccountId); return b?b.bankName:'(unknown bank)'; } },
+  upi:    { label:'UPI ID',          key:a=>{ const u=S.bankUpiIds.find(x=>x.id===a.upiId); const b=findBank(a.bankAccountId); return u ? `${u.upiId}${b?' ('+b.bankName+')':''}` : '(no UPI recorded)'; } },
+  ref:    { label:'Reference',       key:a=>{ const c=findClient(a.clientId); return (c&&c.referenceName)||'(no reference)'; } },
+  subref: { label:'Sub-Reference',   key:a=>{ const c=findClient(a.clientId); return (c&&c.subReference)||'(no sub-reference)'; } },
+  client: { label:'Client',          key:a=>{ const c=findClient(a.clientId); return c?c.clientName:'(unknown client)'; } },
+  ipo:    { label:'IPO',             key:a=>{ const i=findIpo(a.ipoId); return i?i.ipoName:'(unknown IPO)'; } },
+  amount: { label:'Application Amount', key:a=>{ const n=Number(a.amountApplied)||0; return n<=15000?'Up to ₹15,000':n<=50000?'₹15,001 – ₹50,000':n<=100000?'₹50,001 – ₹1,00,000':'Above ₹1,00,000'; } },
+  month:  { label:'Application Month', key:a=>(a.applicationDate||'').slice(0,7)||'(no date)' }
+};
+function setAllotRate(k, v){ allotRate[k] = (k==='minDecided') ? Math.max(1, Math.floor(Number(v))||1) : v; render(); }
+function allotRateRows(){
+  const dim = ALLOT_DIMS[allotRate.dim] || ALLOT_DIMS.bank;
+  const groups = new Map();
+  S.applications.forEach(a=>{
+    if (!isLiveApp(a)) return;
+    if (allotRate.from && (!a.applicationDate || a.applicationDate < allotRate.from)) return;
+    if (allotRate.to && (!a.applicationDate || a.applicationDate > allotRate.to)) return;
+    const k = dim.key(a);
+    if (!groups.has(k)) groups.set(k, { name:k, total:0, allotted:0, notAllotted:0, pending:0, amount:0, profit:0, apps:[] });
+    const g = groups.get(k);
+    g.apps.push(a);
+    g.total++; g.amount += Number(a.amountApplied)||0;
+    if (a.allotmentStatus==='Allotted') g.allotted++;
+    else if (a.allotmentStatus==='Not Allotted') g.notAllotted++;
+    else g.pending++;
+    const c = calcAllotmentSale(a); if (c.applicable) g.profit += c.ourFinal;
+  });
+  const rows = Array.from(groups.values()).map(g=>({ ...g, decided: g.allotted+g.notAllotted, rate: (g.allotted+g.notAllotted) ? g.allotted/(g.allotted+g.notAllotted)*100 : null }));
+  return rows;
+}
+function reportAllotmentRate(){
+  const all = allotRateRows();
+  const totAllotted = all.reduce((s,r)=>s+r.allotted,0), totDecided = all.reduce((s,r)=>s+r.decided,0), totPending = all.reduce((s,r)=>s+r.pending,0);
+  const overall = totDecided ? totAllotted/totDecided*100 : 0;
+  const rows = all.filter(r=>r.decided >= allotRate.minDecided)
+    .sort((a,b)=> (b.rate ?? -1) - (a.rate ?? -1) || b.decided - a.decided);
+  window.__allotRateExport = rows;
+  const dimOpts = Object.entries(ALLOT_DIMS).map(([k,d])=>`<option value="${k}" ${allotRate.dim===k?'selected':''}>${d.label}</option>`).join('');
+  const body = rows.map(r=>{
+    const cls = r.rate==null ? '' : (r.rate >= overall ? 'ok' : 'danger');
+    const bar = r.rate==null ? '' : `<div style="height:6px;border-radius:3px;background:var(--border);margin-top:4px;min-width:90px;"><div style="height:6px;border-radius:3px;width:${Math.min(100,r.rate).toFixed(0)}%;background:var(--${r.rate>=overall?'ok':'danger'}, #888);"></div></div>`;
+    const ppa = r.decided ? fmtMoney(r.profit / r.decided) : '—';
+    return `<tr>
+      <td>${escapeHtml(allotRate.dim==='month' && r.name.length===7 ? new Date(r.name+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : r.name)}</td>
+      ${dcell(r.name+' — applications', r.apps, r.total)}${dcell(r.name+' — allotted', r.apps.filter(a=>a.allotmentStatus==='Allotted'), r.allotted)}${dcell(r.name+' — not allotted', r.apps.filter(a=>a.allotmentStatus==='Not Allotted'), r.notAllotted)}${dcell(r.name+' — awaiting result', r.apps.filter(a=>!a.allotmentStatus||a.allotmentStatus==='Pending'), r.pending)}
+      <td><b class="${cls}">${r.rate==null?'—':r.rate.toFixed(1)+'%'}</b>${bar}</td>
+      <td>${fmtMoney(r.amount)}</td><td>${fmtMoney(r.profit)}</td><td>${ppa}</td></tr>`;
+  }).join('') || `<tr><td colspan="9" class="small-muted">No applications with a declared result match these filters yet.</td></tr>`;
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>Allotment Rate Analysis</h3><div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" onclick="exportAllotRate()">Download Excel</button></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-group"><label>Group by</label><select onchange="setAllotRate('dim', this.value)">${dimOpts}</select></div>
+        <div class="f-group"><label>Applied from</label><input type="date" value="${allotRate.from}" onchange="setAllotRate('from', this.value)"></div>
+        <div class="f-group"><label>Applied to</label><input type="date" value="${allotRate.to}" onchange="setAllotRate('to', this.value)"></div>
+        <div class="f-group"><label>Hide groups with fewer than</label><input type="number" min="1" step="1" value="${allotRate.minDecided}" style="width:70px;" onchange="setAllotRate('minDecided', this.value)"><span class="small-muted"> results</span></div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">Overall Allotment Rate</div><div class="val gold">${totDecided?overall.toFixed(1)+'%':'—'}</div></div>
+        <div class="kpi-card"><div class="lbl">Allotted</div><div class="val ok">${totAllotted}</div></div>
+        <div class="kpi-card"><div class="lbl">Results Declared</div><div class="val">${totDecided}</div></div>
+        <div class="kpi-card"><div class="lbl">Awaiting Result</div><div class="val">${totPending}</div></div>
+      </div>
+      <div class="table-wrap"><table class="dt"><thead><tr>
+        <th>${ALLOT_DIMS[allotRate.dim].label}</th><th>Applications</th><th>Allotted</th><th>Not Allotted</th><th>Pending</th><th>Allotment Rate</th><th>Amount Applied</th><th>Our Profit</th><th>Profit / Result</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+      <p class="hint">Rate = Allotted ÷ (Allotted + Not Allotted). Pending applications are not counted against the rate. Green = above your overall rate, red = below. Small groups can look extreme by luck — raise "Hide groups with fewer than" to focus on groups with enough results to trust. Cancelled / Mandate Failed applications are ignored.</p>
+    </div>
+  </div>`;
+}
+function exportAllotRate(){
+  const rows = (window.__allotRateExport||[]).map(r=>({ [ALLOT_DIMS[allotRate.dim].label]:r.name, 'Applications':r.total, 'Allotted':r.allotted, 'Not Allotted':r.notAllotted, 'Pending':r.pending, 'Allotment Rate %': r.rate==null?'':Number(r.rate.toFixed(1)), 'Amount Applied':r.amount, 'Our Profit':r.profit }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Allotment Rate');
+  XLSX.writeFile(wb, `Allotment_Rate_by_${allotRate.dim}_${todayStr()}.xlsx`);
+}
+/* =================== DRILL-DOWN, CLIENT SCORECARDS, REPORT BUILDER =================== */
+
+/* ---------- 19. Drill-down: click a number → see the records behind it ---------- */
+function drillAttr(title, apps){
+  if (!apps || !apps.length) return '';
+  __drillStore.push({ title, ids: apps.map(a=>a.id) });
+  return `onclick="openDrill(${__drillStore.length-1})" style="cursor:pointer;" title="Click to see the ${apps.length} record(s) behind this number"`;
+}
+function dcell(title, apps, valueHtml){ const a = drillAttr(title, apps); return `<td ${a ? 'class="clickable" '+a : ''}>${valueHtml}</td>`; }
+function drillNow(title, apps){ if (!apps || !apps.length) return; __drillStore.push({ title, ids: apps.map(a=>a.id) }); openDrill(__drillStore.length-1); }
+function openDrill(i){
+  const d = __drillStore[i]; if (!d) return;
+  window.__drillCurrent = d;
+  const apps = d.ids.map(findApp).filter(Boolean).sort((a,b)=>(b.applicationDate||'').localeCompare(a.applicationDate||''));
+  let amt = 0, sale = 0, our = 0;
+  apps.forEach(a=>{ amt += Number(a.amountApplied)||0; const c = calcAllotmentSale(a); if (c.applicable){ our += c.ourFinal; sale += Number(a.saleAmount)||0; } });
+  const LIMIT = 500;
+  const rows = apps.slice(0, LIMIT).map(a=>{
+    const cl = findClient(a.clientId), ipo = findIpo(a.ipoId), b = findBank(a.bankAccountId), c = calcAllotmentSale(a);
+    return `<tr>
+      <td>${escapeHtml(cl?cl.clientName:'—')}</td><td>${escapeHtml(ipo?ipo.ipoName:'—')}</td><td>${escapeHtml(b?b.bankName:'—')}</td>
+      <td>${fmtDate(a.applicationDate)}</td><td>${fmtMoney(a.amountApplied)}</td><td>${badge(a.applicationStatus)}</td>
+      <td>${badge(a.allotmentStatus||'Pending')}</td><td>${a.saleStatus==='Sold'?fmtDate(a.saleDate):(a.saleStatus?badge(a.saleStatus):'—')}</td>
+      <td>${c.applicable?fmtMoney(a.saleAmount):'—'}</td><td>${c.applicable?`<b class="${c.ourFinal<0?'danger':''}">${fmtMoney(c.ourFinal)}</b>`:'—'}</td>
+      <td>${a.amountReceiveStatus?badge(a.amountReceiveStatus):'—'}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="closeModal(); editAllotmentSale(${a.id})">Open</button></td></tr>`;
+  }).join('');
+  openModal(`${escapeHtml(d.title)} <span class="small-muted">(${apps.length} record${apps.length===1?'':'s'})</span>`,
+    `<div class="kpi-grid" style="margin-bottom:12px;">
+        <div class="kpi-card"><div class="lbl">Records</div><div class="val">${apps.length}</div></div>
+        <div class="kpi-card"><div class="lbl">Amount Applied</div><div class="val">${fmtMoney(amt)}</div></div>
+        <div class="kpi-card"><div class="lbl">Sale Amount (sold)</div><div class="val">${fmtMoney(sale)}</div></div>
+        <div class="kpi-card"><div class="lbl">Our Profit</div><div class="val gold">${fmtMoney(our)}</div></div>
+     </div>
+     <div class="table-wrap" style="max-height:55vh;overflow:auto;"><table class="dt"><thead><tr>
+       <th>Client</th><th>IPO</th><th>Bank</th><th>Applied On</th><th>Amount</th><th>App Status</th><th>Allotment</th><th>Sold On</th><th>Sale Amount</th><th>Our Profit</th><th>Recovery</th><th></th>
+     </tr></thead><tbody>${rows}</tbody></table></div>
+     ${apps.length>LIMIT?`<p class="hint">Showing the latest ${LIMIT} of ${apps.length}. Download Excel for everything.</p>`:''}`,
+    `<button class="btn btn-ghost" onclick="exportDrill()">Download Excel</button><button class="btn btn-primary" onclick="closeModal()">Close</button>`, true);
+}
+function exportDrill(){
+  const d = window.__drillCurrent; if (!d) return;
+  const rows = d.ids.map(findApp).filter(Boolean).map(a=>{
+    const cl = findClient(a.clientId), ipo = findIpo(a.ipoId), b = findBank(a.bankAccountId), c = calcAllotmentSale(a);
+    return { 'Client':cl?cl.clientName:'', 'Reference':cl?(cl.referenceName||''):'', 'IPO':ipo?ipo.ipoName:'', 'Bank':b?b.bankName:'', 'Applied On':toExcelDate(a.applicationDate), 'Amount Applied':Number(a.amountApplied)||0,
+      'Application Status':a.applicationStatus||'', 'Allotment':a.allotmentStatus||'Pending', 'Sale Status':a.saleStatus||'', 'Sale Date':toExcelDate(a.saleDate), 'Sale Amount':c.applicable?Number(a.saleAmount)||0:'',
+      'Our Profit':c.applicable?c.ourFinal:'', 'Client Profit':c.applicable?c.clientFinal:'', 'Recovery':a.amountReceiveStatus||'' };
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Records');
+  XLSX.writeFile(wb, `Records_${todayStr()}.xlsx`);
+}
+
+/* ---------- 18. Client scorecards ---------- */
+let scoreState = { sort:'profit', slowDays:15, ipoId:'' };
+function setScore(k, v){ scoreState[k] = (k==='slowDays') ? (Math.max(1, Math.floor(Number(v))||15)) : v; render(); }
+function clientScoreData(){
+  const today = todayStr();
+  const base = S.applications.filter(a => isLiveApp(a) && a.applicationStatus === 'Applied');
+  let allotted = 0, decided = 0, profitTot = 0, soldTot = 0;
+  base.forEach(a=>{
+    if (a.allotmentStatus==='Allotted'){ allotted++; decided++; } else if (a.allotmentStatus==='Not Allotted') decided++;
+    const c = calcAllotmentSale(a); if (c.applicable){ profitTot += c.ourFinal; soldTot++; }
+  });
+  const overallRate = decided ? allotted/decided : 0, overallAvgSale = soldTot ? profitTot/soldTot : 0;
+  const rows = S.clients.map(cl=>{
+    const apps = base.filter(a=>a.clientId===cl.id);
+    const al = apps.filter(a=>a.allotmentStatus==='Allotted'), na = apps.filter(a=>a.allotmentStatus==='Not Allotted');
+    const decidedN = al.length + na.length;
+    let profit = 0, soldN = 0, outAmt = 0, oldest = 0;
+    const outApps = [];
+    apps.forEach(a=>{
+      const c = calcAllotmentSale(a); if (!c.applicable) return;
+      profit += c.ourFinal; soldN++;
+      if (a.amountReceiveStatus === 'Receivable'){ outAmt += c.grossFinal; outApps.push(a); if (a.saleDate) oldest = Math.max(oldest, dayDiff(a.saleDate, today)); }
+    });
+    const flag = !outApps.length ? 'Clear' : (oldest > scoreState.slowDays ? 'Slow payer' : 'Pending');
+    // Expected profit per application: allotment rate (pulled toward the overall rate while there are few results) × typical profit per sale
+    const smoothRate = (al.length + overallRate*3) / (decidedN + 3);
+    const avgSale = soldN ? profit/soldN : overallAvgSale;
+    const expected = smoothRate * avgSale * (flag==='Slow payer' ? 0.5 : 1);
+    return { cl, apps, al, na, decidedN, rate: decidedN ? al.length/decidedN*100 : null, profit, soldN, avgPerApp: apps.length ? profit/apps.length : 0, outAmt, outApps, oldest, flag, expected, avgSale };
+  });
+  return { rows, overallRate, overallAvgSale, today };
+}
+function reportClientScorecards(){
+  const D = clientScoreData();
+  const sorters = { profit:(a,b)=>b.profit-a.profit, rate:(a,b)=>(b.rate??-1)-(a.rate??-1), avg:(a,b)=>b.avgPerApp-a.avgPerApp, outstanding:(a,b)=>b.outAmt-a.outAmt, apps:(a,b)=>b.apps.length-a.apps.length };
+  const rows = D.rows.filter(r=>r.apps.length).sort(sorters[scoreState.sort]||sorters.profit);
+  const flagBadge = f => `<span class="badge ${f==='Clear'?'green':f==='Pending'?'gold':'red'}">${f}</span>`;
+  const sortOpts = [['profit','Our profit'],['rate','Allotment rate'],['avg','Avg profit / application'],['outstanding','Outstanding amount'],['apps','Applications']].map(([k,l])=>`<option value="${k}" ${scoreState.sort===k?'selected':''}>${l}</option>`).join('');
+  const body = rows.map(r=>`<tr>
+    <td><a href="javascript:void(0)" onclick="openClientDetail(${r.cl.id})" style="color:var(--heading);font-weight:600;">${escapeHtml(r.cl.clientName)}</a>${r.cl.status==='Inactive'?' <span class="badge gray">Inactive</span>':''}<div class="small-muted">${escapeHtml(r.cl.referenceName||'—')}</div></td>
+    ${dcell(`${r.cl.clientName} — applications`, r.apps, r.apps.length)}
+    <td>${r.decidedN}</td>
+    ${dcell(`${r.cl.clientName} — allotted`, r.al, r.al.length)}
+    <td>${r.rate==null?'—':`<b class="${r.rate/100>=D.overallRate?'ok':'danger'}">${r.rate.toFixed(0)}%</b>`}${r.decidedN<3?' <span class="small-muted" title="Fewer than 3 results — too early to judge">·</span>':''}</td>
+    <td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.avgPerApp)}</td>
+    ${dcell(`${r.cl.clientName} — amount still to receive`, r.outApps, r.outAmt?fmtMoney(r.outAmt):'—')}
+    <td>${r.outApps.length?`${r.oldest} days`:'—'}</td><td>${flagBadge(r.flag)}</td></tr>`).join('') || `<tr><td colspan="10" class="small-muted">No client applications yet.</td></tr>`;
+
+  // ---- who to prioritise for the next IPO ----
+  const upcoming = S.ipos.filter(i=>ipoStatus(i)!=='Closed' && (i.archiveStatus||'Active')==='Active').sort((a,b)=>(a.openDate||'').localeCompare(b.openDate||''));
+  const ipoId = Number(scoreState.ipoId) || (upcoming[0] ? upcoming[0].id : null);
+  let prioHtml = '<p class="small-muted">No upcoming or open IPO to plan for yet.</p>';
+  if (ipoId){
+    const ipo = findIpo(ipoId);
+    const cand = D.rows.filter(r => r.cl.status !== 'Inactive' && !clientAlreadyPlannedForIpo(r.cl.id, ipoId, null) && !S.applications.some(a=>a.clientId===r.cl.id && a.ipoId===ipoId))
+      .sort((a,b)=>b.expected-a.expected).slice(0, 15);
+    prioHtml = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;"><label class="small-muted">For IPO</label>
+      <select onchange="setScore('ipoId', this.value)">${upcoming.map(i=>`<option value="${i.id}" ${i.id===ipoId?'selected':''}>${escapeHtml(i.ipoName)} (${ipoStatus(i)})</option>`).join('')}</select>
+      <span class="small-muted">Top ${cand.length} active clients not yet planned or applied for ${escapeHtml(ipo.ipoName)}</span></div>
+      <div class="table-wrap"><table class="dt"><thead><tr><th>#</th><th>Client</th><th>Reference</th><th>Allotment Rate</th><th>Avg Profit / Sale</th><th>Expected Profit / Application</th><th>Payment</th><th>Note</th></tr></thead><tbody>
+      ${cand.map((r,k)=>`<tr><td>${k+1}</td><td><a href="javascript:void(0)" onclick="openClientDetail(${r.cl.id})" style="color:var(--heading);font-weight:600;">${escapeHtml(r.cl.clientName)}</a></td><td>${escapeHtml(r.cl.referenceName||'—')}</td>
+        <td>${r.rate==null?'—':r.rate.toFixed(0)+'%'} <span class="small-muted">(${r.decidedN} results)</span></td><td>${r.soldN?fmtMoney(r.avgSale):'<span class="small-muted">'+fmtMoney(r.avgSale)+' (avg)</span>'}</td>
+        <td><b>${fmtMoney(r.expected)}</b></td><td>${flagBadge(r.flag)}</td><td class="small-muted">${r.decidedN<3?'Few results yet — based mostly on the overall average':(r.flag==='Slow payer'?'Ranked lower — has overdue money':'')}</td></tr>`).join('') || '<tr><td colspan="8" class="small-muted">Every active client is already planned or applied for this IPO.</td></tr>'}
+      </tbody></table></div>`;
+  }
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>Who to Prioritise for the Next IPO</h3></div>
+    <div class="sc-body">${prioHtml}
+      <p class="hint">Expected profit per application = the client's allotment rate × their usual profit per sale (halved if they have overdue money). With fewer than 3 results a client's rate is pulled toward the overall average (${(D.overallRate*100).toFixed(0)}%) so one lucky or unlucky result doesn't decide the ranking.</p></div>
+  </div>
+  <div class="section-card">
+    <div class="sc-head"><h3>Client Scorecards</h3></div>
+    <div class="sc-body">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+        <div class="f-group"><label>Sort by</label><select onchange="setScore('sort', this.value)">${sortOpts}</select></div>
+        <div class="f-group"><label>Mark "Slow payer" after (days)</label><input type="number" min="1" step="1" value="${scoreState.slowDays}" style="width:90px;" onchange="setScore('slowDays', this.value)"></div>
+      </div>
+      <div class="table-wrap"><table class="dt"><thead><tr>
+        <th>Client</th><th>Applications</th><th>Results</th><th>Allotted</th><th>Allotment Rate</th><th>Our Profit</th><th>Avg Profit / Application</th><th>Still to Receive</th><th>Oldest Unpaid</th><th>Payment</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+      <p class="hint"><b>Allotment rate</b> = allotted ÷ results declared (a dot means fewer than 3 results). Green = above your overall ${(D.overallRate*100).toFixed(0)}%. <b>Payment:</b> Clear = nothing owed; Pending = money receivable but not yet older than ${scoreState.slowDays} days; Slow payer = oldest unpaid sale is older than that. The portal records <i>whether</i> a payment was received but not <i>when</i>, so "days to pay" is measured as how long unpaid sales have been waiting. Click any count to see the records.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------- 20. Report builder (pivot) ---------- */
+let pivot = { rows:'bank', cols:'', metric:'our', basis:'applicationDate', from:'', to:'', sort:'value' };
+function setPivot(k, v){ pivot[k] = v; render(); }
+const PIVOT_METRICS = {
+  apps:        { label:'Applications (count)',        fmt:'n', fn:L=>L.length },
+  allotted:    { label:'Allotted (count)',            fmt:'n', fn:L=>L.filter(a=>a.allotmentStatus==='Allotted').length },
+  notAllotted: { label:'Not Allotted (count)',        fmt:'n', fn:L=>L.filter(a=>a.allotmentStatus==='Not Allotted').length },
+  pending:     { label:'Awaiting result (count)',     fmt:'n', fn:L=>L.filter(a=>!a.allotmentStatus||a.allotmentStatus==='Pending').length },
+  rate:        { label:'Allotment rate (%)',          fmt:'p', fn:L=>{ const al=L.filter(a=>a.allotmentStatus==='Allotted').length, d=al+L.filter(a=>a.allotmentStatus==='Not Allotted').length; return d ? al/d*100 : null; } },
+  sold:        { label:'Sold (count)',                fmt:'n', fn:L=>L.filter(a=>calcAllotmentSale(a).applicable).length },
+  amount:      { label:'Amount applied (₹)',          fmt:'m', fn:L=>L.reduce((s,a)=>s+(Number(a.amountApplied)||0),0) },
+  saleAmt:     { label:'Sale amount (₹)',             fmt:'m', fn:L=>L.reduce((s,a)=>s+(calcAllotmentSale(a).applicable?Number(a.saleAmount)||0:0),0) },
+  gross:       { label:'Gross received (₹)',          fmt:'m', fn:L=>L.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.grossFinal:0); },0) },
+  our:         { label:'Our profit (₹)',              fmt:'m', fn:L=>L.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); },0) },
+  client:      { label:'Client profit (₹)',           fmt:'m', fn:L=>L.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.clientFinal:0); },0) },
+  avgOur:      { label:'Avg profit per sale (₹)',     fmt:'m', fn:L=>{ let t=0,n=0; L.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable){ t+=c.ourFinal; n++; } }); return n ? t/n : null; } },
+  receivable:  { label:'Still to receive (₹)',        fmt:'m', fn:L=>L.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable && a.amountReceiveStatus==='Receivable' ? c.grossFinal : 0); },0) }
+};
+function pivotDims(){
+  const fyOf = d => { if (!d) return '(no date)'; const y = Number(d.slice(0,4)), m = Number(d.slice(5,7)); const s = m>=4 ? y : y-1; return `FY ${s}-${String(s+1).slice(2)}`; };
+  return { ...ALLOT_DIMS,
+    salemonth: { label:'Sale Month', key:a=>(a.saleStatus==='Sold' && a.saleDate) ? a.saleDate.slice(0,7) : '(not sold)', time:true },
+    fy:        { label:'Financial Year (applied)', key:a=>fyOf(a.applicationDate) },
+    category:  { label:'IPO Category', key:a=>{ const i=findIpo(a.ipoId); return (i&&i.category)||'(not set)'; } },
+    allotstatus:{ label:'Allotment Result', key:a=>a.allotmentStatus||'Pending' },
+    recovery:  { label:'Recovery Status', key:a=>a.saleStatus==='Sold' ? (a.amountReceiveStatus||'(not set)') : '(not sold)' },
+    share:     { label:'Our Profit Share %', key:a=>appProfitShare(a)+'%' }
+  };
+}
+function pivotLabel(dimKey, v){
+  if ((dimKey==='month' || dimKey==='salemonth') && /^\d{4}-\d{2}$/.test(v)) return new Date(v+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'});
+  return v;
+}
+function pivotFormat(metric, v){
+  if (v===null || v===undefined) return '—';
+  const f = PIVOT_METRICS[metric].fmt;
+  return f==='m' ? fmtMoney(v) : f==='p' ? v.toFixed(1)+'%' : String(Math.round(v));
+}
+function pivotCompute(){
+  const dims = pivotDims();
+  const rd = dims[pivot.rows] || dims.bank, cd = pivot.cols ? (dims[pivot.cols] || null) : null;
+  const M = PIVOT_METRICS[pivot.metric] || PIVOT_METRICS.our;
+  const base = S.applications.filter(a=>{
+    if (!isLiveApp(a) || a.applicationStatus !== 'Applied') return false;
+    const d = a[pivot.basis]; 
+    if (pivot.from && (!d || d < pivot.from)) return false;
+    if (pivot.to && (!d || d > pivot.to)) return false;
+    return true;
+  });
+  const rowMap = new Map(), colTotals = new Map();
+  base.forEach(a=>{
+    const rk = rd.key(a), ck = cd ? cd.key(a) : '__all';
+    if (!rowMap.has(rk)) rowMap.set(rk, { all:[], cells:new Map() });
+    const R = rowMap.get(rk); R.all.push(a);
+    if (!R.cells.has(ck)) R.cells.set(ck, []);
+    R.cells.get(ck).push(a);
+    if (!colTotals.has(ck)) colTotals.set(ck, []);
+    colTotals.get(ck).push(a);
+  });
+  const isTime = (pivot.rows==='month' || pivot.rows==='salemonth' || pivot.rows==='fy');
+  let rowKeys = Array.from(rowMap.keys());
+  const val = L => M.fn(L);
+  rowKeys.sort((a,b)=> (pivot.sort==='name' || isTime) ? String(a).localeCompare(String(b)) : ((val(rowMap.get(b).all) ?? -1e15) - (val(rowMap.get(a).all) ?? -1e15)));
+  let colKeys = cd ? Array.from(colTotals.keys()) : ['__all'];
+  const colTime = (pivot.cols==='month' || pivot.cols==='salemonth' || pivot.cols==='fy');
+  colKeys.sort((a,b)=> colTime ? String(a).localeCompare(String(b)) : ((val(colTotals.get(b)) ?? -1e15) - (val(colTotals.get(a)) ?? -1e15)));
+  const COLCAP = 14, extraCols = Math.max(0, colKeys.length - COLCAP);
+  colKeys = colKeys.slice(0, COLCAP);
+  return { rd, cd, M, base, rowMap, colTotals, rowKeys, colKeys, extraCols, val };
+}
+function reportBuilder(){
+  const dims = pivotDims();
+  const P = pivotCompute();
+  const dimOpts = (sel, withNone) => (withNone?`<option value="" ${sel===''?'selected':''}>— none (single column) —</option>`:'') + Object.entries(dims).map(([k,d])=>`<option value="${k}" ${sel===k?'selected':''}>${d.label}</option>`).join('');
+  const metricOpts = Object.entries(PIVOT_METRICS).map(([k,m])=>`<option value="${k}" ${pivot.metric===k?'selected':''}>${m.label}</option>`).join('');
+  const basisOpts = [['applicationDate','Application date'],['allotmentDate','Allotment date'],['saleDate','Sale date']].map(([k,l])=>`<option value="${k}" ${pivot.basis===k?'selected':''}>${l}</option>`).join('');
+  // heat shading relative to the largest cell
+  let maxAbs = 0;
+  P.rowKeys.forEach(rk => P.colKeys.forEach(ck => { const v = P.val(P.rowMap.get(rk).cells.get(ck) || []); if (v!=null && Math.abs(v) > maxAbs) maxAbs = Math.abs(v); }));
+  const shade = v => (v==null || !maxAbs || P.M.fmt==='p') ? '' : `background:rgba(200,150,62,${(Math.min(1,Math.abs(v)/maxAbs)*0.35).toFixed(2)});`;
+  const head = `<tr><th>${P.rd.label}${P.cd?` ↓ / ${P.cd.label} →`:''}</th>${P.cd ? P.colKeys.map(ck=>`<th>${escapeHtml(pivotLabel(pivot.cols, ck))}</th>`).join('') : ''}<th>${P.cd?'Total':escapeHtml(P.M.label)}</th></tr>`;
+  const bodyRows = P.rowKeys.slice(0, 300).map(rk=>{
+    const R = P.rowMap.get(rk);
+    const cells = P.cd ? P.colKeys.map(ck=>{ const L = R.cells.get(ck) || []; const v = L.length ? P.val(L) : null; const a = drillAttr(`${pivotLabel(pivot.rows, rk)} · ${pivotLabel(pivot.cols, ck)}`, L); return `<td ${a?'class="clickable" '+a.replace('style="cursor:pointer;"',`style="cursor:pointer;${shade(v)}"`):''}>${L.length?pivotFormat(pivot.metric, v):'<span class="small-muted">·</span>'}</td>`; }).join('') : '';
+    const tv = P.val(R.all);
+    const ta = drillAttr(`${pivotLabel(pivot.rows, rk)}`, R.all);
+    return `<tr><td>${escapeHtml(pivotLabel(pivot.rows, rk))}</td>${cells}<td ${ta?'class="clickable" '+ta:''}><b>${pivotFormat(pivot.metric, tv)}</b></td></tr>`;
+  }).join('') || `<tr><td colspan="${(P.cd?P.colKeys.length:0)+2}" class="small-muted">No applications match these filters.</td></tr>`;
+  const totalRow = P.rowKeys.length ? `<tr style="font-weight:700;border-top:2px solid var(--border);"><td>TOTAL</td>${P.cd ? P.colKeys.map(ck=>`<td>${pivotFormat(pivot.metric, P.val(P.colTotals.get(ck)||[]))}</td>`).join('') : ''}<td>${pivotFormat(pivot.metric, P.val(P.base))}</td></tr>` : '';
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>Report Builder</h3><div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" onclick="exportPivot('xlsx')">Download Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportPivot('csv')">Download CSV</button></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:10px;">
+        <div class="f-group"><label>Rows</label><select onchange="setPivot('rows', this.value)">${dimOpts(pivot.rows,false)}</select></div>
+        <div class="f-group"><label>Columns</label><select onchange="setPivot('cols', this.value)">${dimOpts(pivot.cols,true)}</select></div>
+        <div class="f-group"><label>Show</label><select onchange="setPivot('metric', this.value)">${metricOpts}</select></div>
+        <div class="f-group"><label>Filter dates by</label><select onchange="setPivot('basis', this.value)">${basisOpts}</select></div>
+        <div class="f-group"><label>From</label><input type="date" value="${pivot.from}" onchange="setPivot('from', this.value)"></div>
+        <div class="f-group"><label>To</label><input type="date" value="${pivot.to}" onchange="setPivot('to', this.value)"></div>
+        <div class="f-group"><label>Sort rows</label><select onchange="setPivot('sort', this.value)"><option value="value" ${pivot.sort==='value'?'selected':''}>Highest first</option><option value="name" ${pivot.sort==='name'?'selected':''}>A → Z</option></select></div>
+      </div>
+      <div class="table-wrap"><table class="dt"><thead>${head}</thead><tbody>${bodyRows}${totalRow}</tbody></table></div>
+      <p class="hint">Pick what goes down the side (Rows), optionally across the top (Columns), and the number to show. Money and profit figures only count completed sales (Allotted + Sold). Cancelled / Mandate Failed applications are ignored. Click any number to see the records behind it${P.extraCols?` · Showing the ${P.colKeys.length} biggest columns (${P.extraCols} more hidden — narrow the dates or pick a different column)`:''}${P.rowKeys.length>300?' · Showing the first 300 rows':''}.</p>
+    </div>
+  </div>`;
+}
+function exportPivot(kind){
+  const P = pivotCompute();
+  const aoa = [[P.rd.label + (P.cd ? ' / ' + P.cd.label : ''), ...(P.cd ? P.colKeys.map(ck=>pivotLabel(pivot.cols, ck)) : []), P.cd ? 'Total' : P.M.label]];
+  const num = v => (v===null||v===undefined) ? '' : Number((Math.round(v*100)/100).toFixed(2));
+  P.rowKeys.forEach(rk=>{ const R = P.rowMap.get(rk); aoa.push([pivotLabel(pivot.rows, rk), ...(P.cd ? P.colKeys.map(ck=>{ const L = R.cells.get(ck)||[]; return L.length ? num(P.val(L)) : ''; }) : []), num(P.val(R.all))]); });
+  aoa.push(['TOTAL', ...(P.cd ? P.colKeys.map(ck=>num(P.val(P.colTotals.get(ck)||[]))) : []), num(P.val(P.base))]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const name = `Report_${pivot.rows}${pivot.cols?'_by_'+pivot.cols:''}_${pivot.metric}_${todayStr()}`;
+  if (kind === 'csv'){
+    const blob = new Blob([XLSX.utils.sheet_to_csv(ws)], { type:'text/csv' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name + '.csv'; a.click(); URL.revokeObjectURL(url);
+  } else {
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Report'); XLSX.writeFile(wb, name + '.xlsx');
+  }
+}
+
+
 function reportSubReferenceProfit(){
   // Group: Reference -> Sub-Reference -> clients -> profit, so you can see each
   // individual sub-reference's contribution plus the combined total for the
@@ -3571,7 +4447,7 @@ function reportBankAnalysis(){
     const gross = st.apps.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.grossFinal:0); },0);
     // Amount Blocked: only applications still awaiting an allotment decision for this bank —
     // matches the same definition used on the Dashboard and IPO Command Center.
-    const amountBlocked = st.apps.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending').reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+    const amountBlocked = st.apps.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
     const pendingReceivablesCount = st.apps.filter(a=>a.amountReceiveStatus==='Receivable').length;
     return `<tr><td class="clickable" onclick="navigate('banks')">${escapeHtml(b.bankName)}</td><td>${st.plans.length}</td><td>${actualIpoIds.size}</td>
       <td class="clickable" ${navAttr('applications', {bankAccountId:b.bankName}, 'appsTbl')}>${st.apps.length}</td>
@@ -3632,7 +4508,7 @@ function reportProfitAnalysis(){
   const avgProfitPerMonth = Math.round(yearlyProfit / (monthNow.getMonth()+1));
   let totalReceived=0, totalReceivable=0;
   allFiltered.forEach(a=>{ const c=calcAllotmentSale(a); if (c.applicable){ if (a.amountReceiveStatus==='Received') totalReceived+=c.grossFinal; if (a.amountReceiveStatus==='Receivable') totalReceivable+=c.grossFinal; } });
-  const totalCapitalBlocked = allFiltered.filter(a=>!a.allotmentStatus || a.allotmentStatus==='Pending').reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+  const totalCapitalBlocked = allFiltered.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
 
   const presetBtns = [['thisMonth','This Month'],['thisYear','This Year'],['all','All Time'],['custom','Custom']]
     .map(([k,l]) => `<button class="btn btn-sm ${praRange.preset===k?'btn-primary':'btn-ghost'}" onclick="setPraPreset('${k}')">${l}</button>`).join('');
@@ -3725,11 +4601,36 @@ function viewSettings(){
   </div>
 
   <div class="section-card">
+    <div class="sc-head"><h3>Profit Sharing</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">The <b>standard</b> share of the profit on each sale that you keep (the client keeps the rest) — normally 50%. It applies to every client <b>except</b> those with their own share (set per client in Clients → Edit). A change applies to <b>new applications from now on</b> — existing applications keep the share they were created with, so past profit never changes by accident. A single application's share can also be changed in Allotments &amp; Sale → Edit.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <label class="small-muted">Our share</label>
+        <input type="number" id="profitShareInput" value="${defaultProfitShare()}" min="0" max="100" step="0.5" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;"> <span>%</span>
+        <button class="btn btn-primary btn-sm" onclick="saveProfitShare()">Save</button>
+        <button class="btn btn-ghost btn-sm" onclick="applyShareToUnsold()">Apply to all not-yet-sold applications</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <div class="sc-head"><h3>Profit Goals</h3></div>
+    <div class="sc-body">
+      <p class="small-muted">Targets for "Our Profit" (by sale date). They appear on the Dashboard with progress and a month-end / year-end projection. Leave blank for no goal.</p>
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="f-group"><label>Monthly goal (₹)</label><input type="number" id="goalMonthInput" value="${S.settings.monthlyProfitGoal||''}" min="0" step="1000" style="width:140px;"></div>
+        <div class="f-group"><label>Yearly goal (₹, calendar year)</label><input type="number" id="goalYearInput" value="${S.settings.yearlyProfitGoal||''}" min="0" step="10000" style="width:160px;"></div>
+        <button class="btn btn-primary btn-sm" onclick="saveProfitGoals()">Save Goals</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-card">
     <div class="sc-head"><h3>Mandate Capacity</h3></div>
     <div class="sc-body">
       <p class="small-muted">Maximum client mandates allowed per bank per day. Used for capacity warnings across Planning, Bulk Plan Clients, and the Capacity Dashboard. Change this if bank policy changes.</p>
       <div style="display:flex;gap:8px;align-items:center;">
-        <input type="number" id="mandateCapInput" value="${S.settings.mandateCapacityPerBankPerDay||6}" min="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+        <input type="number" id="mandateCapInput" value="${capacityLimit()}" min="1" step="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
         <button class="btn btn-primary btn-sm" onclick="saveMandateCapacity()">Save</button>
       </div>
     </div>
@@ -3929,6 +4830,25 @@ function viewSettings(){
     <div class="sc-body" id="auditTblWrap"></div>
   </div>`;
 }
+/* Plain-language summary of an audit entry: "field: old → new" for each changed field. */
+function auditChangeSummary(r){
+  try {
+    const prev = r.prev ? JSON.parse(r.prev) : null, next = r.next ? JSON.parse(r.next) : null;
+    if (!prev && next) return '<span class="small-muted">New record created</span>';
+    if (prev && !next) return '<span class="small-muted">Record deleted</span>';
+    if (!prev || !next) return '—';
+    const skip = new Set(['updatedAt','createdAt','id']);
+    const parts = [];
+    for (const k of Object.keys(next)){
+      if (skip.has(k)) continue;
+      if (JSON.stringify(prev[k]) !== JSON.stringify(next[k])){
+        const f = v => (v===null||v===undefined||v==='') ? '(blank)' : String(v);
+        parts.push(`<b>${escapeHtml(k)}</b>: ${escapeHtml(f(prev[k]))} → ${escapeHtml(f(next[k]))}`);
+      }
+    }
+    return parts.length ? parts.slice(0,6).join('<br>') + (parts.length>6 ? `<br><span class="small-muted">+${parts.length-6} more</span>` : '') : '<span class="small-muted">No field changes</span>';
+  } catch(e){ return '—'; }
+}
 function renderAuditLogTable(){
   const entityTypes = Array.from(new Set(S.auditLogs.map(l=>l.entity).filter(Boolean))).sort();
   window.__tableRerender['auditTbl'] = () => {
@@ -3942,15 +4862,44 @@ function renderAuditLogTable(){
         { key:'timestamp', label:'Timestamp', render:r=>new Date(r.timestamp).toLocaleString('en-IN') },
         { key:'action', label:'Action', render:r=>escapeHtml(r.action) },
         { key:'entity', label:'Entity', render:r=>escapeHtml(r.entity) },
-        { key:'entityId', label:'Entity ID', render:r=>escapeHtml(r.entityId) }
+        { key:'entityId', label:'Entity ID', render:r=>escapeHtml(r.entityId) },
+        { key:'by', label:'Changed By', render:r=>escapeHtml(r.by||'—') },
+        { key:'changes', label:'What Changed', render:r=>auditChangeSummary(r) }
       ]
     }));
   };
   window.__tableRerender['auditTbl']();
 }
+async function saveProfitShare(){
+  const v = Number(document.getElementById('profitShareInput').value);
+  if (isNaN(v) || v < 0 || v > 100){ toast('Enter a share between 0 and 100','warn'); return; }
+  await saveSetting('profitSharePct', v);
+  toast(`Default profit share set to ${v}% for new applications`,'ok'); navigate('settings');
+}
+function applyShareToUnsold(){
+  const v = defaultProfitShare();
+  // each application follows its own client's custom share if they have one, otherwise the standard share
+  const targets = S.applications.filter(a => a.saleStatus !== 'Sold' && appProfitShare(a) !== shareForClient(a.clientId));
+  if (!targets.length){ toast('Every not-yet-sold application already matches its client\'s share','ok'); return; }
+  confirmAction(`Update the profit share on ${targets.length} application(s) that are not sold yet — ${v}% for clients on the standard share, and each custom-share client's own percentage? Sold applications are not touched.`, async () => {
+    for (const a of targets){
+      const updated = { ...a, profitSharePct: shareForClient(a.clientId), updatedAt: new Date().toISOString() };
+      await putRec('applications', updated); Object.assign(a, updated);
+    }
+    await audit('Profit Share Bulk Update','Applications', null, null, { count: targets.length, share: v });
+    toast(`Updated ${targets.length} application(s)`,'ok'); navigate('settings');
+  });
+}
+async function saveProfitGoals(){
+  const m = Number(document.getElementById('goalMonthInput').value) || 0;
+  const y = Number(document.getElementById('goalYearInput').value) || 0;
+  if (m < 0 || y < 0){ toast('Goals cannot be negative','warn'); return; }
+  await saveSetting('monthlyProfitGoal', m); await saveSetting('yearlyProfitGoal', y);
+  toast('Profit goals saved','ok'); navigate('settings');
+}
 async function saveMandateCapacity(){
   const val = Number(document.getElementById('mandateCapInput').value);
-  if (!val || val < 1){ toast('Enter a valid capacity (1 or more)','warn'); return; }
+  if (!Number.isInteger(val) || val < 1){ toast('Enter a whole number, 1 or more (no upper limit)','warn'); return; }
   await saveSetting('mandateCapacityPerBankPerDay', val);
   toast('Mandate capacity updated','ok');
   navigate('settings');
@@ -3988,7 +4937,7 @@ function toExcelDate(str){ if(!str) return null; const d = new Date(str); if (is
 function exportAllToExcel(){
   const wb = XLSX.utils.book_new();
 
-  const clientsSheet = S.clients.map(c=>({ 'Client ID':c.clientId, 'Client Name':c.clientName, 'Reference':c.referenceName, 'Sub Reference':c.subReference, 'Status':c.status, 'Date Added': toExcelDate(c.createdAt) }));
+  const clientsSheet = S.clients.map(c=>({ 'Client ID':c.clientId, 'Client Name':c.clientName, 'Reference':c.referenceName, 'Sub Reference':c.subReference, 'Status':c.status, 'Our Profit Share %': clientOwnShare(c)!==null ? clientOwnShare(c) : '', 'Date Added': toExcelDate(c.createdAt) }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientsSheet), 'Clients');
 
   const banksSheet = S.bankAccounts.map(b=>({ 'Bank ID':b.bankId, 'Bank Name':b.bankName, 'Account Holder':b.accountHolderName, 'Status':b.status, 'UPI IDs': bankUpis(b.id).map(u=>u.upiId).join(', ') }));
@@ -3997,20 +4946,20 @@ function exportAllToExcel(){
   const upiSheet = S.bankUpiIds.map(u=>{ const b=findBank(u.bankAccountId); return { 'Bank':b?b.bankName:'', 'UPI ID':u.upiId }; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(upiSheet), 'Bank UPI IDs');
 
-  const iposSheet = S.ipos.map(i=>({ 'IPO ID':i.ipoId, 'IPO Name':i.ipoName, 'Min Amount':Number(i.minimumApplicationAmount)||0, 'Open Date':toExcelDate(i.openDate), 'Close Date':toExcelDate(i.closeDate), 'Allotment Date':toExcelDate(i.allotmentDate), 'Status':ipoStatus(i), 'Active/Inactive':i.archiveStatus||'Active' }));
+  const iposSheet = S.ipos.map(i=>({ 'IPO ID':i.ipoId, 'IPO Name':i.ipoName, 'Min Amount':Number(i.minimumApplicationAmount)||0, 'Open Date':toExcelDate(i.openDate), 'Close Date':toExcelDate(i.closeDate), 'Allotment Date':toExcelDate(i.allotmentDate), 'Category':i.category||'', 'Issue Price':i.issuePrice!=null?i.issuePrice:'', 'Lot Size':i.lotSize!=null?i.lotSize:'', 'GMP':i.gmp!=null?i.gmp:'', 'Listing Date':toExcelDate(i.listingDate), 'Listing Price':i.listingPrice!=null?i.listingPrice:'', 'Status':ipoStatus(i), 'Active/Inactive':i.archiveStatus||'Active' }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(iposSheet), 'IPOs');
 
-  const plansSheet = S.ipoPlans.map(p=>{ const ipo=findIpo(p.ipoId), bank=findBank(p.bankAccountId); return { 'Plan ID':p.id, 'IPO':ipo?ipo.ipoName:'', 'Planned Date':toExcelDate(p.plannedDate), 'Bank':bank?bank.bankName:'', 'Planned Clients':p.plannedClientCount||0, 'Status':planStatusComputed(p), 'Variance':planVariance(p), 'Notes':p.notes||'' }; });
+  const plansSheet = S.ipoPlans.map(p=>{ const ipo=findIpo(p.ipoId), bank=findBank(p.bankAccountId); return { 'Plan ID':p.id, 'IPO':ipo?ipo.ipoName:'', 'Planned Date':toExcelDate(p.plannedDate), 'Bank':bank?bank.bankName:'', 'Planned Clients':planClientCount(p), 'Status':planStatusComputed(p), 'Variance':planVariance(p), 'Notes':p.notes||'' }; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(plansSheet), 'IPO Plans');
 
   const plannedClientsSheet = S.plannedClients.map(pc=>{ const c=findClient(pc.clientId), plan=findPlan(pc.planId), ipo=plan?findIpo(plan.ipoId):null; return { 'Plan ID':pc.planId, 'IPO':ipo?ipo.ipoName:'', 'Client ID':c?c.clientId:'', 'Client Name':c?c.clientName:'' }; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(plannedClientsSheet), 'Planned Clients');
 
   const appsSheet = S.applications.map(a=>{ const c=findClient(a.clientId), i=findIpo(a.ipoId), b=findBank(a.bankAccountId); const u=S.bankUpiIds.find(x=>x.id===a.upiId); const calc=calcAllotmentSale(a); return {
-    'Application ID':a.id,'Client ID':c?c.clientId:'','Client Name':c?c.clientName:'','IPO':i?i.ipoName:'','Bank':b?b.bankName:'','Application Date':toExcelDate(a.applicationDate),
+    'Application ID':a.id,'Client ID':c?c.clientId:'','Client Name':c?c.clientName:'','Reference':c?(c.referenceName||''):'','Sub Reference':c?(c.subReference||''):'','IPO':i?i.ipoName:'','Bank':b?b.bankName:'','Application Date':toExcelDate(a.applicationDate),
     'UPI ID':u?u.upiId:'','Amount Applied':Number(a.amountApplied)||0,'Status':a.applicationStatus,'Plan ID':a.planId||'','Allotment Status':a.allotmentStatus||'',
     'Allotment Date':toExcelDate(a.allotmentDate),'Sale Status':a.saleStatus||'','Sale Date':toExcelDate(a.saleDate),'Sale Amount':Number(a.saleAmount)||0,
-    'Gross Received':calc.applicable?calc.grossFinal:'','Recovery Status':a.amountReceiveStatus||'','Our Profit':calc.applicable?calc.ourFinal:'','Client Profit':calc.applicable?calc.clientFinal:'' }; });
+    'Gross Received':calc.applicable?calc.grossFinal:'','Recovery Status':a.amountReceiveStatus||'','Our Profit':calc.applicable?calc.ourFinal:'','Client Profit':calc.applicable?calc.clientFinal:'','Lots Allotted':a.lotsAllotted!=null?a.lotsAllotted:'','Shares Allotted':a.sharesAllotted!=null?a.sharesAllotted:'' }; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appsSheet), 'Applications');
 
   const allotmentsSheet = S.applications.filter(a=>a.allotmentStatus && a.allotmentStatus!=='Pending').map(a=>{ const c=findClient(a.clientId), i=findIpo(a.ipoId); return { 'Client':c?c.clientName:'','IPO':i?i.ipoName:'','Allotment Status':a.allotmentStatus,'Allotment Date':toExcelDate(a.allotmentDate) }; });
@@ -4036,10 +4985,10 @@ function exportAllToExcel(){
   const bankSummary = S.bankAccounts.map(b=>{ const st=bankStats(b.id); return { 'Bank':b.bankName,'Plans':st.plans.length,'Applications':st.apps.length,'Our Profit':st.profit }; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bankSummary), 'Bank Summary');
 
-  const planningAnalysisSheet = S.ipoPlans.map(p=>{ const ipo=findIpo(p.ipoId), bank=findBank(p.bankAccountId); return { 'IPO':ipo?ipo.ipoName:'','Planned Date':toExcelDate(p.plannedDate),'Bank':bank?bank.bankName:'','Planned Clients':p.plannedClientCount||0,'Variance':planVariance(p) }; });
+  const planningAnalysisSheet = S.ipoPlans.map(p=>{ const ipo=findIpo(p.ipoId), bank=findBank(p.bankAccountId); return { 'IPO':ipo?ipo.ipoName:'','Planned Date':toExcelDate(p.plannedDate),'Bank':bank?bank.bankName:'','Planned Clients':planClientCount(p),'Variance':planVariance(p) }; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(planningAnalysisSheet), 'Planning Analysis');
 
-  const auditSheet = S.auditLogs.map(l=>({ 'Timestamp':l.timestamp,'Action':l.action,'Entity':l.entity,'Entity ID':l.entityId }));
+  const auditSheet = S.auditLogs.map(l=>({ 'Timestamp':l.timestamp,'Action':l.action,'Entity':l.entity,'Entity ID':l.entityId,'Changed By':l.by||'' }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(auditSheet), 'Audit Logs');
 
   XLSX.writeFile(wb, `IPO_Portal_Export_${todayStr()}.xlsx`);
@@ -4068,6 +5017,8 @@ function downloadImportTemplate(){
     { 'Sheet':'Sale Status', 'What to fill in':'Exactly one of: Pending to Sell, Sold' },
     { 'Sheet':'Recovery Status', 'What to fill in':'Exactly one of: Receivable, Received' },
     { 'Sheet':'Amounts', 'What to fill in':'Plain numbers, no currency symbol or commas (e.g. 14760, not ₹14,760).' },
+    { 'Sheet':'Reference / Sub Reference', 'What to fill in':'Optional, on the Applications sheet. Used when a NEW client is created by the import (and to fill in a blank Reference on an existing client). Existing clients that already have a Reference are never changed.' },
+    { 'Sheet':'Plan ID', 'What to fill in':'Optional, on the Applications sheet. The Plan ID number (as shown in the portal\'s Excel export) to link the application to. It must be a plan for the same IPO, otherwise it is ignored with a note in the preview.' },
     { 'Sheet':'Gross Received', 'What to fill in':'Optional. If left blank, the portal calculates it automatically the same way it does for manual entries. Fill it in only if you want to record a specific historical value (e.g. it becomes a Manual Override, same as editing it by hand later).' },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(instructions), 'Instructions');
@@ -4079,7 +5030,7 @@ function downloadImportTemplate(){
     'Client Name':'Karan Mehta (example — delete this row)', 'IPO':'Sunshine', 'Bank':'HDFC', 'UPI ID':'karan@okhdfcbank',
     'Application Date':'2026-08-18', 'Amount Applied':14760,
     'Allotment Status':'Allotted', 'Sale Status':'Sold', 'Sale Date':'2026-08-27', 'Sale Amount':15200,
-    'Recovery Status':'Received', 'Gross Received':''
+    'Recovery Status':'Received', 'Gross Received':'', 'Reference':'Rahul', 'Sub Reference':'Rahul - Pune', 'Plan ID':''
   }];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appsExample), 'Applications');
 
@@ -4136,7 +5087,7 @@ function importFromExcel(file){
     const ipoRows = wb.Sheets['IPOs'] ? XLSX.utils.sheet_to_json(wb.Sheets['IPOs'], { defval:'' }) : [];
     const appRows = wb.Sheets['Applications'] ? XLSX.utils.sheet_to_json(wb.Sheets['Applications'], { defval:'' }) : [];
 
-    const plan = { newIpos:[], updatedIpos:[], newClients:new Set(), newBanks:new Set(), newUpis:[], newApps:[], errors:[], skippedDupes:0 };
+    const plan = { newIpos:[], updatedIpos:[], newClients:new Set(), newClientMeta:{}, clientFills:{}, newBanks:new Set(), newUpis:[], newApps:[], errors:[], skippedDupes:0 };
 
     // ---- IPOs sheet: create new, or update dates/amount on existing (matched by name) ----
     ipoRows.forEach((row, idx) => {
@@ -4173,6 +5124,17 @@ function importFromExcel(file){
       const saleDate = parseExcelDate(row['Sale Date']);
       const saleAmount = row['Sale Amount']!=='' ? Number(row['Sale Amount'])||0 : null;
       const grossReceived = row['Gross Received']!=='' && row['Gross Received']!=null ? Number(row['Gross Received'])||0 : null;
+      const refName = (row['Reference']||'').toString().trim().replace(/\s+/g,' ');
+      const subRef = (row['Sub Reference']||'').toString().trim().replace(/\s+/g,' ');
+      // optional link to an existing plan — must be a plan for the same IPO
+      let planId = null;
+      if (row['Plan ID']!=='' && row['Plan ID']!=null){
+        const pl = S.ipoPlans.find(x => String(x.id) === String(row['Plan ID']).trim());
+        const ipoForPlan = S.ipos.find(i=>i.ipoName.toLowerCase()===ipoName.toLowerCase());
+        if (!pl) plan.errors.push(`Row ${rowNum} (${clientName}): Plan ID "${row['Plan ID']}" does not exist — plan link left blank.`);
+        else if (!ipoForPlan || pl.ipoId !== ipoForPlan.id) plan.errors.push(`Row ${rowNum} (${clientName}): Plan ID ${row['Plan ID']} belongs to a different IPO — plan link left blank.`);
+        else planId = pl.id;
+      }
 
       // duplicate check against records already in the portal (same rule the manual form uses)
       const existingClient = S.clients.find(c=>c.clientName.toLowerCase()===clientName.toLowerCase());
@@ -4185,7 +5147,14 @@ function importFromExcel(file){
                      plan.newApps.find(a => a._clientKey===clientName.toLowerCase() && a._ipoKey===ipoName.toLowerCase() && a._bankKey===bankName.toLowerCase());
         if (dupe){ plan.skippedDupes++; return; }
       }
-      if (!existingClient) plan.newClients.add(clientName);
+      if (!existingClient){
+        plan.newClients.add(clientName);
+        const k = clientName.toLowerCase();
+        if (!plan.newClientMeta[k]) plan.newClientMeta[k] = { ref:refName, sub:subRef };
+        else { if (!plan.newClientMeta[k].ref && refName) plan.newClientMeta[k].ref = refName; if (!plan.newClientMeta[k].sub && subRef) plan.newClientMeta[k].sub = subRef; }
+      } else if ((!existingClient.referenceName && refName) || (!existingClient.subReference && subRef)){
+        plan.clientFills[existingClient.id] = { ref: refName, sub: subRef };
+      }
       if (!existingBank) plan.newBanks.add(bankName);
       const upiId = (row['UPI ID']||'').toString().trim();
       if (upiId && existingBank && !bankUpis(existingBank.id).some(u=>u.upiId.toLowerCase()===upiId.toLowerCase())){
@@ -4195,7 +5164,7 @@ function importFromExcel(file){
       plan.newApps.push({
         _clientKey:clientName.toLowerCase(), _ipoKey:ipoName.toLowerCase(), _bankKey:bankName.toLowerCase(),
         clientName, ipoName, bankName, upiId, applicationDate, amountApplied,
-        allotmentStatus, saleStatus, saleDate, saleAmount, recoveryStatus, grossReceived, rowNum
+        allotmentStatus, saleStatus, saleDate, saleAmount, recoveryStatus, grossReceived, planId, rowNum
       });
     });
 
@@ -4237,8 +5206,9 @@ async function commitImport(){
   }
   for (const ui of plan.updatedIpos){
     const updated = { ...ui.existing, minimumApplicationAmount:ui.minAmount||ui.existing.minimumApplicationAmount, openDate:ui.openDate||ui.existing.openDate, closeDate:ui.closeDate||ui.existing.closeDate, allotmentDate:ui.allotmentDate||ui.existing.allotmentDate, updatedAt:new Date().toISOString() };
-    await putRec('ipos', updated); Object.assign(ui.existing, updated);
-    await audit('IPO Updated via Import','IPO', ui.existing.ipoId, ui.existing, updated);
+    await putRec('ipos', updated); const __prev15 = {...ui.existing}; Object.assign(ui.existing, updated);
+    await audit('IPO Updated via Import','IPO', ui.existing.ipoId, __prev15, updated);
+    await syncIpoAllotmentDate(ui.existing);
   }
 
   // 2) Clients — auto-create by name
@@ -4246,11 +5216,25 @@ async function commitImport(){
   S.clients.forEach(c => clientByName[c.clientName.toLowerCase()] = c);
   for (const name of plan.newClients){
     const clientId = nextCode(S.clients, 'clientId', 'CL');
-    const rec = { clientId, clientName:name, referenceName:'', subReference:'', status:'Active', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+    const meta = (plan.newClientMeta||{})[name.toLowerCase()] || { ref:'', sub:'' };
+    const rec = { clientId, clientName:name, referenceName:meta.ref||'', subReference:meta.sub||'', status:'Active', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
     const newId = await putRec('clients', rec); rec.id = newId; S.clients.push(rec);
     clientByName[name.toLowerCase()] = rec;
     await audit('Client Imported','Client', clientId, null, rec);
   }
+
+  // 2b) Fill blank Reference / Sub Reference on existing clients (never overwrite a value already there)
+  for (const [cid, f] of Object.entries(plan.clientFills||{})){
+    const c = S.clients.find(x => String(x.id) === String(cid));
+    if (!c) continue;
+    const updated = { ...c, referenceName: c.referenceName || f.ref || '', subReference: c.subReference || f.sub || '', updatedAt:new Date().toISOString() };
+    const prev = {...c}; await putRec('clients', updated); Object.assign(c, updated);
+    await audit('Client Updated via Import','Client', c.clientId, prev, updated);
+  }
+  // keep the Sub-Reference dropdown list in Settings in step with any new names
+  const knownSubs = S.settings.subReferences || [];
+  const newSubs = S.clients.map(c=>(c.subReference||'').trim()).filter(x => x && !knownSubs.includes(x));
+  if (newSubs.length) await saveSetting('subReferences', [...knownSubs, ...Array.from(new Set(newSubs))]);
 
   // 3) Banks — auto-create by name
   const bankByName = {};
@@ -4281,7 +5265,7 @@ async function commitImport(){
     const upi = na.upiId ? bankUpis(bank.id).find(u=>u.upiId.toLowerCase()===na.upiId.toLowerCase()) : null;
     const rec = {
       clientId:client.id, ipoId:ipo.id, bankAccountId:bank.id, upiId: upi?upi.id:null,
-      applicationDate:na.applicationDate, amountApplied:na.amountApplied, applicationStatus:'Applied', planId:null,
+      applicationDate:na.applicationDate, amountApplied:na.amountApplied, applicationStatus:'Applied', planId: na.planId || null, profitSharePct: shareForClient(client.id),
       allotmentStatus:na.allotmentStatus, allotmentDate: ipo.allotmentDate || null,
       saleStatus:na.saleStatus, saleDate:na.saleDate, saleAmount:na.saleAmount,
       calculatedGrossReceived:null, grossReceived:na.grossReceived, grossReceivedOverridden: na.grossReceived!=null,
@@ -5016,6 +6000,14 @@ async function init(){
   }
   try {
     await openDB();
+    // Ask the browser to treat this app's data as "keep permanently" so it can't be
+    // silently cleared when the device runs low on storage. Safe to fail quietly.
+    try {
+      if (navigator.storage && navigator.storage.persist){
+        const already = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+        window.__storagePersisted = already || await navigator.storage.persist();
+      }
+    } catch(e){ window.__storagePersisted = false; }
     await loadAll();
     applyTheme();
     renderNav();
