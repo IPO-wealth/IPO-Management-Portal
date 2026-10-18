@@ -462,6 +462,24 @@ table.dt tfoot td{position:static !important;}
 table.dt thead th{position:static;}
 #topbar{flex-shrink:0;}
 @media (max-width:900px){ #topbar{top:0 !important;height:auto !important;} }
+
+/* ---- polish round: floating button, quiet delete, bulk bar, settings ---- */
+@media (min-width:901px){ #quickAddBtn{display:none !important;} }
+@media (max-width:900px){ #content{padding-bottom:88px;} }
+.dt td .btn-danger, .table-wrap td .btn-danger{ background:transparent; color:var(--danger); border:1px solid var(--border); }
+.dt td .btn-danger:hover, .table-wrap td .btn-danger:hover{ background:var(--danger); color:#fff; border-color:var(--danger); }
+#bulkBar{ display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 10px; border:1px dashed var(--border); border-radius:8px; background:var(--bg,#f4f6fa); }
+#bulkBar.on{ display:inline-flex; }
+.small-muted a{ color:var(--gold,#b8862f); font-weight:600; }
+
+.selbar{ display:none; align-items:center; gap:8px; }
+.selbar.on{ display:inline-flex; }
+:where(select, input[type=date], input[type=number], input[type=text], input[type=search]){ font:inherit; font-size:13px; color:var(--text,inherit); background:var(--card,#fff); border:1px solid var(--border); border-radius:6px; padding:7px 10px; }
+
+/* dark mode: primary buttons / active pills need a visible fill (navy equals the page background there) */
+[data-theme="dark"] .btn-primary, [data-theme="dark"] .pill.on{ background:var(--gold); color:#0b1420; border-color:var(--gold); }
+[data-theme="dark"] .btn-primary:hover{ background:var(--gold-light); }
+[data-theme="dark"] #bulkBar{ background:var(--navy-2); }
 </style>
 </head>
 <body>
@@ -2460,7 +2478,6 @@ function viewIpos(){
         { key:'closeDate', label:'Close', render:r=>fmtDate(r.closeDate) },
         { key:'allotmentDate', label:'Allotment Date', render:r=>fmtDate(r.allotmentDate) },
         { hidden:true, key:'category', label:'Category', render:r=>escapeHtml(r.category||'—') },
-        { hidden:true, key:'listingGain', label:'Listing Gain', num:true, val:r=>{ const g=ipoListingGainPct(r); return g==null?'':Number(g.toFixed(2)); }, render:r=>{ const g=ipoListingGainPct(r); return g==null?'—':`<span class="${g>=0?'ok':'danger'}">${g.toFixed(1)}%</span>`; } },
         { key:'status', label:'Status', val:r=>ipoStatus(r), render:r=>badge(ipoStatus(r)) },
         { hidden:true, key:'archiveStatus', label:'Active/Inactive', render:r=>badge(r.archiveStatus||'Active') },
         { hidden:true, key:'planned', label:'Planned', num:true, sum:true, val:r=>ipoStats(r.id).plans.length, render:r=>ipoStats(r.id).plans.length },
@@ -2491,9 +2508,6 @@ function ipoFields(i){
     { key:'category', label:'Category (optional)', type:'select', options:['Mainboard','SME'], placeholder:'—' },
     { key:'issuePrice', label:'Issue Price per Share (optional)', type:'number' },
     { key:'lotSize', label:'Lot Size — shares per lot (optional)', type:'number' },
-    { key:'gmp', label:'GMP per Share (optional)', type:'number', hint:'Grey market premium when you applied. Can be negative.' },
-    { key:'listingDate', label:'Listing Date (optional)', type:'date' },
-    { key:'listingPrice', label:'Listing Price per Share (optional)', type:'number', hint:'Fill in after listing — used for Reports → Listing & GMP.' },
     { key:'archiveStatus', label:'Active/Inactive', type:'select', options:['Active','Inactive'], hint:'Separate from the automatic Upcoming/Open/Closed lifecycle status below — this only controls whether the IPO is archived.' }
   ].map(f => fieldHtml(f, i ? (f.key==='archiveStatus' ? (i.archiveStatus||'Active') : i[f.key]) : (f.key==='archiveStatus' ? 'Active' : ''))).join('');
 }
@@ -2520,12 +2534,11 @@ async function syncIpoAllotmentDate(ipo){
   return count;
 }
 async function saveIpo(id, force){
-  const data = readFields([{key:'ipoName'},{key:'minimumApplicationAmount',type:'number'},{key:'openDate'},{key:'closeDate'},{key:'allotmentDate'},{key:'category'},{key:'issuePrice',type:'number'},{key:'lotSize',type:'number'},{key:'gmp',type:'number'},{key:'listingDate'},{key:'listingPrice',type:'number'},{key:'archiveStatus'}]);
+  const data = readFields([{key:'ipoName'},{key:'minimumApplicationAmount',type:'number'},{key:'openDate'},{key:'closeDate'},{key:'allotmentDate'},{key:'category'},{key:'issuePrice',type:'number'},{key:'lotSize',type:'number'},{key:'archiveStatus'}]);
   if (!data.ipoName || !data.openDate || !data.closeDate){ toast('IPO name and dates are required','warn'); return; }
   if (data.closeDate < data.openDate){ toast('Close date cannot be before open date','warn'); return; }
   if (!data.allotmentDate) data.allotmentDate = null;
   if (!data.category) data.category = null;
-  if (!data.listingDate) data.listingDate = null;
   const dupe = S.ipos.find(i => i.id!==id && i.ipoName.trim().toLowerCase() === data.ipoName.trim().toLowerCase());
   if (dupe && !force){
     openModal('Possible Duplicate IPO',
@@ -3048,7 +3061,7 @@ function findApp(id){ return idx().a.get(id); }
 /* UPI select helper: renders based on how many UPIs the chosen bank has */
 function upiOptionsHtml(bankAccountId, selectedUpiId){
   const upis = bankAccountId ? bankUpis(Number(bankAccountId)) : [];
-  if (!upis.length) return `<div class="small-muted" id="upiFieldInner">No UPI ID configured for this bank account.</div>`;
+  if (!upis.length) return `<div class="small-muted" id="upiFieldInner">${bankAccountId ? 'No UPI ID configured for this bank account — add one under Bank Accounts.' : 'Choose a bank account to see its UPI IDs.'}</div>`;
   if (upis.length === 1) return `<input type="hidden" id="fld_upiId" value="${upis[0].id}"><div class="small-muted" id="upiFieldInner">${escapeHtml(upis[0].upiId)} (auto-selected)</div>`;
   return `<select id="fld_upiId">${upis.map(u=>`<option value="${u.id}" ${String(selectedUpiId)===String(u.id)?'selected':''}>${escapeHtml(u.upiId)}</option>`).join('')}</select>`;
 }
@@ -3093,12 +3106,12 @@ function viewApplications(){
   <div class="section-card">
     <div class="sc-head" style="flex-wrap:wrap;">
       <h3>Applications</h3><div class="spacer"></div>
-      <span class="small-muted" id="appSelCount">Selected: ${__selectedAppIds.size}</span>
+      <span id="bulkBar" class="${__selectedAppIds.size?'on':''}"><b class="small-muted" id="appSelCount">Selected: ${__selectedAppIds.size}</b>
       <select id="bulkStatusSelect" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12.5px;">
         ${APP_STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('')}
       </select>
-      <button class="btn btn-ghost btn-sm" onclick="bulkUpdateAppStatus()">Update Selected</button>
-      <button class="btn btn-ghost btn-sm" onclick="clearAppSelection()">Clear Selection</button>
+      <button class="btn btn-primary btn-sm" onclick="bulkUpdateAppStatus()">Set status</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearAppSelection()">Clear</button></span>
       <button class="btn btn-gold" onclick="navigate('checklist')">Today's Checklist</button>
       <button class="btn btn-ghost" onclick="bulkApplyFromPlan()">Bulk Apply</button>
       <button class="btn btn-primary" onclick="editApplication()">+ New Application</button>
@@ -3110,6 +3123,7 @@ function __refreshAppSelectionUI(){
   if (window.__tableRerender['appsTbl']) window.__tableRerender['appsTbl']();
   const el = document.getElementById('appSelCount');
   if (el) el.textContent = 'Selected: ' + __selectedAppIds.size;
+  const bb = document.getElementById('bulkBar'); if (bb) bb.classList.toggle('on', __selectedAppIds.size>0);
 }
 function toggleAppSelection(id, checked){ if (checked) __selectedAppIds.add(id); else __selectedAppIds.delete(id); __refreshAppSelectionUI(); }
 function toggleAllAppSelection(checked){
@@ -3343,8 +3357,8 @@ function viewAllotments(){
     <div class="sc-head" style="flex-wrap:wrap;gap:10px;">
       <h3>Allotments &amp; Sale</h3><div class="spacer"></div>
       <button class="btn btn-gold btn-sm" onclick="navigate('results')">Enter allotment results</button>
-      <span class="small-muted" id="allotSelCount">Selected: ${__selectedAllotIds.size}</span>
-      <button class="btn btn-ghost btn-sm" onclick="clearAllotSelection()">Clear Selection</button>
+      <span id="allotBulkBar" class="selbar ${__selectedAllotIds.size?'on':''}"><b class="small-muted" id="allotSelCount">Selected: ${__selectedAllotIds.size}</b>
+      <button class="btn btn-ghost btn-sm" onclick="clearAllotSelection()">Clear</button></span>
     </div>
     <div class="sc-body" style="padding-bottom:8px;">
       <details class="bulk-box" ${__selectedAllotIds.size?'open':''}><summary>Bulk update selected rows <span class="small-muted">(tick rows in the table first)</span></summary>
@@ -3380,6 +3394,7 @@ function viewAllotments(){
 }
 function __refreshAllotSelectionUI(){
   if (window.__tableRerender['allotTbl']) window.__tableRerender['allotTbl']();
+  { const bb = document.getElementById('allotBulkBar'); if (bb) bb.classList.toggle('on', __selectedAllotIds.size>0); }
   const el = document.getElementById('allotSelCount');
   if (el) el.textContent = 'Selected: ' + __selectedAllotIds.size;
 }
@@ -3461,7 +3476,7 @@ function allotmentSaleModalBody(a){
       ${fieldHtml({key:'saleDate',label:'Sale Date',type:'date'}, a.saleDate||'')}
       ${fieldHtml({key:'saleAmount',label:'Sale Amount (total for the full allotted lot)',type:'number'}, a.saleAmount!=null?a.saleAmount:'')}
     </div>
-    <div id="grossOurClientWrap" style="margin-top:14px;">${grossOurClientFieldsHtml(a, calc)}</div>
+    <div id="grossOurClientWrap" data-applied="${Number(a.amountApplied)||0}" style="margin-top:14px;">${grossOurClientFieldsHtml(a, calc)}</div>
     <p class="hint">Applied Amount: ${fmtMoney(a.amountApplied)}${a.applicationStatus!=='Applied'?'<br><b>Note:</b> allotment results are normally only entered once the application status is "Applied".':''}</p>`;
 }
 function grossOurClientFieldsHtml(a, calc){
@@ -3497,6 +3512,7 @@ function editAllotmentSale(id){
   openModal(`Allotment &amp; Sale — ${escapeHtml(c?c.clientName:'')} · ${escapeHtml(i?i.ipoName:'')}`,
     allotmentSaleModalBody(a),
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveAllotmentSale(${id})">Save</button>`, true);
+  allotLiveInit(a);
 }
 function onAllotmentStatusChange(){
   const status = document.getElementById('fld_allotmentStatus').value;
@@ -3509,8 +3525,31 @@ function onAllotmentStatusChange(){
   }
   onSaleStatusChange();
 }
-function onSaleStatusChange(){
-  // Gross/Our/Client Profit are (re)computed on save; nothing to do live here beyond enabling/disabling the Sale Status field, handled in onAllotmentStatusChange.
+function onSaleStatusChange(){ allotLiveCalc(); }
+// Live recalculation while the form is open: Gross / Our / Client profit follow the sale amount and share %
+// until the user types a figure into that box themselves (then that figure is kept as a manual override).
+function allotLiveCalc(){
+  const w = document.getElementById('grossOurClientWrap'); if (!w) return;
+  const g = k => document.getElementById('fld_'+k);
+  if (!g('allotmentStatus') || !g('saleStatus') || !g('saleAmount') || !g('profitSharePct')) return;
+  if (g('allotmentStatus').value!=='Allotted' || g('saleStatus').value!=='Sold' || g('saleAmount').value==='') return;
+  const applied = Number(w.dataset.applied)||0, sale = Number(g('saleAmount').value)||0, sh = Number(g('profitSharePct').value);
+  if (g('profitSharePct').value==='' || isNaN(sh) || sh<0 || sh>100) return;
+  const gE=g('grossReceived'), oE=g('ourProfit'), cE=g('clientProfit'); if (!gE||!oE||!cE) return;
+  const calcG = applied + sh/100*(sale-applied);
+  const gross = (gE.dataset.touched==='1' && gE.value!=='') ? Number(gE.value) : calcG;
+  const setv = (el, calc)=>{ if (el.dataset.touched!=='1') el.value = String(Math.round(calc*100)/100); const h = el.parentElement.querySelector('.hint'); if (h) h.textContent = 'Calculated: '+fmtMoney(calc); };
+  setv(gE, calcG); setv(oE, gross-applied); setv(cE, sale-gross);
+}
+function allotLiveInit(a){
+  const g = k => document.getElementById('fld_'+k);
+  [['grossReceived','grossReceivedOverridden'],['ourProfit','ourProfitOverridden'],['clientProfit','clientProfitOverridden']].forEach(([k,f])=>{
+    const el = g(k); if (!el) return;
+    if (a[f]) el.dataset.touched = '1';
+    el.addEventListener('input', ()=>{ el.dataset.touched = '1'; allotLiveCalc(); });
+  });
+  ['saleAmount','profitSharePct'].forEach(k=>{ const el=g(k); if (el) el.addEventListener('input', allotLiveCalc); });
+  allotLiveCalc();
 }
 async function saveAllotmentSale(id, force){
   const data = readFields([{key:'allotmentStatus'},{key:'saleStatus'},{key:'saleDate'},{key:'saleAmount',type:'number'},{key:'profitSharePct',type:'number'},{key:'lotsAllotted',type:'number'},{key:'sharesAllotted',type:'number'},{key:'grossReceived',type:'number'},{key:'amountReceiveStatus'},{key:'ourProfit',type:'number'},{key:'clientProfit',type:'number'}]);
@@ -3559,9 +3598,11 @@ async function saveAllotmentSale(id, force){
   // detect manual overrides: user-entered value differs from the auto-calculated one
   const probe = { ...a, ...data };
   const calc = calcAllotmentSale({ ...probe, grossReceivedOverridden:false, ourProfitOverridden:false, clientProfitOverridden:false });
-  const grossReceivedOverridden = calc.applicable && isFilled(data.grossReceived) && Number(data.grossReceived) !== calc.calculatedGross;
-  const ourProfitOverridden = calc.applicable && isFilled(data.ourProfit) && Number(data.ourProfit) !== calc.calculatedOur;
-  const clientProfitOverridden = calc.applicable && isFilled(data.clientProfit) && Number(data.clientProfit) !== calc.calculatedClient;
+  const grossReceivedOverridden = calc.applicable && isFilled(data.grossReceived) && Math.abs(Number(data.grossReceived) - calc.calculatedGross) > 0.01;
+  // Our / Client profit are judged against the split that follows from the gross actually entered
+  const calc2 = calcAllotmentSale({ ...probe, grossReceived: grossReceivedOverridden ? Number(data.grossReceived) : probe.grossReceived, grossReceivedOverridden, ourProfitOverridden:false, clientProfitOverridden:false });
+  const ourProfitOverridden = calc.applicable && isFilled(data.ourProfit) && Math.abs(Number(data.ourProfit) - calc2.calculatedOur) > 0.01;
+  const clientProfitOverridden = calc.applicable && isFilled(data.clientProfit) && Math.abs(Number(data.clientProfit) - calc2.calculatedClient) > 0.01;
   const anyOverridden = grossReceivedOverridden || ourProfitOverridden || clientProfitOverridden;
   const wasOverridden = a.grossReceivedOverridden || a.ourProfitOverridden || a.clientProfitOverridden;
   const overrideReasonInput = (document.getElementById('fld_overrideReason')?.value || '').trim();
@@ -3723,7 +3764,7 @@ function dashboardBody(){
     ${S.settings.payoutTrackFrom ? `<div class="kpi-card" ${drillAttr('Profit owed to clients', owedList)}><div class="lbl">Owed to clients</div><div class="val">${fmtMoney(owed)}</div><div class="small-muted">${owedList.length} sale${owedList.length===1?'':'s'}</div></div>` : ''}
     <div class="kpi-card" ${drillAttr('Capital blocked — awaiting allotment', pendingList)}><div class="lbl">Capital blocked</div><div class="val">${fmtMoney(blocked)}</div><div class="small-muted">${pendingList.length} application${pendingList.length===1?'':'s'} awaiting result</div></div>
   </div>
-  ${(!monthGoal && !yearGoal) ? '<div class="small-muted no-print" style="margin:-4px 2px 12px;">Want a target? <a href="javascript:void(0)" onclick="setSettingsTab(\'general\');navigate(\'settings\')">Set a profit goal</a>.</div>' : ''}`;
+  ${(!monthGoal && !yearGoal) ? '<div class="small-muted no-print" style="margin:-4px 2px 12px;">Want a target? <a href="javascript:void(0)" onclick="setSettingsTab(\'rules\');navigate(\'settings\')">Set a profit goal</a>.</div>' : ''}`;
 
   // ---- Period analysis (collapsed by default) ----
   const r = resolveDashRange(), prevR = previousRange(r);
@@ -5152,7 +5193,9 @@ function reportPlanningPerformance(){
 /* Settings split into tabs so each screen stays short and simple */
 let settingsTab = 'general';
 const SETTINGS_TABS = [
-  ['general','General', ['Reference Names','Sub Reference Names','Business Details (for statements)','Profit Sharing','Profit Goals','Mandate Capacity','Appearance','Notifications']],
+  ['general','Business', ['Business Details (for statements)','Reference Names','Sub Reference Names']],
+  ['rules','Profit & Limits', ['Profit Sharing','Profit Goals','Mandate Capacity']],
+  ['prefs','Preferences', ['Appearance','Notifications']],
   ['cloud','Cloud & Sharing', ['Cloud Storage','Share Portal Access']],
   ['security','Security', ['Security — App Lock']],
   ['data','Data Tools', ['Data Health Check','Bulk Import from Excel','Local Backup','Recycle Bin']],
