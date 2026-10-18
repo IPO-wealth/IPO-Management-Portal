@@ -1542,7 +1542,8 @@ function viewClients(){
         { hidden:true, key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>clientStats(r.id).apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" ${navAttr('applications',{clientId:r.clientName},'appsTbl')}>${clientStats(r.id).apps.length}</a>` },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>clientStats(r.id).allotted.length, render:r=>clientStats(r.id).allotted.length },
-        { key:'profit', label:'Profit', num:true, sum:'money', val:r=>clientStats(r.id).profit, render:r=>fmtMoney(clientStats(r.id).profit) },
+        { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>clientStats(r.id).profit, render:r=>fmtMoney(clientStats(r.id).profit) },
+        { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>clientStats(r.id).clientProfit, render:r=>fmtMoney(clientStats(r.id).clientProfit) },
         { key:'status', label:'Status', render:r=>badge(r.status) }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editClient(${r.id})">Edit</button>
@@ -1707,6 +1708,7 @@ function viewClientDetail(id){
         <div class="kpi-card"><div class="lbl">Amount Applied</div><div class="val">${fmtMoney(stats.amountApplied)}</div></div>
         <div class="kpi-card"><div class="lbl">Gross Received</div><div class="val">${fmtMoney(stats.grossReceived)}</div></div>
         <div class="kpi-card"><div class="lbl">Our Profit</div><div class="val gold">${fmtMoney(stats.profit)}</div></div>
+        <div class="kpi-card"><div class="lbl">Client Profit</div><div class="val">${fmtMoney(stats.clientProfit)}</div></div>
       </div>
     </div>
   </div>
@@ -2079,7 +2081,8 @@ function bankStats(bankId){
   const plans = (X.pB.get(bankId)||[]).slice();
   const apps = (X.aB.get(bankId)||[]).slice();
   const profit = apps.reduce((s,a)=>s+calcProfit(a).final,0);
-  const res = { plans, apps, profit }; X.bs.set(bankId,res); return res;
+  const clientProfit = apps.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.clientFinal:0); },0);
+  const res = { plans, apps, profit, clientProfit }; X.bs.set(bankId,res); return res;
 }
 function viewBanks(){
   window.__tableRerender['banksTbl'] = () => {
@@ -2098,6 +2101,7 @@ function viewBanks(){
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>bankStats(r.id).apps.length, render:r=>bankStats(r.id).apps.length },
         { key:'upis', label:'UPI IDs', num:true, sum:true, val:r=>bankUpis(r.id).length, render:r=>bankUpis(r.id).length },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>bankStats(r.id).profit, render:r=>fmtMoney(bankStats(r.id).profit) },
+        { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>bankStats(r.id).clientProfit, render:r=>fmtMoney(bankStats(r.id).clientProfit) },
         { key:'today', label:"Today's Utilisation", val:r=>{ const c=bankCapacity(r.id,todayStr()); return c.planned+'/'+c.capacity; }, render:r=>{ const cap = bankCapacity(r.id, todayStr()); return `<span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity}</span>`; } }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editBank(${r.id})">Edit</button>
@@ -2242,7 +2246,8 @@ function ipoStats(ipoId){
   const plans = (X.pI.get(ipoId)||[]).slice();
   const allotted = apps.filter(a=>a.allotmentStatus==='Allotted');
   const profit = apps.reduce((s,a)=>s+calcProfit(a).final,0);
-  const res = { apps, plans, allotted, profit }; X.is.set(ipoId,res); return res;
+  const clientProfit = apps.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.clientFinal:0); },0);
+  const res = { apps, plans, allotted, profit, clientProfit }; X.is.set(ipoId,res); return res;
 }
 function showNote(el){
   const note = el.getAttribute('data-note');
@@ -2363,7 +2368,8 @@ function viewIpoDetail(id){
       <div class="kpi-card"><div class="lbl">Amount Received</div><div class="val ok">${fmtMoney(amountReceivedTotal)}</div></div>
       <div class="kpi-card"><div class="lbl">Pending Receivables</div><div class="val ${amountReceivableTotal>0?'danger':''}">${fmtMoney(amountReceivableTotal)}</div></div>
       <div class="kpi-card"><div class="lbl">Total Capital Blocked</div><div class="val">${fmtMoney(capitalBlocked)}</div></div>
-      <div class="kpi-card"><div class="lbl">Total Profit</div><div class="val gold">${fmtMoney(ourProfitTotal)}</div></div>
+      <div class="kpi-card"><div class="lbl">Our Profit</div><div class="val gold">${fmtMoney(ourProfitTotal)}</div></div>
+      <div class="kpi-card"><div class="lbl">Client Profit</div><div class="val">${fmtMoney(clientProfitTotal)}</div></div>
     </div>
   </div>
 
@@ -2460,7 +2466,8 @@ function viewIpos(){
         { hidden:true, key:'planned', label:'Planned', num:true, sum:true, val:r=>ipoStats(r.id).plans.length, render:r=>ipoStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>ipoStats(r.id).apps.length, render:r=>ipoStats(r.id).apps.length },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>ipoStats(r.id).allotted.length, render:r=>ipoStats(r.id).allotted.length },
-        { key:'profit', label:'Profit', num:true, sum:'money', val:r=>ipoStats(r.id).profit, render:r=>fmtMoney(ipoStats(r.id).profit) }
+        { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>ipoStats(r.id).profit, render:r=>fmtMoney(ipoStats(r.id).profit) },
+        { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>ipoStats(r.id).clientProfit, render:r=>fmtMoney(ipoStats(r.id).clientProfit) }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="openIpoDetail(${r.id})">View</button>
                          <button class="btn btn-sm btn-ghost" onclick="editIpo(${r.id})">Edit</button>
@@ -3318,7 +3325,7 @@ function viewAllotments(){
         { key:'amountReceiveStatus', label:'Recovery Status', val:r=>r.amountReceiveStatus||'', render:r=>r.amountReceiveStatus?`<span class="clickable" title="Click to quick-edit" onclick="event.stopPropagation(); quickEditRecoveryStatus(${r.id})">${badge(r.amountReceiveStatus)}</span>`:'—' },
         { hidden:!S.settings.payoutTrackFrom, key:'payout', label:'Client Payout', val:r=>payoutState(r)||'—', render:r=>payoutBadge(r) },
         { key:'ourProfit', label:'Our Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.ourFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.ourFinal)+(c.ourOverridden?overrideBadge('Our Profit', c.calculatedOur, c.ourFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
-        { hidden:true, key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.clientFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.clientFinal)+(c.clientOverridden?overrideBadge('Client Profit', c.calculatedClient, c.clientFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } }
+        { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.clientFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.clientFinal)+(c.clientOverridden?overrideBadge('Client Profit', c.calculatedClient, c.clientFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } }
       ],
       rowActions: r => `<button class="btn btn-sm btn-primary" onclick="editAllotmentSale(${r.id})">Update</button>`
     }));
@@ -3690,6 +3697,9 @@ function dashboardBody(){
   const soldThisMonth = S.applications.filter(a=>a.saleStatus==='Sold' && a.saleDate>=monthStart && a.saleDate<=today);
   const soldThisYear = S.applications.filter(a=>a.saleStatus==='Sold' && a.saleDate>=yearStart && a.saleDate<=today);
   const monthlyProfit = soldThisMonth.reduce((s,a)=>s+ourOf(a),0), yearlyProfit = soldThisYear.reduce((s,a)=>s+ourOf(a),0);
+  const clientOf = a => { const c = calcAllotmentSale(a); return c.applicable ? c.clientFinal : 0; };
+  const monthlyClient = soldThisMonth.reduce((s,a)=>s+clientOf(a),0), yearlyClient = soldThisYear.reduce((s,a)=>s+clientOf(a),0);
+  const vsLine = (our, cl, link) => `<div class="small-muted">Clients earned <b>${fmtMoney(cl)}</b> · gap ${our-cl<0?'−':''}${fmtMoney(Math.abs(our-cl))}${link?` · <a href="javascript:void(0)" onclick="event.stopPropagation();goGap()">Compare</a>`:''}</div>`;
   const dayOfMonth = now.getDate();
   const pmFirst = new Date(now.getFullYear(), now.getMonth()-1, 1), pmDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
   const prevMonthProfit = profitBetween(localDateStr(pmFirst), localDateStr(new Date(pmFirst.getFullYear(), pmFirst.getMonth(), Math.min(dayOfMonth, pmDays))));
@@ -3705,9 +3715,9 @@ function dashboardBody(){
   const goalBar = (profit, goal) => { const pct = Math.min(100, Math.round(profit/goal*100)); return `<div class="progress mini"><div style="width:${pct}%"></div></div><div class="small-muted">${Math.round(profit/goal*100)}% of ${fmtMoney(goal)} goal</div>`; };
   const cards = `<div class="kpi-grid money-grid">
     <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)}><div class="lbl">Profit — this month</div><div class="val gold">${fmtMoney(monthlyProfit)}</div>
-      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
+      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${vsLine(monthlyProfit, monthlyClient, false)}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
     <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Profit — this year</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>
-      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
+      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${vsLine(yearlyProfit, yearlyClient, true)}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
     <div class="kpi-card" ${drillAttr('Money still to collect', recvList)}><div class="lbl">To collect</div><div class="val ${overdueAmt?'danger':''}">${fmtMoney(toCollect)}</div>
       <div class="small-muted">${recvList.length} sale${recvList.length===1?'':'s'}${overdueAmt?` · <b class="danger">${fmtMoney(overdueAmt)} overdue</b>`:''}</div></div>
     ${S.settings.payoutTrackFrom ? `<div class="kpi-card" ${drillAttr('Profit owed to clients', owedList)}><div class="lbl">Owed to clients</div><div class="val">${fmtMoney(owed)}</div><div class="small-muted">${owedList.length} sale${owedList.length===1?'':'s'}</div></div>` : ''}
@@ -3721,7 +3731,7 @@ function dashboardBody(){
   const resolvedInRange = S.applications.filter(a=>inRange(a.allotmentDate, r) && (a.allotmentStatus==='Allotted'||a.allotmentStatus==='Not Allotted'));
   const allottedInRange = resolvedInRange.filter(a=>a.allotmentStatus==='Allotted');
   const soldInRange = S.applications.filter(a=>inRange(a.saleDate, r) && a.saleStatus==='Sold');
-  const profitInRange = soldInRange.reduce((s,a)=>s+ourOf(a),0);
+  const profitInRange = soldInRange.reduce((s,a)=>s+ourOf(a),0), clientInRange = soldInRange.reduce((s,a)=>s+clientOf(a),0);
   const soldWithProfit = soldInRange.filter(a=>calcAllotmentSale(a).applicable).length;
   const amountInRange = appsInRange.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
   const rate = resolvedInRange.length ? Math.round(allottedInRange.length/resolvedInRange.length*1000)/10 : 0;
@@ -3738,6 +3748,7 @@ function dashboardBody(){
       <div class="kpi-card" ${drillAttr('Sold in this period', soldInRange)}><div class="lbl">Sold</div><div class="val">${soldInRange.length}</div>${cmp('sold')}</div>
       <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Amount applied</div><div class="val">${fmtMoney(amountInRange)}</div>${cmp('amount',{money:true})}</div>
       <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Our profit</div><div class="val gold">${fmtMoney(profitInRange)}</div>${cmp('profit',{money:true})}</div>
+      <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Client profit</div><div class="val">${fmtMoney(clientInRange)}</div></div>
       <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl" title="Profit from sales in the period ÷ number of sales">Avg profit / sale</div><div class="val">${fmtMoney(soldWithProfit?Math.round(profitInRange/soldWithProfit):0)}</div></div>
     </div>
     <p class="small-muted" style="margin-top:8px;">Applications are counted by application date, allotments by allotment date, profit and sales by sale date.</p></details>`;
@@ -3748,7 +3759,7 @@ function dashboardBody(){
 /* =================== REPORTS =================== */
 let reportsTab = 'client';
 const REPORT_GROUPS = [
-  ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['profit','Profit explorer']]],
+  ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['profit','Profit explorer'],['gap','Our vs Client']]],
   ['money','Money',[['cashflow','Cash flow'],['roi','ROI & capital'],['settlement','Settlement']]],
   ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['subref','By sub-reference']]],
   ['ipos','IPOs',[['ipo','IPO analysis'],['allotrate','Allotment rate']]],
@@ -3775,6 +3786,7 @@ function reportsTabContent(){
   if (reportsTab==='roi') return reportRoi();
   if (reportsTab==='cashflow') return reportCashFlow();
   if (reportsTab==='profit') return reportProfitAnalysis();
+  if (reportsTab==='gap') return reportGap();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
   if (reportsTab==='yearly') return reportYearlySummary();
   if (reportsTab==='pva') return planningVarianceTab();
@@ -3894,8 +3906,8 @@ function renderTrendsCharts(){
   // ---- Profit by IPO (top 10) ----
   const ipoProfits = S.ipos.map(i=>{
     const apps = S.applications.filter(a=>a.ipoId===i.id);
-    let our=0; apps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable) our+=c.ourFinal; });
-    return { id:i.id, name:i.ipoName, our };
+    let our=0, client=0; apps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable){ our+=c.ourFinal; client+=c.clientFinal; } });
+    return { id:i.id, name:i.ipoName, our, client };
   }).filter(x=>x.our!==0).sort((a,b)=>b.our-a.our).slice(0,10);
   const isNarrow = window.innerWidth <= 900;
   if (chartsAvailable) { destroyChart('profitByIpo');
@@ -3984,18 +3996,18 @@ function renderTrendsCharts(){
   // ---- Top 10 Clients by Profit ----
   const clientProfits = S.clients.map(c=>{
     const apps = S.applications.filter(a=>a.clientId===c.id);
-    let our=0; apps.forEach(a=>{ const cal=calcAllotmentSale(a); if(cal.applicable) our+=cal.ourFinal; });
-    return { dbId:c.id, name:c.clientName, id:c.clientId, our };
+    let our=0, client=0; apps.forEach(a=>{ const cal=calcAllotmentSale(a); if(cal.applicable){ our+=cal.ourFinal; client+=cal.clientFinal; } });
+    return { dbId:c.id, name:c.clientName, id:c.clientId, our, client };
   }).filter(x=>x.our!==0).sort((a,b)=>b.our-a.our).slice(0,10);
   const topClientsWrap = document.getElementById('topClientsWrap');
   if (topClientsWrap) topClientsWrap.innerHTML = clientProfits.length
-    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Our Profit</th></tr></thead><tbody>${clientProfits.map(x=>`<tr class="clickable" onclick="navigate('clients',{id:${x.dbId}})"><td>${escapeHtml(x.id)} — ${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${clientProfits.map(x=>`<tr class="clickable" onclick="navigate('clients',{id:${x.dbId}})"><td>${escapeHtml(x.id)} — ${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td><td>${fmtMoney(x.client)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small-muted">No profit recorded yet.</p>';
 
   // ---- Top 10 IPOs by Profit (table alongside the chart) ----
   const topIposWrap = document.getElementById('topIposWrap');
   if (topIposWrap) topIposWrap.innerHTML = ipoProfits.length
-    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Our Profit</th></tr></thead><tbody>${ipoProfits.map(x=>`<tr class="clickable" onclick="navigate('ipos',{id:${x.id}})"><td>${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${ipoProfits.map(x=>`<tr class="clickable" onclick="navigate('ipos',{id:${x.id}})"><td>${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td><td>${fmtMoney(x.client)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small-muted">No profit recorded yet.</p>';
 
   // ---- Aging report: sold + receivable, sorted by longest outstanding ----
@@ -4033,9 +4045,9 @@ function reportYearlySummary(){
   const bankRows = S.bankAccounts.map(b=>{
     const bApps = appsThisYear.filter(a=>a.bankAccountId===b.id);
     if (!bApps.length) return null;
-    let bOur=0; bApps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable) bOur+=c.ourFinal; });
-    return `<tr><td>${escapeHtml(b.bankName)}</td><td>${bApps.length}</td><td>${fmtMoney(bApps.reduce((s,a)=>s+(Number(a.amountApplied)||0),0))}</td><td>${fmtMoney(bOur)}</td></tr>`;
-  }).filter(Boolean).join('') || `<tr class="empty-row"><td colspan="4">No data for ${year}.</td></tr>`;
+    let bOur=0, bCl=0; bApps.forEach(a=>{ const c=calcAllotmentSale(a); if(c.applicable){ bOur+=c.ourFinal; bCl+=c.clientFinal; } });
+    return `<tr><td>${escapeHtml(b.bankName)}</td><td>${bApps.length}</td><td>${fmtMoney(bApps.reduce((s,a)=>s+(Number(a.amountApplied)||0),0))}</td><td>${fmtMoney(bOur)}</td><td>${fmtMoney(bCl)}</td></tr>`;
+  }).filter(Boolean).join('') || `<tr class="empty-row"><td colspan="5">No data for ${year}.</td></tr>`;
 
   return `
   <div class="section-card no-print">
@@ -4067,7 +4079,7 @@ function reportYearlySummary(){
       </div>
 
       <h3 style="margin-top:24px;">Bank-wise Breakdown</h3>
-      <div class="table-wrap"><table class="dt"><thead><tr><th>Bank</th><th>Applications</th><th>Amount Applied</th><th>Our Profit</th></tr></thead><tbody>${bankRows}</tbody></table></div>
+      <div class="table-wrap"><table class="dt"><thead><tr><th>Bank</th><th>Applications</th><th>Amount Applied</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${bankRows}</tbody></table></div>
 
       <p class="small-muted" style="margin-top:20px;text-align:center;">Generated ${fmtDate(todayStr())} from IPO Management Portal.</p>
     </div>
@@ -4408,14 +4420,14 @@ function allotRateRows(){
     if (allotRate.from && (!a.applicationDate || a.applicationDate < allotRate.from)) return;
     if (allotRate.to && (!a.applicationDate || a.applicationDate > allotRate.to)) return;
     const k = dim.key(a);
-    if (!groups.has(k)) groups.set(k, { name:k, total:0, allotted:0, notAllotted:0, pending:0, amount:0, profit:0, apps:[] });
+    if (!groups.has(k)) groups.set(k, { name:k, total:0, allotted:0, notAllotted:0, pending:0, amount:0, profit:0, clientProfit:0, apps:[] });
     const g = groups.get(k);
     g.apps.push(a);
     g.total++; g.amount += Number(a.amountApplied)||0;
     if (a.allotmentStatus==='Allotted') g.allotted++;
     else if (a.allotmentStatus==='Not Allotted') g.notAllotted++;
     else g.pending++;
-    const c = calcAllotmentSale(a); if (c.applicable) g.profit += c.ourFinal;
+    const c = calcAllotmentSale(a); if (c.applicable){ g.profit += c.ourFinal; g.clientProfit += c.clientFinal; }
   });
   const rows = Array.from(groups.values()).map(g=>({ ...g, decided: g.allotted+g.notAllotted, rate: (g.allotted+g.notAllotted) ? g.allotted/(g.allotted+g.notAllotted)*100 : null }));
   return rows;
@@ -4436,8 +4448,8 @@ function reportAllotmentRate(){
       <td>${escapeHtml(allotRate.dim==='month' && r.name.length===7 ? new Date(r.name+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : r.name)}</td>
       ${dcell(r.name+' — applications', r.apps, r.total)}${dcell(r.name+' — allotted', r.apps.filter(a=>a.allotmentStatus==='Allotted'), r.allotted)}${dcell(r.name+' — not allotted', r.apps.filter(a=>a.allotmentStatus==='Not Allotted'), r.notAllotted)}${dcell(r.name+' — awaiting result', r.apps.filter(a=>!a.allotmentStatus||a.allotmentStatus==='Pending'), r.pending)}
       <td><b class="${cls}">${r.rate==null?'—':r.rate.toFixed(1)+'%'}</b>${bar}</td>
-      <td>${fmtMoney(r.amount)}</td><td>${fmtMoney(r.profit)}</td><td>${ppa}</td></tr>`;
-  }).join('') || `<tr><td colspan="9" class="small-muted">No applications with a declared result match these filters yet.</td></tr>`;
+      <td>${fmtMoney(r.amount)}</td><td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.clientProfit)}</td><td>${ppa}</td></tr>`;
+  }).join('') || `<tr><td colspan="10" class="small-muted">No applications with a declared result match these filters yet.</td></tr>`;
   return `
   <div class="section-card">
     <div class="sc-head"><h3>Allotment Rate Analysis</h3><div class="spacer"></div>
@@ -4456,14 +4468,14 @@ function reportAllotmentRate(){
         <div class="kpi-card"><div class="lbl">Awaiting Result</div><div class="val">${totPending}</div></div>
       </div>
       <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>${ALLOT_DIMS[allotRate.dim].label}</th><th>Applications</th><th>Allotted</th><th>Not Allotted</th><th>Pending</th><th>Allotment Rate</th><th>Amount Applied</th><th>Our Profit</th><th>Profit / Result</th>
+        <th>${ALLOT_DIMS[allotRate.dim].label}</th><th>Applications</th><th>Allotted</th><th>Not Allotted</th><th>Pending</th><th>Allotment Rate</th><th>Amount Applied</th><th>Our Profit</th><th>Client Profit</th><th>Our Profit / Result</th>
       </tr></thead><tbody>${body}</tbody></table></div>
       <p class="hint">Rate = Allotted ÷ (Allotted + Not Allotted). Pending applications are not counted against the rate. Green = above your overall rate, red = below. Small groups can look extreme by luck — raise "Hide groups with fewer than" to focus on groups with enough results to trust. Cancelled / Mandate Failed applications are ignored.</p>
     </div>
   </div>`;
 }
 function exportAllotRate(){
-  const rows = (window.__allotRateExport||[]).map(r=>({ [ALLOT_DIMS[allotRate.dim].label]:r.name, 'Applications':r.total, 'Allotted':r.allotted, 'Not Allotted':r.notAllotted, 'Pending':r.pending, 'Allotment Rate %': r.rate==null?'':Number(r.rate.toFixed(1)), 'Amount Applied':r.amount, 'Our Profit':r.profit }));
+  const rows = (window.__allotRateExport||[]).map(r=>({ [ALLOT_DIMS[allotRate.dim].label]:r.name, 'Applications':r.total, 'Allotted':r.allotted, 'Not Allotted':r.notAllotted, 'Pending':r.pending, 'Allotment Rate %': r.rate==null?'':Number(r.rate.toFixed(1)), 'Amount Applied':r.amount, 'Our Profit':r.profit, 'Client Profit':r.clientProfit }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Allotment Rate');
   XLSX.writeFile(wb, `Allotment_Rate_by_${allotRate.dim}_${todayStr()}.xlsx`);
@@ -4537,11 +4549,11 @@ function clientScoreData(){
     const apps = base.filter(a=>a.clientId===cl.id);
     const al = apps.filter(a=>a.allotmentStatus==='Allotted'), na = apps.filter(a=>a.allotmentStatus==='Not Allotted');
     const decidedN = al.length + na.length;
-    let profit = 0, soldN = 0, outAmt = 0, oldest = 0, paySum = 0, payN = 0;
+    let profit = 0, clientP = 0, soldN = 0, outAmt = 0, oldest = 0, paySum = 0, payN = 0;
     const outApps = [];
     apps.forEach(a=>{
       const c = calcAllotmentSale(a); if (!c.applicable) return;
-      profit += c.ourFinal; soldN++;
+      profit += c.ourFinal; clientP += c.clientFinal; soldN++;
       if (a.amountReceiveStatus === 'Received' && a.receivedDate && a.saleDate){ paySum += Math.max(0, dayDiff(a.saleDate, a.receivedDate)); payN++; }
       if (a.amountReceiveStatus === 'Receivable'){ outAmt += recvDue(a); outApps.push(a); if (a.saleDate) oldest = Math.max(oldest, dayDiff(a.saleDate, today)); }
     });
@@ -4550,7 +4562,7 @@ function clientScoreData(){
     const smoothRate = (al.length + overallRate*3) / (decidedN + 3);
     const avgSale = soldN ? profit/soldN : overallAvgSale;
     const expected = smoothRate * avgSale * (flag==='Slow payer' ? 0.5 : 1);
-    return { cl, apps, al, na, decidedN, rate: decidedN ? al.length/decidedN*100 : null, profit, soldN, avgPerApp: apps.length ? profit/apps.length : 0, outAmt, outApps, oldest, flag, expected, avgSale, payDays: payN ? paySum/payN : null, payN };
+    return { cl, apps, al, na, decidedN, rate: decidedN ? al.length/decidedN*100 : null, profit, clientP, soldN, avgPerApp: apps.length ? profit/apps.length : 0, outAmt, outApps, oldest, flag, expected, avgSale, payDays: payN ? paySum/payN : null, payN };
   });
   return { rows, overallRate, overallAvgSale, today };
 }
@@ -4566,9 +4578,9 @@ function reportClientScorecards(){
     <td>${r.decidedN}</td>
     ${dcell(`${r.cl.clientName} — allotted`, r.al, r.al.length)}
     <td>${r.rate==null?'—':`<b class="${r.rate/100>=D.overallRate?'ok':'danger'}">${r.rate.toFixed(0)}%</b>`}${r.decidedN<3?' <span class="small-muted" title="Fewer than 3 results — too early to judge">·</span>':''}</td>
-    <td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.avgPerApp)}</td>
+    <td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.clientP)}</td><td>${fmtMoney(r.avgPerApp)}</td>
     ${dcell(`${r.cl.clientName} — amount still to receive`, r.outApps, r.outAmt?fmtMoney(r.outAmt):'—')}
-    <td>${r.outApps.length?`${r.oldest} days`:'—'}</td><td>${r.payDays==null?'—':r.payDays.toFixed(1)+' <span class="small-muted">('+r.payN+')</span>'}</td><td>${flagBadge(r.flag)}</td></tr>`).join('') || `<tr><td colspan="11" class="small-muted">No client applications yet.</td></tr>`;
+    <td>${r.outApps.length?`${r.oldest} days`:'—'}</td><td>${r.payDays==null?'—':r.payDays.toFixed(1)+' <span class="small-muted">('+r.payN+')</span>'}</td><td>${flagBadge(r.flag)}</td></tr>`).join('') || `<tr><td colspan="12" class="small-muted">No client applications yet.</td></tr>`;
 
   // ---- who to prioritise for the next IPO ----
   const upcoming = S.ipos.filter(i=>ipoStatus(i)!=='Closed' && (i.archiveStatus||'Active')==='Active').sort((a,b)=>(a.openDate||'').localeCompare(b.openDate||''));
@@ -4601,7 +4613,7 @@ function reportClientScorecards(){
         <div class="f-group"><label>Mark "Slow payer" after (days)</label><input type="number" min="1" step="1" value="${scoreState.slowDays}" style="width:90px;" onchange="setScore('slowDays', this.value)"></div>
       </div>
       <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>Client</th><th>Applications</th><th>Results</th><th>Allotted</th><th>Allotment Rate</th><th>Our Profit</th><th>Avg Profit / Application</th><th>Still to Receive</th><th>Oldest Unpaid</th><th>Avg Days to Pay</th><th>Payment</th>
+        <th>Client</th><th>Applications</th><th>Results</th><th>Allotted</th><th>Allotment Rate</th><th>Our Profit</th><th>Client Profit</th><th>Avg Profit / Application</th><th>Still to Receive</th><th>Oldest Unpaid</th><th>Avg Days to Pay</th><th>Payment</th>
       </tr></thead><tbody>${body}</tbody></table></div>
       <p class="hint"><b>Allotment rate</b> = allotted ÷ results declared (a dot means fewer than 3 results). Green = above your overall ${(D.overallRate*100).toFixed(0)}%. <b>Payment:</b> Clear = nothing owed; Pending = money receivable but not yet older than ${scoreState.slowDays} days; Slow payer = oldest unpaid sale is older than that. <b>Avg Days to Pay</b> = average days from sale to the date payment was recorded as received (only for payments recorded since the payment ledger was added; the number in brackets is how many sales it is based on). <b>Oldest Unpaid</b> = how long the oldest unpaid sale has been waiting. Click any count to see the records.</p>
     </div>
@@ -4867,9 +4879,9 @@ function reportIpoAnalysis(){
     const gross = st.apps.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.grossFinal:0); },0);
     const resolvedCount = st.allotted.length + notAllotted;
     const winRate = resolvedCount ? Math.round((st.allotted.length/resolvedCount)*1000)/10 : null;
-    return { ipoName:i.ipoName, apps:st.apps.length, allotted:st.allotted.length, notAllotted, sold, amountApplied, gross, profit:st.profit, winRate, resolvedCount };
+    return { ipoName:i.ipoName, apps:st.apps.length, allotted:st.allotted.length, notAllotted, sold, amountApplied, gross, profit:st.profit, clientProfit:st.clientProfit, winRate, resolvedCount };
   });
-  const tableRows = rows.map(r=>`<tr><td>${escapeHtml(r.ipoName)}</td><td>${r.apps}</td><td>${r.allotted}</td><td>${r.notAllotted}</td><td>${r.sold}</td><td>${fmtMoney(r.amountApplied)}</td><td>${fmtMoney(r.gross)}</td><td>${fmtMoney(r.profit)}</td></tr>`).join('') || `<tr class="empty-row"><td colspan="8">No IPOs yet.</td></tr>`;
+  const tableRows = rows.map(r=>`<tr><td>${escapeHtml(r.ipoName)}</td><td>${r.apps}</td><td>${r.allotted}</td><td>${r.notAllotted}</td><td>${r.sold}</td><td>${fmtMoney(r.amountApplied)}</td><td>${fmtMoney(r.gross)}</td><td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.clientProfit)}</td></tr>`).join('') || `<tr class="empty-row"><td colspan="9">No IPOs yet.</td></tr>`;
 
   const leaderboard = rows.filter(r=>r.resolvedCount>0).sort((a,b)=>b.winRate-a.winRate);
   const leaderboardRows = leaderboard.map(r=>`<tr><td>${escapeHtml(r.ipoName)}</td><td>${r.allotted}/${r.resolvedCount}</td><td class="${r.winRate>=50?'ok':'danger'}">${r.winRate}%</td></tr>`).join('') || `<tr class="empty-row"><td colspan="3">No resolved allotments yet.</td></tr>`;
@@ -4891,7 +4903,7 @@ function reportIpoAnalysis(){
   }).join('');
 
   return `
-  <div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th></tr></thead><tbody>${tableRows}</tbody></table></div></div>
+  <div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Applications</th><th>Allotments</th><th>Not Allotted</th><th>Sold</th><th>Amount Applied</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${tableRows}</tbody></table></div></div>
 
   <div class="section-card">
     <div class="sc-head"><h3>IPO Win-Rate Leaderboard</h3></div>
@@ -4921,9 +4933,9 @@ function reportBankAnalysis(){
       <td class="clickable" ${navAttr('allotments', {bankAccountId:b.bankName, allotmentStatus:'Allotted'})}>${st.apps.filter(a=>a.allotmentStatus==='Allotted').length}</td>
       <td>${fmtMoney(amountApplied)}</td><td>${fmtMoney(amountBlocked)}</td>
       <td class="clickable ${pendingReceivablesCount>0?'danger':''}" ${navAttr('allotments', {bankAccountId:b.bankName, amountReceiveStatus:'Receivable'})}>${pendingReceivablesCount}</td>
-      <td>${fmtMoney(gross)}</td><td>${fmtMoney(st.profit)}</td></tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="10">No bank accounts yet.</td></tr>`;
-  return `<div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Bank</th><th>Planned IPOs</th><th>Actual IPOs</th><th>Applications</th><th>Allotments</th><th>Amount Applied</th><th>Amount Blocked</th><th>Pending Receivables</th><th>Gross Received</th><th>Our Profit</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <td>${fmtMoney(gross)}</td><td>${fmtMoney(st.profit)}</td><td>${fmtMoney(st.clientProfit)}</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="11">No bank accounts yet.</td></tr>`;
+  return `<div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Bank</th><th>Planned IPOs</th><th>Actual IPOs</th><th>Applications</th><th>Allotments</th><th>Amount Applied</th><th>Amount Blocked</th><th>Pending Receivables</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div class="sc-body"><p class="small-muted">Amount Blocked = amount currently tied up in applications still awaiting an allotment decision (excludes Not Allotted and already-resolved applications). Pending Receivables = count of sold applications whose recovery is still outstanding.</p></div></div>`;
 }
 let praRange = { preset:'thisMonth', from:null, to:null };
@@ -4945,6 +4957,92 @@ function setPraCustom(){
   render();
 }
 function setPraFilter(key, val){ praFilters[key] = val; render(); }
+/* =================== OUR vs CLIENT PROFIT GAP =================== */
+let gapState = { dim:'ipo', period:'all' };
+window.__gapG = {};
+function setGap(k,v){ gapState[k]=v; render(); }
+function goGap(){ reportsTab='gap'; navigate('reports'); }
+function gapRows(){
+  const now = new Date(), y = now.getFullYear();
+  let from='', to='';
+  if (gapState.period==='year'){ from=y+'-01-01'; to=y+'-12-31'; }
+  else if (gapState.period==='lastyear'){ from=(y-1)+'-01-01'; to=(y-1)+'-12-31'; }
+  const groups = new Map();
+  S.applications.forEach(a=>{
+    const c = calcAllotmentSale(a); if (!c.applicable) return;
+    if (from && (!a.saleDate || a.saleDate<from || a.saleDate>to)) return;
+    let key, name, nav;
+    if (gapState.dim==='client'){ const cl=findClient(a.clientId); key='c'+a.clientId; name=cl?cl.clientName:'(unknown client)'; nav=`openClientDetail(${a.clientId})`; }
+    else { const i=findIpo(a.ipoId); key='i'+a.ipoId; name=i?i.ipoName:'(unknown IPO)'; nav=`navigate('ipos',{id:${a.ipoId}})`; }
+    if (!groups.has(key)) groups.set(key,{ key, name, nav, apps:[], our:0, client:0, shareEff:0, ovEff:0, shares:new Map(), ovN:0 });
+    const g = groups.get(key);
+    // What the split would have been with no manual overrides: that difference is purely the share %.
+    const base = calcAllotmentSale({ ...a, grossReceivedOverridden:false, ourProfitOverridden:false, clientProfitOverridden:false });
+    const sh = base.ourFinal - base.clientFinal, d = c.ourFinal - c.clientFinal;
+    g.apps.push(a); g.our += c.ourFinal; g.client += c.clientFinal; g.shareEff += sh; g.ovEff += d - sh;
+    const sp = appProfitShare(a);
+    if (sp !== 50){ const e = g.shares.get(sp) || { n:0, v:0 }; e.n++; e.v += sh; g.shares.set(sp, e); }
+    if (c.grossOverridden || c.ourOverridden || c.clientOverridden) g.ovN++;
+  });
+  const sg = v => (Math.abs(v)<0.5 ? '' : (v>0?'+':'−')) + fmtMoney(Math.abs(v));
+  const rows = Array.from(groups.values()).map(g=>{
+    g.diff = g.our - g.client;
+    const why = [];
+    Array.from(g.shares.entries()).sort((a,b)=>Math.abs(b[1].v)-Math.abs(a[1].v)).forEach(([sp,e])=>{ if (Math.abs(e.v)>=0.5) why.push(`${sp}% share on ${e.n} sale${e.n>1?'s':''} (${sg(e.v)})`); });
+    if (g.ovN && Math.abs(g.ovEff)>=0.5) why.push(`${g.ovN} manual override${g.ovN>1?'s':''} (${sg(g.ovEff)})`);
+    g.why = why.length ? why.join('; ') : 'Equal split';
+    window.__gapG[g.key] = g;
+    return g;
+  }).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+  return rows;
+}
+function reportGap(){
+  const rows = gapRows();
+  const T = rows.reduce((t,g)=>({ our:t.our+g.our, client:t.client+g.client, sh:t.sh+g.shareEff, ov:t.ov+g.ovEff, n:t.n+g.apps.length }), { our:0, client:0, sh:0, ov:0, n:0 });
+  const diff = T.our - T.client;
+  const sg = v => (Math.abs(v)<0.5 ? '' : (v>0?'+':'−')) + fmtMoney(Math.abs(v));
+  const dimName = gapState.dim==='client' ? 'Client' : 'IPO';
+  window.__tableRerender['gapTbl'] = () => {
+    renderIntoWrap('gapTblWrap', renderDataTable('gapTbl', {
+      data: rows,
+      searchFn: (r,q) => (r.name+' '+r.why).toLowerCase().includes(q),
+      searchPlaceholder: 'Search '+dimName.toLowerCase()+'...',
+      filters: [],
+      pageSize: 15,
+      columns: [
+        { key:'name', label:dimName, render:r=>`<a class="lnk" href="javascript:void(0)" onclick="${r.nav}">${escapeHtml(r.name)}</a>` },
+        { key:'sales', label:'Sales', num:true, sum:true, val:r=>r.apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" onclick="drillNow(window.__gapG['${r.key}'].name+' — sales', window.__gapG['${r.key}'].apps)">${r.apps.length}</a>` },
+        { key:'our', label:'Our Profit', num:true, sum:'money', val:r=>r.our, render:r=>fmtMoney(r.our) },
+        { key:'client', label:'Client Profit', num:true, sum:'money', val:r=>r.client, render:r=>fmtMoney(r.client) },
+        { key:'diff', label:'Difference (Our − Client)', num:true, sum:'money', val:r=>r.diff, render:r=>`<b class="${r.diff>0.5?'gold':r.diff<-0.5?'danger':''}">${sg(r.diff)||fmtMoney(0)}</b>` },
+        { key:'shareEff', label:'From share %', num:true, sum:'money', val:r=>r.shareEff, render:r=>sg(r.shareEff)||'—' },
+        { key:'ovEff', label:'From overrides', num:true, sum:'money', val:r=>r.ovEff, render:r=>sg(r.ovEff)||'—' },
+        { key:'why', label:'Reason', render:r=>`<span class="small-muted">${escapeHtml(r.why)}</span>` }
+      ]
+    }));
+  };
+  setTimeout(()=>window.__tableRerender['gapTbl'](), 0);
+  const opt = (v,l,cur)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
+  return `
+  <div class="section-card">
+    <div class="sc-head"><h3>Our Profit vs Client Profit</h3></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-group"><label>Break down by</label><select onchange="setGap('dim',this.value)">${opt('ipo','IPO',gapState.dim)}${opt('client','Client',gapState.dim)}</select></div>
+        <div class="f-group"><label>Sale date</label><select onchange="setGap('period',this.value)">${opt('all','All time',gapState.period)}${opt('year','This year',gapState.period)}${opt('lastyear','Last year',gapState.period)}</select></div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">Our profit</div><div class="val gold">${fmtMoney(T.our)}</div></div>
+        <div class="kpi-card"><div class="lbl">Client profit</div><div class="val">${fmtMoney(T.client)}</div></div>
+        <div class="kpi-card"><div class="lbl">Difference (Our − Client)</div><div class="val ${diff>0.5?'gold':diff<-0.5?'danger':''}">${sg(diff)||fmtMoney(0)}</div><div class="small-muted">${T.n} completed sale${T.n===1?'':'s'}</div></div>
+        <div class="kpi-card"><div class="lbl">Due to share %</div><div class="val">${sg(T.sh)||'—'}</div><div class="small-muted">our share is not 50%</div></div>
+        <div class="kpi-card"><div class="lbl">Due to overrides</div><div class="val">${sg(T.ov)||'—'}</div><div class="small-muted">manual changes to profit</div></div>
+      </div>
+      <div id="gapTblWrap"></div>
+      <p class="hint">Each sale's profit is split between us and the client. The two totals are equal when every sale is split 50/50 with no manual changes. <b>From share %</b> = the gap created because our share on that sale is above or below 50%. <b>From overrides</b> = the gap created by manually edited Gross Received / Our Profit / Client Profit. The two columns add up to the Difference. The table is sorted by the biggest gap first; click a count to see the sales behind it.</p>
+    </div>
+  </div>`;
+}
 function reportProfitAnalysis(){
   const r = resolvePraRange();
   // Filters (IPO/Client/Bank/Reference) apply to every figure below; the date
