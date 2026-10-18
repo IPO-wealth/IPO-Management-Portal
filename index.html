@@ -434,6 +434,34 @@ body.compact .kpi-card{padding:10px 14px;} body.compact .section-card .sc-body{p
   .section-card .sc-head{flex-wrap:wrap;} #content{padding:12px 12px 90px;}
   details.collapse{padding:0 12px;}
 }
+
+/* ===== Calm theme: fewer borders/shadows, quieter labels, one clear primary action ===== */
+#content{width:100%;box-sizing:border-box;max-width:1360px;margin:0 auto;}
+.section-card{border-radius:12px;box-shadow:none;margin-bottom:16px;}
+.section-card .sc-head{padding:14px 18px;border-bottom:1px solid var(--border);}
+.section-card .sc-head h3{font-size:14px;font-weight:700;}
+.kpi-grid{gap:12px;margin-bottom:16px;} .kpi-grid.money-grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr));}
+.kpi-card{border-radius:12px;box-shadow:none;padding:14px 16px;}
+.kpi-card[onclick],.kpi-card.clickable{cursor:pointer;} .kpi-card[onclick]:hover,.kpi-card.clickable:hover{border-color:var(--gold);}
+.kpi-card .lbl{text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;}
+.kpi-card .val{font-size:22px;margin-top:6px;}
+table.dt th{text-transform:none;letter-spacing:0;font-size:11.5px;font-weight:700;}
+table.dt td{padding:10px 10px;}
+.btn-gold{background:transparent;color:var(--gold);border:1px solid var(--gold);}
+.btn-gold:hover{background:rgba(200,150,62,.1);}
+.progress.mini{height:6px;margin:8px 0 4px;}
+.tabs{margin-bottom:12px;} .tabs.ops-tabs{margin-bottom:16px;}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px;overflow-x:auto;}
+.pill{border:1px solid var(--border);background:var(--card);color:var(--text-dim);border-radius:20px;padding:6px 14px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.pill.on{background:var(--navy);color:#fff;border-color:var(--navy);} .pill:hover:not(.on){color:var(--heading);border-color:var(--gold);}
+.today-panel .todo{padding:8px 12px;}
+@media (max-width:640px){ .tabs.ops-tabs,.tabs{overflow-x:auto;flex-wrap:nowrap;} .tabs button{white-space:nowrap;} .kpi-grid.money-grid{grid-template-columns:1fr 1fr;} }
+/* paginated tables scroll with the page, not inside a box */
+.table-wrap{max-height:none !important;border:none !important;border-radius:0 !important;}
+table.dt tfoot td{position:static !important;}
+table.dt thead th{position:static;}
+#topbar{flex-shrink:0;}
+@media (max-width:900px){ #topbar{top:0 !important;height:auto !important;} }
 </style>
 </head>
 <body>
@@ -464,9 +492,7 @@ body.compact .kpi-card{padding:10px 14px;} body.compact .section-card .sc-body{p
       <div id="notifPanel" style="display:none;position:absolute;top:100%;right:0;margin-top:6px;width:min(320px, calc(100vw - 24px));max-height:400px;overflow-y:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:60;"></div>
     </div>
     <span id="syncIndicator" class="badge gray" style="display:none;margin-right:4px;"></span>
-    <button class="quickBtn secondary" onclick="openCmdk()" title="Quick find & actions (Ctrl+K)" id="cmdkBtn">&#128269; <span class="hide-sm">Ctrl K</span></button>
-    <button class="quickBtn secondary hide-xs" onclick="toggleDensity()" title="Compact / comfortable rows">&#8597;</button>
-    <button class="quickBtn secondary hide-xs" onclick="exportAllToExcel()">Export Excel</button>
+    <button class="quickBtn secondary" onclick="openCmdk()" title="Quick find & actions (Ctrl+K)" id="cmdkBtn">&#9776;&nbsp;<span class="hide-sm">Quick actions</span></button>
   </div>
   <div id="content"></div>
   <button id="quickAddBtn" onclick="editApplication()" title="Quick Add Application" style="position:fixed;bottom:24px;right:24px;width:52px;height:52px;border-radius:50%;background:var(--navy);color:#fff;border:none;font-size:26px;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,.25);cursor:pointer;z-index:150;">+</button>
@@ -892,21 +918,21 @@ function calcProfit(app){ const r = calcAllotmentSale(app); return { final: r.ap
 </script>
 <script>
 // ---- Navigation ----
+const OPS_VIEWS = ['checklist','planning','applications','allotments','results'];
 const NAV = [
   { id:'dashboard', label:'Dashboard', ico:'&#9673;' },
-  { id:'checklist', label:'Today\'s Checklist', ico:'&#9989;' },
-  { id:'planning', label:'IPO Planning', ico:'&#128197;' },
+  { id:'ops', label:'Operations', ico:'&#9989;', views:OPS_VIEWS, go:'checklist' },
   { id:'clients', label:'Clients', ico:'&#128100;' },
   { id:'ipos', label:'IPOs', ico:'&#128176;' },
-  { id:'applications', label:'Applications', ico:'&#128203;' },
-  { id:'allotments', label:'Allotments &amp; Sale', ico:'&#127942;' },
   { id:'banks', label:'Bank Accounts', ico:'&#127974;' },
   { id:'reports', label:'Reports', ico:'&#128202;' },
   { id:'settings', label:'Settings', ico:'&#9881;' }
 ];
+const OPS_TABS = [['checklist','Today'],['planning','Planning'],['applications','Applications'],['allotments','Allotments & Sale']];
+function opsBarHtml(){ const cur = S.view==='results' ? 'allotments' : S.view; return `<div class="tabs ops-tabs no-print">${OPS_TABS.map(([v,l])=>`<button class="${v===cur?'active':''}" onclick="navigate('${v}')">${l}</button>`).join('')}</div>`; }
 function renderNav(){
   const el = document.getElementById('navList');
-  el.innerHTML = NAV.map(n => `<div class="nav-item ${S.view===n.id?'active':''}" onclick="navigate('${n.id}')"><span class="ico">${n.ico}</span><span>${n.label}</span></div>`).join('');
+  el.innerHTML = NAV.map(n => `<div class="nav-item ${(S.view===n.id||(n.views&&n.views.includes(S.view)))?'active':''}" onclick="navigate('${n.go||n.id}')"><span class="ico">${n.ico}</span><span>${n.label}</span></div>`).join('');
 }
 function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
 function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
@@ -1105,7 +1131,7 @@ function render(){
     case 'settings': c.innerHTML = viewSettings(); if (settingsTab==='audit') setTimeout(renderAuditLogTable, 0); break;
     default: c.innerHTML = '<p>Not found</p>';
   }
-  try { applyBranding(); c.insertAdjacentHTML('afterbegin', printBrandHtml()); if (window.autoLinkNames) autoLinkNames(c); } catch(e){ console.warn(e); }
+  try { applyBranding(); if (OPS_VIEWS.includes(S.view)) c.insertAdjacentHTML('afterbegin', opsBarHtml()); c.insertAdjacentHTML('afterbegin', printBrandHtml()); if (window.autoLinkNames) autoLinkNames(c); } catch(e){ console.warn(e); }
 }
 
 // ---- Modal helpers ----
@@ -1183,9 +1209,9 @@ function renderDataTable(id, opts){
   let rows = opts.data.slice();
   // #1: column customization — hide columns the user has chosen to hide for this table
   window.__tableColumnDefs = window.__tableColumnDefs || {};
-  window.__tableColumnDefs[id] = opts.columns.filter(c=>c.key!=='sel').map(c=>({ key:c.key, label:(c.label||'').replace(/<[^>]+>/g,'') }));
+  window.__tableColumnDefs[id] = opts.columns.filter(c=>c.key!=='sel').map(c=>({ key:c.key, hidden:!!c.hidden, label:(c.label||'').replace(/<[^>]+>/g,'') }));
   const colVisibility = (S.settings.columnVisibility && S.settings.columnVisibility[id]) || {};
-  const columns = opts.columns.filter(c => c.key==='sel' || colVisibility[c.key] !== false);
+  const columns = opts.columns.filter(c => c.key==='sel' || (colVisibility[c.key] === undefined ? !c.hidden : colVisibility[c.key] !== false));
   // filters
   (opts.filters||[]).forEach(f => {
     const v = st.filterVals[f.key];
@@ -1372,7 +1398,7 @@ function openColumnPicker(id){
   openModal('Show/Hide Columns',
     `<p class="small-muted" style="margin-bottom:10px;">Choose which columns to show in this table. Your choice is remembered for next time.</p>
      <div style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;">
-      ${defs.map(d=>`<label class="checkbox-row"><input type="checkbox" ${visibility[d.key]===false?'':'checked'} onchange="toggleColumnVisibility('${id}','${d.key}',this.checked)"> ${escapeHtml(d.label)}</label>`).join('')}
+      ${defs.map(d=>`<label class="checkbox-row"><input type="checkbox" ${(visibility[d.key]===undefined ? !d.hidden : visibility[d.key]!==false)?'checked':''} onchange="toggleColumnVisibility('${id}','${d.key}',this.checked)"> ${escapeHtml(d.label)}</label>`).join('')}
      </div>`,
     `<button class="btn btn-ghost" onclick="resetColumnVisibility('${id}')">Reset to Default</button>
      <button class="btn btn-primary" onclick="closeModal()">Done</button>`);
@@ -1511,9 +1537,9 @@ function viewClients(){
         { key:'clientId', label:'Client ID' },
         { key:'clientName', label:'Name', render:r=>`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();openClientDetail(${r.id})">${escapeHtml(r.clientName)}</a>` + (getTopClientIds().has(r.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top</span>' : '') },
         { key:'referenceName', label:'Reference' },
-        { key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
-        { key:'profitSharePct', label:'Our Share', num:true, val:r=>{ const o=clientOwnShare(r); return o!==null?o:defaultProfitShare(); }, render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b>${o}%</b>` : `<span class="small-muted">${defaultProfitShare()}% (default)</span>`; } },
-        { key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
+        { hidden:true, key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
+        { hidden:true, key:'profitSharePct', label:'Our Share', num:true, val:r=>{ const o=clientOwnShare(r); return o!==null?o:defaultProfitShare(); }, render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b>${o}%</b>` : `<span class="small-muted">${defaultProfitShare()}% (default)</span>`; } },
+        { hidden:true, key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>clientStats(r.id).apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" ${navAttr('applications',{clientId:r.clientName},'appsTbl')}>${clientStats(r.id).apps.length}</a>` },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>clientStats(r.id).allotted.length, render:r=>clientStats(r.id).allotted.length },
         { key:'profit', label:'Profit', num:true, sum:'money', val:r=>clientStats(r.id).profit, render:r=>fmtMoney(clientStats(r.id).profit) },
@@ -2068,7 +2094,7 @@ function viewBanks(){
         { key:'bankName', label:'Bank Name' },
         { key:'accountHolderName', label:'Account Holder' },
         { key:'status', label:'Status', render:r=>badge(r.status) },
-        { key:'plans', label:'Plans (all-time)', num:true, sum:true, val:r=>bankStats(r.id).plans.length, render:r=>bankStats(r.id).plans.length },
+        { hidden:true, key:'plans', label:'Plans (all-time)', num:true, sum:true, val:r=>bankStats(r.id).plans.length, render:r=>bankStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>bankStats(r.id).apps.length, render:r=>bankStats(r.id).apps.length },
         { key:'upis', label:'UPI IDs', num:true, sum:true, val:r=>bankUpis(r.id).length, render:r=>bankUpis(r.id).length },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>bankStats(r.id).profit, render:r=>fmtMoney(bankStats(r.id).profit) },
@@ -2427,11 +2453,11 @@ function viewIpos(){
         { key:'openDate', label:'Open', render:r=>fmtDate(r.openDate) },
         { key:'closeDate', label:'Close', render:r=>fmtDate(r.closeDate) },
         { key:'allotmentDate', label:'Allotment Date', render:r=>fmtDate(r.allotmentDate) },
-        { key:'category', label:'Category', render:r=>escapeHtml(r.category||'—') },
-        { key:'listingGain', label:'Listing Gain', num:true, val:r=>{ const g=ipoListingGainPct(r); return g==null?'':Number(g.toFixed(2)); }, render:r=>{ const g=ipoListingGainPct(r); return g==null?'—':`<span class="${g>=0?'ok':'danger'}">${g.toFixed(1)}%</span>`; } },
+        { hidden:true, key:'category', label:'Category', render:r=>escapeHtml(r.category||'—') },
+        { hidden:true, key:'listingGain', label:'Listing Gain', num:true, val:r=>{ const g=ipoListingGainPct(r); return g==null?'':Number(g.toFixed(2)); }, render:r=>{ const g=ipoListingGainPct(r); return g==null?'—':`<span class="${g>=0?'ok':'danger'}">${g.toFixed(1)}%</span>`; } },
         { key:'status', label:'Status', val:r=>ipoStatus(r), render:r=>badge(ipoStatus(r)) },
-        { key:'archiveStatus', label:'Active/Inactive', render:r=>badge(r.archiveStatus||'Active') },
-        { key:'planned', label:'Planned', num:true, sum:true, val:r=>ipoStats(r.id).plans.length, render:r=>ipoStats(r.id).plans.length },
+        { hidden:true, key:'archiveStatus', label:'Active/Inactive', render:r=>badge(r.archiveStatus||'Active') },
+        { hidden:true, key:'planned', label:'Planned', num:true, sum:true, val:r=>ipoStats(r.id).plans.length, render:r=>ipoStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>ipoStats(r.id).apps.length, render:r=>ipoStats(r.id).apps.length },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>ipoStats(r.id).allotted.length, render:r=>ipoStats(r.id).allotted.length },
         { key:'profit', label:'Profit', num:true, sum:'money', val:r=>ipoStats(r.id).profit, render:r=>fmtMoney(ipoStats(r.id).profit) }
@@ -2553,13 +2579,12 @@ function deleteIpo(id){
 let planningTab = 'plans'; // plans | calendar | variance | capacity
 
 function viewPlanning(){
+  if (planningTab==='variance'||planningTab==='upcoming') planningTab='capacity';
   return `
-  <div class="tabs">
-    <button class="${planningTab==='plans'?'active':''}" onclick="setPlanningTab('plans')">Plan List</button>
-    <button class="${planningTab==='calendar'?'active':''}" onclick="setPlanningTab('calendar')">Planning Calendar</button>
-    <button class="${planningTab==='capacity'?'active':''}" onclick="setPlanningTab('capacity')">Capacity Dashboard</button>
-    <button class="${planningTab==='variance'?'active':''}" onclick="setPlanningTab('variance')">Planned vs Actual</button>
-    <button class="${planningTab==='upcoming'?'active':''}" onclick="setPlanningTab('upcoming')">Upcoming IPO Planner</button>
+  <div class="pills no-print">
+    <button class="pill ${planningTab==='plans'?'on':''}" onclick="setPlanningTab('plans')">Plans</button>
+    <button class="pill ${planningTab==='calendar'?'on':''}" onclick="setPlanningTab('calendar')">Calendar</button>
+    <button class="pill ${planningTab==='capacity'?'on':''}" onclick="setPlanningTab('capacity')">Capacity &amp; progress</button>
   </div>
   <div id="planningTabBody"></div>`;
 }
@@ -2568,9 +2593,7 @@ function afterPlanning(){
   const el = document.getElementById('planningTabBody');
   if (planningTab==='plans') el.innerHTML = planningPlansTab();
   else if (planningTab==='calendar') el.innerHTML = planningCalendarTab();
-  else if (planningTab==='capacity') el.innerHTML = planningCapacityTab();
-  else if (planningTab==='variance') el.innerHTML = planningVarianceTab();
-  else if (planningTab==='upcoming') el.innerHTML = planningUpcomingTab();
+  else if (planningTab==='capacity') el.innerHTML = planningCapacityTab() + planningUpcomingTab();
   if (planningTab==='plans') { setTimeout(()=>window.__tableRerender['plansTbl'] && window.__tableRerender['plansTbl'](), 0); }
 }
 
@@ -2601,7 +2624,7 @@ function planningPlansTab(){
         { key:'plannedClientCount', label:'Planned Clients', num:true, sum:true, val:r=>planClientCount(r), render:r=>`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();planClients(${r.id})">${planClientCount(r)}</a>` },
         { key:'status', label:'Status', val:r=>planStatusComputed(r), render:r=>badge(planStatusComputed(r)) },
         { key:'variance', label:'Vs Actual', val:r=>planVariance(r), render:r=>badge(planVariance(r)) },
-        { key:'notes', label:'Notes', render:r=>escapeHtml(r.notes||'—') }
+        { hidden:true, key:'notes', label:'Notes', render:r=>escapeHtml(r.notes||'—') }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="planClients(${r.id})">Clients</button>
                          <button class="btn btn-sm btn-ghost" onclick="editPlan(${r.id})">Edit</button>
@@ -3052,7 +3075,7 @@ function viewApplications(){
         { key:'upiId', label:'UPI ID', val:r=>{ const u=S.bankUpiIds.find(x=>x.id===r.upiId); return u?u.upiId:''; }, render:r=>{ const u=S.bankUpiIds.find(x=>x.id===r.upiId); return escapeHtml(u?u.upiId:'—'); } },
         { key:'amountApplied', label:'Amount Applied', num:true, sum:'money', val:r=>Number(r.amountApplied)||0, render:r=>fmtMoney(r.amountApplied) },
         { key:'applicationStatus', label:'Status', render:r=>badge(r.applicationStatus) + (r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : '') },
-        { key:'plan', label:'From Plan', val:r=>r.planId?'Yes':'No', render:r=>r.planId?'Yes':'No' }
+        { hidden:true, key:'plan', label:'From Plan', val:r=>r.planId?'Yes':'No', render:r=>r.planId?'Yes':'No' }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editApplication(${r.id})">Edit</button>
                          <button class="btn btn-sm btn-danger" onclick="deleteApplication(${r.id})">Delete</button>`
@@ -3291,11 +3314,11 @@ function viewAllotments(){
         { key:'allotmentStatus', label:'Allotment', val:r=>r.allotmentStatus||'Pending', render:r=>`<span class="clickable" title="Click to quick-edit" onclick="event.stopPropagation(); quickEditAllotmentStatus(${r.id})">${badge(r.allotmentStatus||'Pending')}</span>${r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="event.stopPropagation(); showNote(this)">📝</span>` : ''}<br><span class="small-muted">${fmtDate(r.allotmentDate)}</span>` },
         { key:'saleStatus', label:'Sale', val:r=>r.saleStatus||'', render:r=>r.saleStatus?`${badge(r.saleStatus)}<br><span class="small-muted">${fmtDate(r.saleDate)}</span>`:'—' },
         { key:'saleAmount', label:'Sale Amount', num:true, sum:'money', val:r=>Number(r.saleAmount)||0, render:r=>r.saleAmount?fmtMoney(r.saleAmount):'—' },
-        { key:'grossReceived', label:'Gross Received', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.grossFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.grossFinal)+(c.grossOverridden?overrideBadge('Gross Received', c.calculatedGross, c.grossFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
+        { hidden:true, key:'grossReceived', label:'Gross Received', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.grossFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.grossFinal)+(c.grossOverridden?overrideBadge('Gross Received', c.calculatedGross, c.grossFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
         { key:'amountReceiveStatus', label:'Recovery Status', val:r=>r.amountReceiveStatus||'', render:r=>r.amountReceiveStatus?`<span class="clickable" title="Click to quick-edit" onclick="event.stopPropagation(); quickEditRecoveryStatus(${r.id})">${badge(r.amountReceiveStatus)}</span>`:'—' },
-        { key:'payout', label:'Client Payout', val:r=>payoutState(r)||'—', render:r=>payoutBadge(r) },
+        { hidden:!S.settings.payoutTrackFrom, key:'payout', label:'Client Payout', val:r=>payoutState(r)||'—', render:r=>payoutBadge(r) },
         { key:'ourProfit', label:'Our Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.ourFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.ourFinal)+(c.ourOverridden?overrideBadge('Our Profit', c.calculatedOur, c.ourFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
-        { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.clientFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.clientFinal)+(c.clientOverridden?overrideBadge('Client Profit', c.calculatedClient, c.clientFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } }
+        { hidden:true, key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.clientFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.clientFinal)+(c.clientOverridden?overrideBadge('Client Profit', c.calculatedClient, c.clientFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } }
       ],
       rowActions: r => `<button class="btn btn-sm btn-primary" onclick="editAllotmentSale(${r.id})">Update</button>`
     }));
@@ -3304,15 +3327,10 @@ function viewAllotments(){
 
   return `
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="lbl">Total Allotments</div><div class="val ok">${allotted.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Not Allotted</div><div class="val danger">${notAllotted.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Pending Allotment</div><div class="val">${pending.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Allotment Rate</div><div class="val">${allotRate}%</div></div>
-    <div class="kpi-card"><div class="lbl">Pending to Sell</div><div class="val gold">${pendingToSell.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Our Profit</div><div class="val ok">${fmtMoney(totalOurProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Client Profit</div><div class="val">${fmtMoney(totalClientProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Received</div><div class="val ok">${fmtMoney(totalReceived)}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Receivable</div><div class="val gold">${fmtMoney(totalReceivable)}</div></div>
+    <div class="kpi-card clickable" ${navAttr('allotments',{allotmentStatus:'Pending'})}><div class="lbl">Awaiting result</div><div class="val">${pending.length}</div><div class="small-muted">${allotted.length} allotted · ${notAllotted.length} not (${allotRate}%)</div></div>
+    <div class="kpi-card clickable" ${navAttr('allotments',{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'})}><div class="lbl">To sell</div><div class="val gold">${pendingToSell.length}</div></div>
+    <div class="kpi-card clickable" ${navAttr('allotments',{amountReceiveStatus:'Receivable'})}><div class="lbl">To collect</div><div class="val ${totalReceivable?'danger':''}">${fmtMoney(totalReceivable)}</div><div class="small-muted">${fmtMoney(totalReceived)} received</div></div>
+    <div class="kpi-card"><div class="lbl">Our profit</div><div class="val ok">${fmtMoney(totalOurProfit)}</div><div class="small-muted">Clients' share ${fmtMoney(totalClientProfit)}</div></div>
   </div>
   <div class="section-card">
     <div class="sc-head" style="flex-wrap:wrap;gap:10px;">
@@ -3665,253 +3683,85 @@ function setDashCustom(){
 }
 
 function dashboardBody(){
-  const today = todayStr();
-  const now = new Date();
+  const today = todayStr(), now = new Date();
   const monthStart = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
   const yearStart = isoDate(new Date(now.getFullYear(), 0, 1));
-
-  // ---- Fixed "Overview" figures: always real calendar month/year/today,
-  // independent of the selectable date-range below. ----
+  const ourOf = a => { const c = calcAllotmentSale(a); return c.applicable ? c.ourFinal : 0; };
   const soldThisMonth = S.applications.filter(a=>a.saleStatus==='Sold' && a.saleDate>=monthStart && a.saleDate<=today);
   const soldThisYear = S.applications.filter(a=>a.saleStatus==='Sold' && a.saleDate>=yearStart && a.saleDate<=today);
-  const monthlyProfit = soldThisMonth.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); },0);
-  const yearlyProfit = soldThisYear.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); },0);
-  const avgProfitPerMonth = Math.round(yearlyProfit / (now.getMonth()+1));
-  const pendingReceivables = S.applications.reduce((s,a)=>s+recvDue(a),0);
-  const activeIpos = S.ipos.filter(i=>ipoStatus(i)==='Open').length;
-  const appsToday = S.applications.filter(a=>a.applicationDate===today).length;
-  // Capital Blocked: only applications still awaiting an allotment decision — matches the
-  // same "Amount Blocked" definition used in Reports > Bank Analysis (Pending only, not
-  // Not Allotted or already-resolved applications).
-  const capitalBlocked = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
-  const pendingAllotmentCount = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).length;
-
-  // like-for-like comparison: this month so far vs the same days last month; this year so far vs the same dates last year
+  const monthlyProfit = soldThisMonth.reduce((s,a)=>s+ourOf(a),0), yearlyProfit = soldThisYear.reduce((s,a)=>s+ourOf(a),0);
   const dayOfMonth = now.getDate();
-  const prevMonthFirst = new Date(now.getFullYear(), now.getMonth()-1, 1);
-  const prevMonthDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-  const prevMonthProfit = profitBetween(localDateStr(prevMonthFirst), localDateStr(new Date(prevMonthFirst.getFullYear(), prevMonthFirst.getMonth(), Math.min(dayOfMonth, prevMonthDays))));
-  const prevYearProfit = profitBetween(localDateStr(new Date(now.getFullYear()-1, 0, 1)), localDateStr(new Date(now.getFullYear()-1, now.getMonth(), now.getDate())));
-  const pendingAppsList = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
-  const receivableList = S.applications.filter(a=>a.saleStatus==='Sold' && a.amountReceiveStatus==='Receivable' && calcAllotmentSale(a).applicable);
-  const todayApps = S.applications.filter(a=>a.applicationDate===today);
+  const pmFirst = new Date(now.getFullYear(), now.getMonth()-1, 1), pmDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  const prevMonthProfit = profitBetween(localDateStr(pmFirst), localDateStr(new Date(pmFirst.getFullYear(), pmFirst.getMonth(), Math.min(dayOfMonth, pmDays))));
+  const prevYearProfit = profitBetween(localDateStr(new Date(now.getFullYear()-1,0,1)), localDateStr(new Date(now.getFullYear()-1, now.getMonth(), now.getDate())));
+  const recvList = S.applications.filter(a=>recvDue(a)>0.5);
+  const toCollect = recvList.reduce((s,a)=>s+recvDue(a),0);
+  const overdueList = recvList.filter(a=>a.saleDate && dayDiff(a.saleDate,today)>15);
+  const overdueAmt = overdueList.reduce((s,a)=>s+recvDue(a),0);
+  const pendingList = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
+  const blocked = pendingList.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+  const owedList = S.applications.filter(a=>payoutDue(a)>0.5), owed = owedList.reduce((s,a)=>s+payoutDue(a),0);
   const monthGoal = Number(S.settings.monthlyProfitGoal)||0, yearGoal = Number(S.settings.yearlyProfitGoal)||0;
-  const daysInMonthNow = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const dayOfYear = dayDiff(`${now.getFullYear()}-01-01`, today) + 1;
-  const daysInYearNow = ((now.getFullYear()%4===0 && now.getFullYear()%100!==0) || now.getFullYear()%400===0) ? 366 : 365;
-  const goalsHtml = (monthGoal || yearGoal) ? `
-  <div class="section-card">
-    <div class="sc-head"><h3>Profit Goals</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="navigate('settings')">Change goals</button></div>
-    <div class="sc-body" style="display:flex;gap:24px;flex-wrap:wrap;">
-      ${monthGoal ? goalCardHtml('This Month', monthlyProfit, monthGoal, dayOfMonth, daysInMonthNow, 'month') : ''}
-      ${yearGoal ? goalCardHtml('This Year', yearlyProfit, yearGoal, dayOfYear, daysInYearNow, 'year') : ''}
-    </div>
-  </div>` : `<div class="small-muted no-print" style="margin:6px 2px 10px;">Tip: set monthly / yearly profit goals in <a href="javascript:void(0)" onclick="navigate('settings')">Settings</a> to track progress here.</div>`;
+  const goalBar = (profit, goal) => { const pct = Math.min(100, Math.round(profit/goal*100)); return `<div class="progress mini"><div style="width:${pct}%"></div></div><div class="small-muted">${Math.round(profit/goal*100)}% of ${fmtMoney(goal)} goal</div>`; };
+  const cards = `<div class="kpi-grid money-grid">
+    <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)}><div class="lbl">Profit — this month</div><div class="val gold">${fmtMoney(monthlyProfit)}</div>
+      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
+    <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Profit — this year</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>
+      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
+    <div class="kpi-card" ${drillAttr('Money still to collect', recvList)}><div class="lbl">To collect</div><div class="val ${overdueAmt?'danger':''}">${fmtMoney(toCollect)}</div>
+      <div class="small-muted">${recvList.length} sale${recvList.length===1?'':'s'}${overdueAmt?` · <b class="danger">${fmtMoney(overdueAmt)} overdue</b>`:''}</div></div>
+    ${S.settings.payoutTrackFrom ? `<div class="kpi-card" ${drillAttr('Profit owed to clients', owedList)}><div class="lbl">Owed to clients</div><div class="val">${fmtMoney(owed)}</div><div class="small-muted">${owedList.length} sale${owedList.length===1?'':'s'}</div></div>` : ''}
+    <div class="kpi-card" ${drillAttr('Capital blocked — awaiting allotment', pendingList)}><div class="lbl">Capital blocked</div><div class="val">${fmtMoney(blocked)}</div><div class="small-muted">${pendingList.length} application${pendingList.length===1?'':'s'} awaiting result</div></div>
+  </div>
+  ${(!monthGoal && !yearGoal) ? '<div class="small-muted no-print" style="margin:-4px 2px 12px;">Want a target? <a href="javascript:void(0)" onclick="setSettingsTab(\'general\');navigate(\'settings\')">Set a profit goal</a>.</div>' : ''}`;
 
-  const overviewGrid = `
-  <div class="kpi-grid">
-    <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)}><div class="lbl">Monthly Profit</div><div class="val gold">${fmtMoney(monthlyProfit)}</div><div class="spark-wrap" title="Last 6 months">${sparkSvg(monthlyProfitSeries(6))}</div>${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
-    <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Yearly Profit</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
-    <div class="kpi-card"><div class="lbl">Avg Profit / Month</div><div class="val">${fmtMoney(avgProfitPerMonth)}</div></div>
-    <div class="kpi-card" ${drillAttr('Sold — payment still receivable', receivableList)}><div class="lbl">Pending Receivables</div><div class="val ${pendingReceivables>0?'danger':''}">${fmtMoney(pendingReceivables)}</div></div>
-    <div class="kpi-card"><div class="lbl">Active IPOs</div><div class="val ok">${activeIpos}</div></div>
-    <div class="kpi-card" ${drillAttr('Applications today', todayApps)}><div class="lbl">Applications Today</div><div class="val">${appsToday}</div></div>
-    <div class="kpi-card" ${drillAttr('Capital blocked — awaiting allotment', pendingAppsList)}><div class="lbl">Total Capital Blocked</div><div class="val">${fmtMoney(capitalBlocked)}</div></div>
-    <div class="kpi-card" ${drillAttr('Awaiting allotment result', pendingAppsList)}><div class="lbl">Pending Allotment</div><div class="val ${pendingAllotmentCount>0?'danger':''}">${pendingAllotmentCount}</div></div>
-  </div>`;
-
-  // ---- Today's Work ----
-  const todaysIpoItems = [];
-  S.ipos.forEach(i=>{
-    if (i.openDate===today) todaysIpoItems.push(`<div>&#128994; <b>${escapeHtml(i.ipoName)}</b> — Opens today</div>`);
-    if (i.closeDate===today) todaysIpoItems.push(`<div>&#128994; <b>${escapeHtml(i.ipoName)}</b> — Closes today</div>`);
-    if (ipoStatus(i)==='Open' && i.openDate!==today && i.closeDate!==today) todaysIpoItems.push(`<div>&#128994; <b>${escapeHtml(i.ipoName)}</b> — Currently open</div>`);
-    if (i.allotmentDate===today) todaysIpoItems.push(`<div>&#128309; <b>${escapeHtml(i.ipoName)}</b> — Allotment today</div>`);
-  });
-
-  const awaitingAllotment = S.applications.filter(a=>a.applicationStatus==='Applied' && (!a.allotmentStatus || a.allotmentStatus==='Pending')).length;
-  const awaitingSale = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').length;
-  const awaitingReceipt = S.applications.filter(a=>a.saleStatus==='Sold' && a.amountReceiveStatus==='Receivable').length;
-  const amountAwaitingReceipt = S.applications.reduce((s,a)=>s+recvDue(a),0);
-  const daysSinceBackup = daysSinceLastBackup();
-
-  const actionItems = [
-    daysSinceBackup===null ? `<div class="clickable" onclick="navigate('settings')">No backup taken yet — export one or connect Google Drive</div>`
-      : daysSinceBackup>7 ? `<div class="clickable" onclick="navigate('settings')">Last backup was ${daysSinceBackup} days ago — consider backing up</div>` : '',
-    awaitingAllotment ? `<div class="clickable" onclick="navigate('allotments', {presetFilter:{tableId:'allotTbl', filterVals:{allotmentStatus:'Pending'}}})">${awaitingAllotment} application${awaitingAllotment===1?'':'s'} awaiting allotment</div>` : '',
-    awaitingSale ? `<div class="clickable" onclick="navigate('allotments', {presetFilter:{tableId:'allotTbl', filterVals:{allotmentStatus:'Allotted', saleStatus:'Pending to Sell'}}})">${awaitingSale} allotted application${awaitingSale===1?'':'s'} awaiting sale</div>` : '',
-    awaitingReceipt ? `<div class="clickable" onclick="navigate('allotments', {presetFilter:{tableId:'allotTbl', filterVals:{amountReceiveStatus:'Receivable'}}})">${awaitingReceipt} sold application${awaitingReceipt===1?'':'s'} awaiting receipt (${fmtMoney(amountAwaitingReceipt)})</div>` : ''
-  ].filter(Boolean);
-
-  const todaysWorkHtml = `
-  <div class="section-card">
-    <div class="sc-head"><h3>Today's Work — ${fmtDate(today)}</h3></div>
-    <div class="sc-body">
-      <b>Today's IPOs</b>
-      <div style="margin:6px 0 14px 0;">${todaysIpoItems.length ? todaysIpoItems.join('') : '<div class="small-muted">No IPO activity today.</div>'}</div>
-      <b>Action Required</b>
-      <div style="margin-top:6px;">${actionItems.length ? actionItems.join('') : '<div class="small-muted">Nothing pending — all caught up.</div>'}</div>
-    </div>
-  </div>`;
-
-  const r = resolveDashRange();
-  const appsInRange = S.applications.filter(a => inRange(a.applicationDate, r));
-  const plansInRange = S.ipoPlans.filter(p => inRange(p.plannedDate, r));
-  const allottedInRange = S.applications.filter(a => inRange(a.allotmentDate, r));
-  const notAllottedInRange = allottedInRange.filter(a=>a.allotmentStatus==='Not Allotted');
-  const soldInRange = S.applications.filter(a => inRange(a.saleDate, r) && a.saleStatus==='Sold');
-  const profitInRange = soldInRange.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); }, 0);
-  const amountAppliedInRange = appsInRange.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
-  const grossInRange = soldInRange.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.grossFinal:0); },0);
-  // Average profit is measured on the SAME basis as the profit itself: profit from sales made in this period
-  // divided by the number of sales made in this period (not allotments received, which may fall in another period).
-  const soldWithProfit = soldInRange.filter(a => calcAllotmentSale(a).applicable).length;
-  const avgProfit = soldWithProfit ? Math.round(profitInRange / soldWithProfit) : 0;
-  const prevR = previousRange(r);
+  // ---- Period analysis (collapsed by default) ----
+  const r = resolveDashRange(), prevR = previousRange(r);
+  const appsInRange = S.applications.filter(a=>inRange(a.applicationDate, r));
+  const resolvedInRange = S.applications.filter(a=>inRange(a.allotmentDate, r) && (a.allotmentStatus==='Allotted'||a.allotmentStatus==='Not Allotted'));
+  const allottedInRange = resolvedInRange.filter(a=>a.allotmentStatus==='Allotted');
+  const soldInRange = S.applications.filter(a=>inRange(a.saleDate, r) && a.saleStatus==='Sold');
+  const profitInRange = soldInRange.reduce((s,a)=>s+ourOf(a),0);
+  const soldWithProfit = soldInRange.filter(a=>calcAllotmentSale(a).applicable).length;
+  const amountInRange = appsInRange.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+  const rate = resolvedInRange.length ? Math.round(allottedInRange.length/resolvedInRange.length*1000)/10 : 0;
   const cur = dashPeriodStats(r), prv = prevR ? dashPeriodStats(prevR) : null;
-  const cmp = (key, o) => prv ? deltaHtml(cur[key], prv[key], o) : '';
-  const pendingToSellList = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold');
-  const pendingToSell = pendingToSellList.length;
-  const upcomingIpos = S.ipos.filter(i=>ipoStatus(i)==='Upcoming').length;
-  const needPlanning = S.ipos.filter(i=>ipoStatus(i)!=='Closed' && upcomingPlanningStatus(i)==='Not Planned').length;
-
-  const presetBtns = [
-    ['today','Today'],['thisWeek','This Week'],['thisMonth','This Month'],['prevMonth','Previous Month'],
-    ['thisFY','Current FY'],['prevFY','Previous FY'],['custom','Custom']
-  ].map(([k,l]) => `<button class="btn btn-sm ${dashRange.preset===k?'btn-primary':'btn-ghost'}" onclick="setDashPreset('${k}')">${l}</button>`).join('');
-
-  const attn = buildAttentionList();
-  const attnHtml = attn.length ? attn.map(a=>`<div class="attn-item ${a.level}"><span class="tag">${a.level}</span><span>${a.text}</span></div>`).join('')
-    : `<div class="small-muted">Nothing needs attention right now.</div>`;
-
-  return `
-  ${firstRunHtml()}
-  ${todayPanelHtml()}
-  ${overviewGrid}
-  ${goalsHtml}
-
-  <div class="section-card">
-    <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-      ${presetBtns}
-      ${dashRange.preset==='custom' ? `<input type="date" id="dashFrom" value="${dashRange.from||''}" onchange="setDashCustom()"><span>to</span><input type="date" id="dashTo" value="${dashRange.to||''}" onchange="setDashCustom()">` : ''}
-      <span class="small-muted" style="margin-left:auto;">Showing: ${fmtDate(r.from)} – ${fmtDate(r.to)}${prevR?` · compared with ${fmtDate(prevR.from)} – ${fmtDate(prevR.to)}`:''}</span>
+  const cmp = (key,o) => prv ? deltaHtml(cur[key], prv[key], o) : '';
+  const presetBtns = [['today','Today'],['thisWeek','Week'],['thisMonth','Month'],['prevMonth','Last month'],['thisFY','This FY'],['prevFY','Last FY'],['custom','Custom']]
+    .map(([k,l])=>`<button class="btn btn-sm ${dashRange.preset===k?'btn-primary':'btn-ghost'}" onclick="setDashPreset('${k}')">${l}</button>`).join('');
+  const period = `<details class="collapse" ${dashOpen('period',false)} ontoggle="dashToggle('period',this.open)"><summary>Period analysis <span class="small-muted" style="font-weight:500;">${fmtDate(r.from)} – ${fmtDate(r.to)}</span></summary>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;">${presetBtns}
+      ${dashRange.preset==='custom' ? `<input type="date" id="dashFrom" value="${dashRange.from||''}" onchange="setDashCustom()"><span>to</span><input type="date" id="dashTo" value="${dashRange.to||''}" onchange="setDashCustom()">` : ''}</div>
+    <div class="kpi-grid">
+      <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Applications</div><div class="val">${appsInRange.length}</div>${cmp('apps')}</div>
+      <div class="kpi-card" ${drillAttr('Allotted in this period', allottedInRange)}><div class="lbl">Allotment rate</div><div class="val ok">${rate}%</div><div class="small-muted">${allottedInRange.length} of ${resolvedInRange.length} results</div></div>
+      <div class="kpi-card" ${drillAttr('Sold in this period', soldInRange)}><div class="lbl">Sold</div><div class="val">${soldInRange.length}</div>${cmp('sold')}</div>
+      <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Amount applied</div><div class="val">${fmtMoney(amountInRange)}</div>${cmp('amount',{money:true})}</div>
+      <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Our profit</div><div class="val gold">${fmtMoney(profitInRange)}</div>${cmp('profit',{money:true})}</div>
+      <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl" title="Profit from sales in the period ÷ number of sales">Avg profit / sale</div><div class="val">${fmtMoney(soldWithProfit?Math.round(profitInRange/soldWithProfit):0)}</div></div>
     </div>
-  </div>
-
-  <div class="kpi-grid">
-    <div class="kpi-card"><div class="lbl">Total Clients</div><div class="val">${S.clients.length}</div></div>
-    <div class="kpi-card"><div class="lbl">Total IPOs</div><div class="val">${S.ipos.length}</div></div>
-    <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Applications (period)</div><div class="val">${appsInRange.length}</div>${cmp('apps')}</div>
-    <div class="kpi-card" ${drillAttr('Allotted in this period', allottedInRange.filter(a=>a.allotmentStatus==='Allotted'))}><div class="lbl">Allotments (period)</div><div class="val ok">${allottedInRange.filter(a=>a.allotmentStatus==='Allotted').length}</div>${cmp('allotted')}</div>
-    <div class="kpi-card" ${drillAttr('Not allotted in this period', notAllottedInRange)}><div class="lbl">Not Allotted (period)</div><div class="val danger">${notAllottedInRange.length}</div>${cmp('notAllotted',{invert:true})}</div>
-    <div class="kpi-card" ${drillAttr('Sold in this period', soldInRange)}><div class="lbl">Sold (period)</div><div class="val">${soldInRange.length}</div>${cmp('sold')}</div>
-    <div class="kpi-card" ${drillAttr('Applications in this period', appsInRange)}><div class="lbl">Amount Applied (period)</div><div class="val">${fmtMoney(amountAppliedInRange)}</div>${cmp('amount',{money:true})}</div>
-    <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Gross Received (period)</div><div class="val">${fmtMoney(grossInRange)}</div>${cmp('gross',{money:true})}</div>
-    <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl">Our Profit (period)</div><div class="val gold">${fmtMoney(profitInRange)}</div>${cmp('profit',{money:true})}</div>
-    <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl" title="Profit from sales in this period ÷ number of sales in this period">Avg Profit / Sold Allotment</div><div class="val">${fmtMoney(avgProfit)}</div>${cmp('avg',{money:true})}</div>
-    <div class="kpi-card" ${drillAttr('Allotted — pending to sell', pendingToSellList)}><div class="lbl">Pending to Sell</div><div class="val">${pendingToSell}</div></div>
-    <div class="kpi-card"><div class="lbl">Upcoming IPOs</div><div class="val">${upcomingIpos}</div></div>
-    <div class="kpi-card"><div class="lbl">IPOs Requiring Planning</div><div class="val danger">${needPlanning}</div></div>
-  </div>
-  <p class="small-muted">Date basis: Applications use Application Date · Planning uses Planned Date · Allotments use Allotment Date · Profit/Sales use Sale Date.</p>
-
-  <details class="collapse" ${dashOpen('attn',true)} ontoggle="dashToggle('attn',this.open)"><summary>What needs attention? <span class="badge ${attn.length?'gold':'green'}">${attn.length}</span></summary>
-    <div class="attn-list" style="padding-top:8px;">${attnHtml}</div></details>
-
-  <details class="collapse" ${dashOpen('planner',false)} ontoggle="dashToggle('planner',this.open)"><summary>Today's bank-wise plan</summary>
-    ${operationalDailyPlannerHtml()}</details>
-  `;
-}
-
-function buildAttentionList(){
-  const items = [];
-  const today = todayStr();
-  const tomorrow = isoDate(new Date(Date.now()+86400000));
-  S.ipos.forEach(i=>{
-    if (i.openDate===today) items.push({level:'high', text:`IPO opening today: ${escapeHtml(i.ipoName)}`});
-    if (i.openDate===tomorrow) items.push({level:'med', text:`IPO opening tomorrow: ${escapeHtml(i.ipoName)}`});
-    if (i.closeDate===today) items.push({level:'high', text:`IPO closing today: ${escapeHtml(i.ipoName)}`});
-    if (i.closeDate===tomorrow) items.push({level:'med', text:`IPO closing tomorrow: ${escapeHtml(i.ipoName)}`});
-    if (ipoStatus(i)!=='Closed' && upcomingPlanningStatus(i)==='Not Planned') items.push({level:'med', text:`IPO not planned: ${escapeHtml(i.ipoName)}`});
-  });
-  S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{
-    const cap = bankCapacity(b.id, today);
-    if (cap.status==='Over Capacity') items.push({level:'high', text:`Bank capacity exceeded: ${escapeHtml(b.bankName)} today (${cap.planned}/${cap.capacity})`});
-    else if (cap.status==='Full' || cap.status==='Near Capacity') items.push({level:'med', text:`Bank capacity nearly full: ${escapeHtml(b.bankName)} today (${cap.planned}/${cap.capacity})`});
-  });
-  S.ipoPlans.forEach(p=>{ if (planVariance(p)==='Pending' && p.plannedDate < today) items.push({level:'med', text:`Planned application not yet executed: ${escapeHtml(findIpo(p.ipoId)?.ipoName||'')} (${fmtDate(p.plannedDate)})`}); });
-  S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').forEach(a=>{ const c=findClient(a.clientId); items.push({level:'low', text:`Pending to sell: ${escapeHtml(c?c.clientName:'')} — ${escapeHtml(findIpo(a.ipoId)?.ipoName||'')}`}); });
-  const order = {high:0, med:1, low:2};
-  return items.sort((a,b)=>order[a.level]-order[b.level]).slice(0,20);
-}
-
-function operationalDailyPlannerHtml(){
-  const today = todayStr();
-  const activeBanks = S.bankAccounts.filter(b=>b.status==='Active');
-  const bankBlocks = activeBanks.map(b=>{
-    const cap = bankCapacity(b.id, today);
-    const list = cap.plans.map(p=>{ const ipo=findIpo(p.ipoId); return `<li>${escapeHtml(ipo?ipo.ipoName:'')}</li>`; }).join('');
-    return `<div style="margin-bottom:8px;"><b>${escapeHtml(b.bankName)}</b> — <span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity}</span>
-      ${list?`<ul style="margin:4px 0 0 18px;font-size:12px;">${list}</ul>`:'<div class="small-muted">No IPOs planned today</div>'}</div>`;
-  }).join('') || '<div class="small-muted">No active bank accounts.</div>';
-
-  const plannedClientsToday = S.ipoPlans.filter(p=>p.plannedDate===today).reduce((s,p)=>s+(S.plannedClients.filter(pc=>pc.planId===p.id).length),0);
-  const appsToday = S.applications.filter(a=>a.applicationDate===today).length;
-  const pendingToday = Math.max(0, plannedClientsToday - appsToday);
-
-  const closingToday = S.ipos.filter(i=>i.closeDate===today).length;
-  const fullBanks = activeBanks.filter(b=>bankCapacity(b.id,today).status!=='Available').length;
-  const notAppliedYet = plannedClientsToday - appsToday;
-
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>Operational Daily Planner — ${fmtDate(today)}</h3></div>
-    <div class="sc-body">
-      <div class="form-grid">
-        <div><b>IPO Applications by Bank</b>${bankBlocks}</div>
-        <div>
-          <b>Client Work</b>
-          <ul style="margin:8px 0 0 18px;font-size:12.5px;line-height:1.8;">
-            <li>${plannedClientsToday} clients planned</li>
-            <li>${appsToday} applications completed</li>
-            <li>${pendingToday} pending</li>
-          </ul>
-          <b>Alerts</b>
-          <ul style="margin:8px 0 0 18px;font-size:12.5px;line-height:1.8;">
-            <li>${closingToday} IPO(s) closing today</li>
-            <li>${fullBanks} bank(s) at/near full capacity</li>
-            <li>${Math.max(0,notAppliedYet)} client(s) not yet applied</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>`;
+    <p class="small-muted" style="margin-top:8px;">Applications are counted by application date, allotments by allotment date, profit and sales by sale date.</p></details>`;
+  return `${firstRunHtml()}${todayPanelHtml()}${cards}${period}`;
 }
 </script>
 <script>
 /* =================== REPORTS =================== */
 let reportsTab = 'client';
+const REPORT_GROUPS = [
+  ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['profit','Profit explorer']]],
+  ['money','Money',[['cashflow','Cash flow'],['roi','ROI & capital'],['settlement','Settlement']]],
+  ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['subref','By sub-reference']]],
+  ['ipos','IPOs',[['ipo','IPO analysis'],['allotrate','Allotment rate']]],
+  ['banks','Banks',[['bank','Bank analysis'],['pva','Planned vs actual']]],
+  ['custom','Custom',[['pivot','Report builder']]]
+];
 function viewReports(){
+  const leaves = REPORT_GROUPS.flatMap(g=>g[2].map(l=>l[0]));
+  if (!leaves.includes(reportsTab)) reportsTab = 'trends';
+  const g = REPORT_GROUPS.find(g=>g[2].some(l=>l[0]===reportsTab));
   return `
-  <div class="tabs">
-    <button class="${reportsTab==='client'?'active':''}" onclick="setReportsTab('client')">Client Analysis</button>
-    <button class="${reportsTab==='ipo'?'active':''}" onclick="setReportsTab('ipo')">IPO Analysis</button>
-    <button class="${reportsTab==='bank'?'active':''}" onclick="setReportsTab('bank')">Bank Analysis</button>
-    <button class="${reportsTab==='allotrate'?'active':''}" onclick="setReportsTab('allotrate')">Allotment Rate</button>
-    <button class="${reportsTab==='scorecard'?'active':''}" onclick="setReportsTab('scorecard')">Client Scorecards</button>
-    <button class="${reportsTab==='pivot'?'active':''}" onclick="setReportsTab('pivot')">Report Builder</button>
-    <button class="${reportsTab==='roi'?'active':''}" onclick="setReportsTab('roi')">ROI &amp; Capital</button>
-    <button class="${reportsTab==='cashflow'?'active':''}" onclick="setReportsTab('cashflow')">Cash Flow</button>
-    <button class="${reportsTab==='listing'?'active':''}" onclick="setReportsTab('listing')">Listing &amp; GMP</button>
-    <button class="${reportsTab==='profit'?'active':''}" onclick="setReportsTab('profit')">Profit Analysis</button>
-    <button class="${reportsTab==='trends'?'active':''}" onclick="setReportsTab('trends')">Trends &amp; Charts</button>
-    <button class="${reportsTab==='yearly'?'active':''}" onclick="setReportsTab('yearly')">Yearly Summary</button>
-    <button class="${reportsTab==='settlement'?'active':''}" onclick="setReportsTab('settlement')">Settlement by Reference</button>
-    <button class="${reportsTab==='subref'?'active':''}" onclick="setReportsTab('subref')">Profit by Sub-Reference</button>
-    <button class="${reportsTab==='capacity'?'active':''}" onclick="setReportsTab('capacity')">Bank Capacity Analysis</button>
-    <button class="${reportsTab==='planning'?'active':''}" onclick="setReportsTab('planning')">Planning Performance</button>
-    <button class="${reportsTab==='pva'?'active':''}" onclick="setReportsTab('pva')">Planned vs Actual</button>
-  </div>
+  <div class="tabs">${REPORT_GROUPS.map(x=>`<button class="${x[0]===g[0]?'active':''}" onclick="setReportsTab('${x[2][0][0]}')">${x[1]}</button>`).join('')}</div>
+  ${g[2].length>1 ? `<div class="pills no-print">${g[2].map(l=>`<button class="pill ${l[0]===reportsTab?'on':''}" onclick="setReportsTab('${l[0]}')">${l[1]}</button>`).join('')}</div>` : ''}
   <div id="reportsTabBody">${reportsTabContent()}</div>`;
 }
 function setReportsTab(t){ reportsTab = t; render(); }
@@ -3924,15 +3774,12 @@ function reportsTabContent(){
   if (reportsTab==='pivot') return reportBuilder();
   if (reportsTab==='roi') return reportRoi();
   if (reportsTab==='cashflow') return reportCashFlow();
-  if (reportsTab==='listing') return reportListing();
   if (reportsTab==='profit') return reportProfitAnalysis();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
   if (reportsTab==='yearly') return reportYearlySummary();
+  if (reportsTab==='pva') return planningVarianceTab();
   if (reportsTab==='settlement') return reportSettlement();
   if (reportsTab==='subref') return reportSubReferenceProfit();
-  if (reportsTab==='capacity') return planningCapacityTab();
-  if (reportsTab==='planning') return reportPlanningPerformance();
-  if (reportsTab==='pva') return planningVarianceTab();
   return '';
 }
 function reportTrends(){
@@ -5513,7 +5360,7 @@ function renderAuditLogTable(){
         { key:'timestamp', label:'Timestamp', val:r=>r.timestamp, render:r=>new Date(r.timestamp).toLocaleString('en-IN') },
         { key:'action', label:'Action', render:r=>escapeHtml(r.action) },
         { key:'entity', label:'Entity', render:r=>escapeHtml(r.entity) },
-        { key:'entityId', label:'Entity ID', render:r=>escapeHtml(r.entityId) },
+        { hidden:true, key:'entityId', label:'Entity ID', render:r=>escapeHtml(r.entityId) },
         { key:'by', label:'Changed By', render:r=>escapeHtml(r.by||'—') },
         { key:'changes', label:'What Changed', val:r=>__plainText(auditChangeSummary(r)), render:r=>auditChangeSummary(r) }
       ]
@@ -6906,7 +6753,7 @@ function firstRunHtml(){
     ['Plan who applies where', S.ipoPlans.length>0, "navigate('planning')"],
     ['Set up a backup (Google Drive or file)', daysSinceLastBackup()!==null, "setSettingsTab('cloud')"]
   ];
-  const doneN = steps.filter(s=>s[1]).length; if (doneN===steps.length) return '';
+  const doneN = steps.filter(s=>s[1]).length; if (steps.length-doneN < 2) return ''; // one leftover step is already nagged in Today
   return `<div class="section-card first-run"><div class="sc-head"><h3>Getting started — ${doneN} of ${steps.length} done</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="saveSetting('firstRunDismissed',true).then(()=>navigate('dashboard'))">Hide</button></div>
     <div class="sc-body"><div class="progress" style="margin-bottom:10px;"><div style="width:${doneN/steps.length*100}%"></div></div>
     ${steps.filter(s=>!s[1]).map(s=>`<div class="fr-step"><span class="tick">○</span><span>${s[0]}</span><div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="${s[2]}">Do this</button></div>`).join('')}</div></div>`;
