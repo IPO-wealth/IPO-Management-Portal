@@ -480,6 +480,15 @@ table.dt thead th{position:static;}
 [data-theme="dark"] .btn-primary, [data-theme="dark"] .pill.on{ background:var(--gold); color:#0b1420; border-color:var(--gold); }
 [data-theme="dark"] .btn-primary:hover{ background:var(--gold-light); }
 [data-theme="dark"] #bulkBar{ background:var(--navy-2); }
+
+.fp-off td{ background:rgba(120,130,150,.10); }
+
+@media (max-width:640px){
+  .fp-bank thead{display:none;} .fp-bank, .fp-bank tbody{display:block;}
+  .fp-bank tr{display:block;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;padding:8px 10px;}
+  .fp-bank td{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border:0;}
+  .fp-bank td::before{content:attr(data-l);color:var(--text-dim);font-size:12px;}
+}
 </style>
 </head>
 <body>
@@ -872,9 +881,9 @@ function bankCapacity(bankAccountId, dateStr){
   // 6 mandates, not 1 — each client needs their own separate application/mandate
   // regardless of how many share the same IPO/bank/date.
   const planned = plans.reduce((s,p) => s + planClientCount(p), 0);
-  const capacity = capacityLimit();
+  const capacity = (typeof fpCap==='function') ? fpCap(bankAccountId, dateStr) : capacityLimit();
   const available = capacity - planned;
-  const utilisation = Math.round((planned / capacity) * 1000) / 10;
+  const utilisation = capacity ? Math.round((planned / capacity) * 1000) / 10 : (planned ? 100 : 0);
   let status = 'Available';
   if (planned > capacity) status = 'Over Capacity';
   else if (planned === capacity) status = 'Full';
@@ -1557,6 +1566,7 @@ function viewClients(){
         { key:'referenceName', label:'Reference' },
         { hidden:true, key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
         { hidden:true, key:'profitSharePct', label:'Our Share', num:true, val:r=>{ const o=clientOwnShare(r); return o!==null?o:defaultProfitShare(); }, render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b>${o}%</b>` : `<span class="small-muted">${defaultProfitShare()}% (default)</span>`; } },
+        { hidden:true, key:'priority', label:'Planning Order', num:true, val:r=>r.priority!=null&&r.priority!==''?Number(r.priority):'', render:r=>r.priority!=null&&r.priority!==''?r.priority:'—' },
         { hidden:true, key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>clientStats(r.id).apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" ${navAttr('applications',{clientId:r.clientName},'appsTbl')}>${clientStats(r.id).apps.length}</a>` },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>clientStats(r.id).allotted.length, render:r=>clientStats(r.id).allotted.length },
@@ -1582,6 +1592,7 @@ function clientFields(c){
     { key:'referenceName', label:'Reference', type:'select', options:S.settings.references, required:true },
     { key:'subReference', label:'Sub Reference', type:'select', options:['',...(S.settings.subReferences||[])], placeholder:'None' },
     { key:'status', label:'Status', type:'select', options:['Active','Inactive'] },
+    { key:'priority', label:'Planning order (optional)', type:'number', hint:'Lower number = placed first by the Fund planner. Blank = after everyone who has a number.' },
     { key:'profitSharePct', label:'Our Profit Share % (optional)', type:'number', hint:`Leave blank for the standard ${defaultProfitShare()}% (Settings → Profit Sharing). Fill in only for a client with a different deal — it applies to this client's NEW applications.` }
   ].map(f => fieldHtml(f, c ? c[f.key] : (f.key==='status'?'Active':''))).join('');
 }
@@ -1592,13 +1603,14 @@ function editClient(id){
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveClient(${id||'null'})">Save</button>`);
 }
 async function saveClient(id, force){
-  const fields = [{key:'clientName'},{key:'referenceName'},{key:'subReference'},{key:'status'},{key:'profitSharePct',type:'number'}];
+  const fields = [{key:'clientName'},{key:'referenceName'},{key:'subReference'},{key:'status'},{key:'priority',type:'number'},{key:'profitSharePct',type:'number'}];
   const data = readFields(fields);
   // Normalize: trim accidental leading/trailing spaces and collapse doubled internal spaces.
   data.clientName = (data.clientName||'').trim().replace(/\s+/g,' ');
   data.referenceName = (data.referenceName||'').trim().replace(/\s+/g,' ');
   data.subReference = (data.subReference||'').trim().replace(/\s+/g,' ');
   if (!data.clientName){ toast('Client name is required','warn'); return; }
+  if (data.priority === undefined || isNaN(data.priority)) data.priority = null;
   if (data.profitSharePct === null || data.profitSharePct === undefined || isNaN(data.profitSharePct)) data.profitSharePct = null;
   else if (data.profitSharePct < 0 || data.profitSharePct > 100){ toast('Profit share must be between 0 and 100','warn'); return; }
 
@@ -2117,6 +2129,7 @@ function viewBanks(){
         { key:'status', label:'Status', render:r=>badge(r.status) },
         { hidden:true, key:'plans', label:'Plans (all-time)', num:true, sum:true, val:r=>bankStats(r.id).plans.length, render:r=>bankStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>bankStats(r.id).apps.length, render:r=>bankStats(r.id).apps.length },
+        { key:'balance', label:'Balance', num:true, sum:'money', val:r=>Number(r.balance)||0, render:r=>r.balance!=null&&r.balance!==''?fmtMoney(r.balance):'<span class="small-muted">not set</span>' },
         { key:'upis', label:'UPI IDs', num:true, sum:true, val:r=>bankUpis(r.id).length, render:r=>bankUpis(r.id).length },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>bankStats(r.id).profit, render:r=>fmtMoney(bankStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>bankStats(r.id).clientProfit, render:r=>fmtMoney(bankStats(r.id).clientProfit) },
@@ -2508,6 +2521,7 @@ function ipoFields(i){
     { key:'category', label:'Category (optional)', type:'select', options:['Mainboard','SME'], placeholder:'—' },
     { key:'issuePrice', label:'Issue Price per Share (optional)', type:'number' },
     { key:'lotSize', label:'Lot Size — shares per lot (optional)', type:'number' },
+    { key:'listingDate', label:'Listing / expected sale date (optional)', type:'date', hint:'Used by the Fund planner to know when allotted money comes back. If blank, it assumes 2 working days after allotment.' },
     { key:'archiveStatus', label:'Active/Inactive', type:'select', options:['Active','Inactive'], hint:'Separate from the automatic Upcoming/Open/Closed lifecycle status below — this only controls whether the IPO is archived.' }
   ].map(f => fieldHtml(f, i ? (f.key==='archiveStatus' ? (i.archiveStatus||'Active') : i[f.key]) : (f.key==='archiveStatus' ? 'Active' : ''))).join('');
 }
@@ -2534,11 +2548,12 @@ async function syncIpoAllotmentDate(ipo){
   return count;
 }
 async function saveIpo(id, force){
-  const data = readFields([{key:'ipoName'},{key:'minimumApplicationAmount',type:'number'},{key:'openDate'},{key:'closeDate'},{key:'allotmentDate'},{key:'category'},{key:'issuePrice',type:'number'},{key:'lotSize',type:'number'},{key:'archiveStatus'}]);
+  const data = readFields([{key:'ipoName'},{key:'minimumApplicationAmount',type:'number'},{key:'openDate'},{key:'closeDate'},{key:'allotmentDate'},{key:'category'},{key:'issuePrice',type:'number'},{key:'lotSize',type:'number'},{key:'listingDate'},{key:'archiveStatus'}]);
   if (!data.ipoName || !data.openDate || !data.closeDate){ toast('IPO name and dates are required','warn'); return; }
   if (data.closeDate < data.openDate){ toast('Close date cannot be before open date','warn'); return; }
   if (!data.allotmentDate) data.allotmentDate = null;
   if (!data.category) data.category = null;
+  if (!data.listingDate) data.listingDate = null;
   const dupe = S.ipos.find(i => i.id!==id && i.ipoName.trim().toLowerCase() === data.ipoName.trim().toLowerCase());
   if (dupe && !force){
     openModal('Possible Duplicate IPO',
@@ -2604,6 +2619,7 @@ function viewPlanning(){
   <div class="pills no-print">
     <button class="pill ${planningTab==='plans'?'on':''}" onclick="setPlanningTab('plans')">Plans</button>
     <button class="pill ${planningTab==='calendar'?'on':''}" onclick="setPlanningTab('calendar')">Calendar</button>
+    <button class="pill ${planningTab==='funds'?'on':''}" onclick="setPlanningTab('funds')">Fund planner</button>
     <button class="pill ${planningTab==='capacity'?'on':''}" onclick="setPlanningTab('capacity')">Capacity &amp; progress</button>
   </div>
   <div id="planningTabBody"></div>`;
@@ -2613,6 +2629,7 @@ function afterPlanning(){
   const el = document.getElementById('planningTabBody');
   if (planningTab==='plans') el.innerHTML = planningPlansTab();
   else if (planningTab==='calendar') el.innerHTML = planningCalendarTab();
+  else if (planningTab==='funds') el.innerHTML = fpTab();
   else if (planningTab==='capacity') el.innerHTML = planningCapacityTab() + planningUpcomingTab();
   if (planningTab==='plans') { setTimeout(()=>window.__tableRerender['plansTbl'] && window.__tableRerender['plansTbl'](), 0); }
 }
@@ -5261,7 +5278,7 @@ function viewSettingsRaw(){
   <div class="section-card">
     <div class="sc-head"><h3>Mandate Capacity</h3></div>
     <div class="sc-body">
-      <p class="small-muted">Maximum client mandates allowed per bank per day. Used for capacity warnings across Planning, Bulk Plan Clients, and the Capacity Dashboard. Change this if bank policy changes.</p>
+      <p class="small-muted">Usual number of client mandates allowed per bank per day. Used for capacity warnings across Planning, Bulk Plan Clients, and the Capacity Dashboard. Each bank can have its own number, and any date can be overridden, under Planning → Fund planner.</p>
       <div style="display:flex;gap:8px;align-items:center;">
         <input type="number" id="mandateCapInput" value="${capacityLimit()}" min="1" step="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
         <button class="btn btn-primary btn-sm" onclick="saveMandateCapacity()">Save</button>
@@ -7211,6 +7228,432 @@ window.syncToDrive = async function(){
   new MutationObserver(()=>{ if (busy) return; clearTimeout(timer); timer = setTimeout(run, 30); }).observe(document.body,{childList:true,subtree:true});
   window.enhanceTables = run;
 })();
+</script>
+<script>
+/* =================== FUND PLANNER ===================
+   Forecasts, day by day and bank by bank, how much money is free and how many mandates are left,
+   and suggests which clients should apply from which bank on which day for every upcoming IPO.
+   Model (all adjustable in Planning -> Fund planner -> Setup):
+   - Money is blocked from the application day.
+   - Not allotted: unblocked the day after the allotment date. If that is a weekend/holiday, each bank has its own split
+     (Day 1 % / Day 2 % / rest on the next working day).
+   - Allotted: money returns when the client pays = sale (listing) date + "payment delay" days.
+   - Unblocked money is reusable "reuse delay" days later (default 1 = the next day) so tight gaps are not relied upon.
+   - IPOs whose result is not known yet use the assumed allotment rate (your history, a number, or worst case = 100%). */
+let fpState = { include:true, days:21 };
+
+function fpCfg(){
+  const s = S.settings || {};
+  const num = (v, d) => { const n = Number(v); return (v===undefined||v===null||v===''||isNaN(n)) ? d : Math.max(0, n); };
+  return {
+    hol: new Set(Array.isArray(s.holidays) ? s.holidays : []),
+    payDelay: num(s.fpPayDelay, 1),
+    reuseDelay: num(s.fpReuseDelay, 1),
+    allot: (s.fpAllot===undefined || s.fpAllot===null || s.fpAllot==='') ? 'hist' : s.fpAllot
+  };
+}
+function fpD(s){ const p = s.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
+function fpAdd(s, n){ const d = fpD(s); d.setDate(d.getDate()+n); return localDateStr(d); }
+function fpWork(c, s){ const w = fpD(s).getDay(); return w!==0 && w!==6 && !c.hol.has(s); }
+function fpNextWork(c, s){ let x = s, i = 0; while (!fpWork(c,x) && i<60){ x = fpAdd(x,1); i++; } return x; }
+function fpAddWork(c, s, n){ let x = s; while (n>0){ x = fpAdd(x,1); if (fpWork(c,x)) n--; } return x; }
+function fpDays(from, to){ const out = []; let x = from, i = 0; while (x <= to && i < 400){ out.push(x); x = fpAdd(x,1); i++; } return out; }
+function fpDow(s){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][fpD(s).getDay()]; }
+function fpK(n){ n = Math.round(Number(n)||0); const a = Math.abs(n), sg = n<0?'−':''; if (a>=10000000) return sg+'₹'+(a/10000000).toFixed(2)+'Cr'; if (a>=100000) return sg+'₹'+(a/100000).toFixed(a>=1000000?1:2).replace(/\.?0+$/,'')+'L'; if (a>=1000) return sg+'₹'+(a/1000).toFixed(1).replace(/\.0$/,'')+'k'; return sg+'₹'+a; }
+
+function fpHistRate(){
+  let al = 0, na = 0;
+  S.applications.forEach(a => { if (!isLiveApp(a)) return; if (a.allotmentStatus==='Allotted') al++; else if (a.allotmentStatus==='Not Allotted') na++; });
+  return (al+na) >= 5 ? al/(al+na) : 1;
+}
+function fpRate(c){
+  if (c.allot === 'worst') return 1;
+  if (c.allot === 'hist') return fpHistRate();
+  const n = Number(c.allot); return (isNaN(n) ? 1 : Math.min(1, Math.max(0, n/100)));
+}
+function fpIpoDates(c, ipo){
+  const allot = ipo.allotmentDate || fpAddWork(c, ipo.closeDate, 1);
+  const sale = ipo.listingDate || fpAddWork(c, allot, 2);
+  return { allot, sale, pay: fpAdd(sale, c.payDelay) };
+}
+// Dates on which the money of a NOT-allotted application is unblocked, with the share released each day.
+function fpUnblock(c, bank, allot){
+  const d1 = fpAdd(allot, 1), W = fpNextWork(c, d1);
+  if (W === d1) return [{ date:d1, frac:1 }];
+  const p1 = Math.min(100, Math.max(0, Number(bank && bank.unblockDay1)||0)) / 100;
+  let p2 = Math.min(100, Math.max(0, Number(bank && bank.unblockDay2)||0)) / 100; if (p1+p2 > 1) p2 = 1-p1;
+  const d2 = fpAdd(d1, 1), out = [];
+  if (p1 > 0) out.push({ date:d1, frac:p1 });
+  if (d2 < W){ if (p2 > 0) out.push({ date:d2, frac:p2 }); out.push({ date:W, frac:1-p1-p2 }); }
+  else out.push({ date:W, frac:1-p1 });
+  return out.filter(x => x.frac > 1e-9);
+}
+function fpCap(bankId, date){
+  const ov = S.settings.mandateOverrides || {};
+  let v = ov[bankId+'|'+date]; if (v === undefined) v = ov['all|'+date];
+  if (v !== undefined && v !== null && v !== '' && isFinite(Number(v))) return Math.max(0, Math.floor(Number(v)));
+  const b = findBank(bankId); const n = b ? Math.floor(Number(b.mandateCap)) : NaN;
+  return n >= 1 ? n : capacityLimit();
+}
+function fpAmount(ipo){ const o = (S.settings.fpIpoOpts||{})[ipo.id]||{}; const a = Number(o.amount); return a > 0 ? a : (Number(ipo.minimumApplicationAmount)||0); }
+// Money committed by one application: part (1-r) is released by the unblock schedule, part r when the client pays.
+function fpSegments(c, bank, ipo, amt, from, r){
+  const D = fpIpoDates(c, ipo), segs = [];
+  fpUnblock(c, bank, D.allot).forEach(u => { const part = amt*(1-r)*u.frac; if (part > 0) segs.push({ amt:part, from, until:fpAdd(u.date, c.reuseDelay) }); });
+  if (r > 0) segs.push({ amt:amt*r, from, until:D.pay });
+  return segs;
+}
+function fpUpcomingIpos(today){
+  return S.ipos.filter(i => (i.archiveStatus||'Active')==='Active' && i.closeDate && i.closeDate >= today)
+    .sort((a,b)=> (a.openDate||'').localeCompare(b.openDate||'') || (a.closeDate||'').localeCompare(b.closeDate||''));
+}
+function fpBuild(){
+  const c = fpCfg(), today = todayStr(), r = fpRate(c);
+  const banks = S.bankAccounts.filter(b => b.status==='Active');
+  const bankIds = new Set(banks.map(b=>b.id));
+  const segs = [], inflows = [], used = new Map();
+  const addUsed = (bid, d) => { const k = bid+'|'+d; used.set(k, (used.get(k)||0)+1); };
+  const appKeys = new Set(S.applications.map(a => a.clientId+'|'+a.ipoId));
+
+  S.applications.forEach(a => {
+    if (!isLiveApp(a) || !bankIds.has(a.bankAccountId)) return;
+    const bank = findBank(a.bankAccountId), ipo = findIpo(a.ipoId); if (!bank || !ipo) return;
+    const amt = Number(a.amountApplied)||0; if (!amt) return;
+    const D = fpIpoDates(c, ipo);
+    if (a.applicationStatus !== 'Applied'){
+      const from = (a.applicationDate && a.applicationDate > today) ? a.applicationDate : today;
+      addUsed(bank.id, from);
+      fpSegments(c, bank, ipo, amt, from, r).forEach(s => segs.push({ bankId:bank.id, ...s }));
+      return;
+    }
+    if (a.applicationDate && a.applicationDate >= today) addUsed(bank.id, a.applicationDate);
+    if (a.allotmentStatus === 'Not Allotted'){
+      fpUnblock(c, bank, D.allot).forEach(u => { const until = fpAdd(u.date, c.reuseDelay); if (until > today) segs.push({ bankId:bank.id, amt:amt*u.frac, from:today, until }); });
+    } else if (a.allotmentStatus === 'Allotted' && D.allot <= today){
+      // already debited from the account; the money comes back when the client pays
+      if (a.saleStatus==='Sold' && a.amountReceiveStatus==='Received') return;
+      let at = (a.saleStatus==='Sold' && a.saleDate) ? fpAdd(a.saleDate, c.payDelay) : D.pay;
+      if (at <= today) at = fpAdd(today, 1);
+      inflows.push({ bankId:bank.id, amt, at });
+    } else {
+      fpSegments(c, bank, ipo, amt, (a.applicationDate && a.applicationDate>today) ? a.applicationDate : today, r).forEach(s => { if (s.until > today) segs.push({ bankId:bank.id, ...s }); });
+    }
+  });
+  S.ipoPlans.forEach(p => {
+    if (p.planStatus === 'Cancelled' || !bankIds.has(p.bankAccountId)) return;
+    const bank = findBank(p.bankAccountId), ipo = findIpo(p.ipoId); if (!bank || !ipo) return;
+    const amt = fpAmount(ipo); const from = p.plannedDate > today ? p.plannedDate : today;
+    S.plannedClients.filter(pc => pc.planId === p.id && !appKeys.has(pc.clientId+'|'+p.ipoId)).forEach(() => {
+      addUsed(bank.id, from);
+      fpSegments(c, bank, ipo, amt, from, r).forEach(s => segs.push({ bankId:bank.id, ...s }));
+    });
+  });
+  (S.settings.fpMoves || []).forEach(m => { if (bankIds.has(Number(m.bankId)) && m.date && isFinite(Number(m.amt))) inflows.push({ bankId:Number(m.bankId), amt:Number(m.amt), at: m.date < today ? today : m.date, move:true }); });
+
+  // timeline length: far enough to cover every upcoming IPO's money coming back
+  let end = fpAdd(today, 14);
+  segs.forEach(s => { if (s.until > end) end = s.until; });
+  inflows.forEach(i => { if (i.at > end) end = i.at; });
+  fpUpcomingIpos(today).forEach(ipo => { const D = fpIpoDates(c, ipo), e = fpAdd(D.pay, 3); if (e > end) end = e; if (ipo.closeDate > end) end = ipo.closeDate; });
+  const limit = fpAdd(today, 90); if (end > limit) end = limit;
+  const dates = fpDays(today, end), idx = {}; dates.forEach((d,i)=>{ idx[d] = i; });
+  const avail = {};
+  banks.forEach(b => { avail[b.id] = dates.map(() => Number(b.balance)||0); });
+  const ix = d => (d <= today ? 0 : (idx[d] === undefined ? dates.length : idx[d]));
+  segs.forEach(s => { const a = avail[s.bankId]; if (!a) return; for (let i = ix(s.from); i < Math.min(dates.length, ix(s.until)); i++) a[i] -= s.amt; });
+  inflows.forEach(f => { const a = avail[f.bankId]; if (!a) return; for (let i = ix(f.at); i < dates.length; i++) a[i] += f.amt; });
+  return { c, today, r, banks, dates, idx, avail, used, ix };
+}
+function fpUsed(st, bankId, date){ return st.used.get(bankId+'|'+date) || 0; }
+
+function fpClientOrder(){
+  const pr = c => { const n = Number(c.priority); return (c.priority===undefined||c.priority===null||c.priority===''||isNaN(n)) ? 1e9 : n; };
+  return S.clients.filter(c => c.status !== 'Inactive').slice().sort((a,b) => pr(a)-pr(b) || String(a.clientId).localeCompare(String(b.clientId), undefined, {numeric:true}));
+}
+// Place clients, IPO by IPO (earliest opening first), earliest day first, bank with most free money first.
+function fpSuggest(st){
+  const opts = S.settings.fpIpoOpts || {}, clients = fpClientOrder(), results = [];
+  const banksSorted = st.banks.slice().sort((a,b)=> (Number(b.balance)||0) - (Number(a.balance)||0));
+  fpUpcomingIpos(st.today).forEach(ipo => {
+    const o = opts[ipo.id] || {}, amt = fpAmount(ipo), D = fpIpoDates(st.c, ipo);
+    const res = { ipo, amt, skip:!!o.skip, startDay: Math.max(1, Math.floor(Number(o.startDay))||1), groups:[], unplaced:[], eligible:0, reasonFunds:0, reasonMandates:0, window:[] };
+    results.push(res);
+    const all = fpDays(ipo.openDate || st.today, ipo.closeDate);
+    res.window = all.filter(d => d >= st.today);
+    if (res.skip) return;
+    const eligible = clients.filter(cl => !S.applications.some(a => a.clientId===cl.id && a.ipoId===ipo.id) && !clientAlreadyPlannedForIpo(cl.id, ipo.id, null));
+    res.eligible = eligible.length;
+    const days = all.slice(res.startDay-1).filter(d => d >= st.today && st.idx[d] !== undefined);
+    // money this IPO holds, at every date of the timeline (identical for each bank apart from the unblock split)
+    const profile = {};
+    st.banks.forEach(b => {
+      const un = fpUnblock(st.c, b, D.allot).map(u => ({ at: fpAdd(u.date, st.c.reuseDelay), frac: u.frac }));
+      profile[b.id] = st.dates.map(d => { let rel = 0; un.forEach(u => { if (u.at <= d) rel += u.frac; }); return amt*(1-st.r)*(1-rel) + (d < D.pay ? amt*st.r : 0); });
+    });
+    const gmap = new Map();
+    eligible.forEach(cl => {
+      let placed = false, sawFundsBlock = false, sawMandateRoom = false;
+      for (const day of days){
+        for (const b of banksSorted){
+          if (fpUsed(st, b.id, day) >= fpCap(b.id, day)) continue;
+          sawMandateRoom = true;
+          const i0 = st.idx[day], a = st.avail[b.id], pf = profile[b.id]; let ok = true;
+          for (let t = i0; t < st.dates.length; t++){ if (a[t] - pf[t] < -0.5){ ok = false; break; } }
+          if (!ok){ sawFundsBlock = true; continue; }
+          for (let t = i0; t < st.dates.length; t++) a[t] -= pf[t];
+          st.used.set(b.id+'|'+day, fpUsed(st, b.id, day)+1);
+          const key = b.id+'|'+day; if (!gmap.has(key)) gmap.set(key, { bankId:b.id, day, clientIds:[] });
+          gmap.get(key).clientIds.push(cl.id); placed = true; break;
+        }
+        if (placed) break;
+      }
+      if (!placed){ res.unplaced.push(cl.id); if (sawFundsBlock || (sawMandateRoom && !sawFundsBlock)) res.reasonFunds++; else res.reasonMandates++; }
+    });
+    res.groups = Array.from(gmap.values()).sort((x,y)=> x.day.localeCompare(y.day) || x.bankId-y.bankId);
+  });
+  return results;
+}
+
+/* ---------- setting helpers ---------- */
+async function fpSaveBankField(id, field, raw){
+  const b = findBank(id); if (!b) return;
+  let v = raw === '' ? null : Number(raw);
+  if (v !== null && (isNaN(v) || v < 0)){ toast('Enter a number, 0 or more','warn'); render(); return; }
+  if ((field==='unblockDay1' || field==='unblockDay2') && v !== null && v > 100){ toast('Percent must be 0–100','warn'); render(); return; }
+  if (field==='mandateCap' && v !== null) v = Math.floor(v);
+  const updated = { ...b, [field]: v, updatedAt: new Date().toISOString() };
+  if (field === 'balance') updated.balanceAsOf = todayStr();
+  await putRec('bankAccounts', updated); Object.assign(b, updated);
+  toast('Saved','ok'); render();
+}
+async function fpSetOpt(k, v){ await saveSetting(k, v); render(); }
+async function fpSetIpoOpt(ipoId, key, val){
+  const all = { ...(S.settings.fpIpoOpts || {}) }; const o = { ...(all[ipoId] || {}) };
+  if (key==='skip') o.skip = !!val; else if (key==='startDay') o.startDay = Math.max(1, Math.floor(Number(val))||1); else if (key==='amount') o.amount = Number(val) > 0 ? Number(val) : null;
+  all[ipoId] = o; await saveSetting('fpIpoOpts', all); render();
+}
+async function fpSaveHolidays(){
+  const el = document.getElementById('fpHolidays'); if (!el) return;
+  const list = Array.from(new Set(el.value.split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean)));
+  const bad = list.filter(x => !/^\d{4}-\d{2}-\d{2}$/.test(x) || isNaN(fpD(x).getTime()));
+  if (bad.length){ toast('Use dates like 2026-11-14 — not understood: '+bad.slice(0,3).join(', '),'warn'); return; }
+  await saveSetting('holidays', list.sort()); toast('Holidays saved','ok'); render();
+}
+async function fpSetPriority(id, raw){
+  const c = findClient(id); if (!c) return; const v = raw === '' ? null : Number(raw);
+  const updated = { ...c, priority: (v===null||isNaN(v)) ? null : v, updatedAt: new Date().toISOString() };
+  await putRec('clients', updated); Object.assign(c, updated); render();
+}
+function fpMandateModal(bankId, date){
+  const banks = S.bankAccounts.filter(b=>b.status==='Active');
+  const cur = (bankId && date) ? fpCap(bankId, date) : '';
+  openModal('Mandates on a date',
+    `<p class="small-muted">Set how many mandates a bank can take on a date (or a range of dates). This replaces the bank's usual daily number for those dates only.</p>
+     <div class="form-grid">
+       <div class="f-group"><label>Bank</label><select id="fpmBank"><option value="all">All banks</option>${banks.map(b=>`<option value="${b.id}" ${b.id===bankId?'selected':''}>${escapeHtml(b.bankName)}</option>`).join('')}</select></div>
+       <div class="f-group"><label>Mandates allowed per day</label><input type="number" id="fpmN" min="0" step="1" value="${cur}"></div>
+       <div class="f-group"><label>From</label><input type="date" id="fpmFrom" value="${date||todayStr()}"></div>
+       <div class="f-group"><label>To (same as From if blank)</label><input type="date" id="fpmTo" value="${date||''}"></div>
+     </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="fpSaveMandates()">Save</button>`);
+}
+async function fpSaveMandates(){
+  const bank = document.getElementById('fpmBank').value, n = document.getElementById('fpmN').value;
+  const from = document.getElementById('fpmFrom').value, to = document.getElementById('fpmTo').value || from;
+  if (!from || to < from){ toast('Choose a valid date range','warn'); return; }
+  if (n === '' || isNaN(Number(n)) || Number(n) < 0){ toast('Enter the number of mandates (0 or more)','warn'); return; }
+  const ov = { ...(S.settings.mandateOverrides || {}) };
+  fpDays(from, to).forEach(d => { ov[bank+'|'+d] = Math.floor(Number(n)); });
+  await saveSetting('mandateOverrides', ov); closeModal(); toast('Mandates saved','ok'); render();
+}
+async function fpDelMandate(key){
+  const ov = { ...(S.settings.mandateOverrides || {}) }; delete ov[key];
+  await saveSetting('mandateOverrides', ov); render();
+}
+function fpMoveModal(){
+  const banks = S.bankAccounts.filter(b=>b.status==='Active');
+  openModal('Add or withdraw money',
+    `<p class="small-muted">Tell the planner about money you will put into (or take out of) a bank on a date, so it can plan with it. Use a minus sign to take money out.</p>
+     <div class="form-grid">
+       <div class="f-group"><label>Bank</label><select id="fpvBank">${banks.map(b=>`<option value="${b.id}">${escapeHtml(b.bankName)}</option>`).join('')}</select></div>
+       <div class="f-group"><label>Date</label><input type="date" id="fpvDate" value="${todayStr()}"></div>
+       <div class="f-group"><label>Amount (₹)</label><input type="number" id="fpvAmt" step="1000"></div>
+     </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="fpSaveMove()">Save</button>`);
+}
+async function fpSaveMove(){
+  const bankId = Number(document.getElementById('fpvBank').value), date = document.getElementById('fpvDate').value, amt = Number(document.getElementById('fpvAmt').value);
+  if (!bankId || !date || !amt){ toast('Bank, date and a non-zero amount are required','warn'); return; }
+  const list = [ ...(S.settings.fpMoves || []), { bankId, date, amt } ];
+  await saveSetting('fpMoves', list); closeModal(); toast('Saved','ok'); render();
+}
+async function fpDelMove(i){ const list = (S.settings.fpMoves || []).slice(); list.splice(i,1); await saveSetting('fpMoves', list); render(); }
+
+async function fpCreatePlans(ipoId){
+  const st = fpBuild(), sug = fpSuggest(st); let nClients = 0, nPlans = 0;
+  beginUndo();
+  for (const r of sug){
+    if (r.skip || (ipoId && r.ipo.id !== ipoId)) continue;
+    for (const g of r.groups){
+      let plan = S.ipoPlans.find(x => x.ipoId===r.ipo.id && x.bankAccountId===g.bankId && x.plannedDate===g.day && x.planStatus!=='Cancelled');
+      if (!plan){
+        const rec = { ipoId:r.ipo.id, plannedDate:g.day, bankAccountId:g.bankId, countSynced:true, plannedClientCount:0, planStatus:'Planned', notes:'Created by Fund planner', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+        const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec; nPlans++;
+        await audit('Plan Creation','IPOPlan', id, null, rec);
+      }
+      for (const cid of g.clientIds){
+        if (!S.plannedClients.some(pc => pc.planId===plan.id && pc.clientId===cid)){
+          const rec = { planId:plan.id, clientId:cid, createdAt:new Date().toISOString() };
+          const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec); nClients++;
+        }
+      }
+      await syncPlanClientCount(plan);
+    }
+  }
+  await endUndo('Fund planner created');
+  if (!nClients) toast('Nothing to create — no new clients could be placed','warn'); else toast(`${nClients} client(s) planned in ${nPlans} new plan(s)`,'ok');
+  navigate('planning');
+}
+
+/* ---------- screen ---------- */
+function fpBankSetup(banks){
+  const rows = banks.map(b => {
+    const stale = b.balanceAsOf && b.balanceAsOf < todayStr();
+    return `<tr>
+      <td><b>${escapeHtml(b.bankName)}</b><div class="small-muted">${escapeHtml(b.accountHolderName||'')}</div></td>
+      <td data-l="Balance now (₹)"><input type="number" min="0" step="1000" style="width:130px" value="${b.balance!=null?b.balance:''}" placeholder="0" onchange="fpSaveBankField(${b.id},'balance',this.value)">
+          <div class="small-muted">${b.balanceAsOf ? (stale ? `<span class="danger">updated ${fmtDate(b.balanceAsOf)}</span>` : 'updated today') : 'not set yet'}</div></td>
+      <td data-l="Mandates / day"><input type="number" min="1" step="1" style="width:70px" value="${b.mandateCap!=null?b.mandateCap:''}" placeholder="${capacityLimit()}" onchange="fpSaveBankField(${b.id},'mandateCap',this.value)"></td>
+      <td data-l="Unblocks day 1"><input type="number" min="0" max="100" step="5" style="width:64px" value="${b.unblockDay1!=null?b.unblockDay1:''}" placeholder="0" onchange="fpSaveBankField(${b.id},'unblockDay1',this.value)"> %</td>
+      <td data-l="Unblocks day 2"><input type="number" min="0" max="100" step="5" style="width:64px" value="${b.unblockDay2!=null?b.unblockDay2:''}" placeholder="0" onchange="fpSaveBankField(${b.id},'unblockDay2',this.value)"> %</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" class="small-muted">No active bank accounts. Add one under Bank Accounts.</td></tr>`;
+  return `<div class="table-wrap"><table class="dt fp-bank" data-enh="1"><thead><tr><th>Bank</th><th>Balance now (₹)</th><th>Mandates / day</th><th title="Share of a not-allotted application's money that unblocks on the first day after allotment when that day is a weekend or holiday">Unblocks day 1</th><th title="Share unblocked on the second day. The rest unblocks on the next working day.">Unblocks day 2</th></tr></thead><tbody>${rows}</tbody></table></div>
+  <p class="hint"><b>Balance</b> = total money in the account now, including money currently blocked for applications. <b>Mandates / day</b> = the usual number for this bank (leave blank to use the default ${capacityLimit()}). <b>Unblocks day 1 / day 2</b> only matter when the allotment is on a Friday or before a holiday: the % of the money that comes free on the first and second day after allotment (for example Saturday and Sunday). Whatever is left comes free on the next working day. Leave both at 0 to be safe.</p>`;
+}
+function fpSetupHtml(banks, c){
+  const ov = S.settings.mandateOverrides || {}, ovKeys = Object.keys(ov).filter(k => k.split('|')[1] >= todayStr()).sort((a,b)=> a.split('|')[1].localeCompare(b.split('|')[1]) || a.localeCompare(b));
+  const moves = S.settings.fpMoves || [];
+  const al = c.allot;
+  const sel = (v, cur) => v === cur ? 'selected' : '';
+  const pctVal = (al !== 'hist' && al !== 'worst') ? al : '';
+  return `<details class="collapse" ${fpState.setupOpen?'open':''} ontoggle="fpState.setupOpen=this.open"><summary>Setup — balances, mandates, holidays, assumptions</summary>
+    ${fpBankSetup(banks)}
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));margin-top:14px;">
+      <div class="section-card" style="margin:0;"><div class="sc-head"><h3>Assumptions</h3></div><div class="sc-body">
+        <div class="f-group"><label>Clients allotted, when the result is not known yet</label>
+          <select onchange="fpSetOpt('fpAllot', this.value==='num' ? 30 : this.value)">
+            <option value="hist" ${sel('hist',al)}>Use my history (${Math.round(fpHistRate()*100)}%)</option>
+            <option value="worst" ${sel('worst',al)}>Worst case — everyone allotted</option>
+            <option value="num" ${pctVal!==''?'selected':''}>A number I choose…</option></select>
+          ${pctVal!=='' ? `<input type="number" min="0" max="100" style="width:80px;margin-top:6px" value="${pctVal}" onchange="fpSetOpt('fpAllot', this.value)"> %` : ''}</div>
+        <div class="f-group"><label>Client pays me … day(s) after the sale / listing date</label><input type="number" min="0" step="1" style="width:80px" value="${c.payDelay}" onchange="fpSetOpt('fpPayDelay', this.value)"></div>
+        <div class="f-group"><label>Reuse unblocked money … day(s) after it unblocks</label><input type="number" min="0" step="1" style="width:80px" value="${c.reuseDelay}" onchange="fpSetOpt('fpReuseDelay', this.value)">
+          <div class="hint">1 = not on the same day it unblocks. Use 0 if you can reuse it immediately.</div></div>
+      </div></div>
+      <div class="section-card" style="margin:0;"><div class="sc-head"><h3>Holidays</h3></div><div class="sc-body">
+        <textarea id="fpHolidays" rows="4" placeholder="2026-11-14, 2026-12-25" style="width:100%">${escapeHtml((S.settings.holidays||[]).join(', '))}</textarea>
+        <div class="hint">Market holidays, one date or several separated by commas. Weekends are always counted as non-working.</div>
+        <button class="btn btn-primary btn-sm" onclick="fpSaveHolidays()">Save holidays</button></div></div>
+      <div class="section-card" style="margin:0;"><div class="sc-head"><h3>Mandates on specific dates</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="fpMandateModal()">+ Set</button></div><div class="sc-body">
+        ${ovKeys.length ? `<table class="dt" data-enh="1"><tbody>${ovKeys.map(k=>{ const p=k.split('|'); const b = p[0]==='all'?null:findBank(Number(p[0])); return `<tr><td>${fmtDate(p[1])}</td><td>${b?escapeHtml(b.bankName):'All banks'}</td><td><b>${ov[k]}</b></td><td><button class="btn btn-sm btn-ghost" onclick="fpDelMandate('${k}')">Remove</button></td></tr>`; }).join('')}</tbody></table>` : '<p class="small-muted">None. Every bank uses its usual number. Click a mandate figure in the day table below to change one date.</p>'}
+      </div></div>
+      <div class="section-card" style="margin:0;"><div class="sc-head"><h3>Money in / out</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="fpMoveModal()">+ Add</button></div><div class="sc-body">
+        ${moves.length ? `<table class="dt" data-enh="1"><tbody>${moves.map((m,i)=>{ const b=findBank(Number(m.bankId)); return `<tr><td>${fmtDate(m.date)}</td><td>${b?escapeHtml(b.bankName):'?'}</td><td><b>${m.amt>0?'+':''}${fmtMoney(m.amt)}</b></td><td><button class="btn btn-sm btn-ghost" onclick="fpDelMove(${i})">Remove</button></td></tr>`; }).join('')}</tbody></table>` : '<p class="small-muted">No planned top-ups or withdrawals.</p>'}
+      </div></div>
+    </div>
+    <details class="collapse" style="margin-top:12px;"><summary>Client order (who is placed first)</summary>
+      <p class="hint">Lower number = placed first. Blank = after everyone who has a number. Inactive clients are never placed.</p>
+      <div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Client</th><th>Order</th></tr></thead><tbody>${fpClientOrder().map(cl=>`<tr><td>${escapeHtml(cl.clientId)} — ${escapeHtml(cl.clientName)}</td><td><input type="number" min="1" step="1" style="width:80px" value="${cl.priority!=null?cl.priority:''}" onchange="fpSetPriority(${cl.id}, this.value)"></td></tr>`).join('')}</tbody></table></div>
+    </details>
+  </details>`;
+}
+function fpSuggestionHtml(sug, st){
+  if (!sug.length) return `<div class="section-card"><div class="sc-body"><p class="small-muted">No upcoming or open IPO. Add an IPO (with its open, close and allotment dates) and it will appear here.</p></div></div>`;
+  return sug.map(r => {
+    const ipo = r.ipo, D = fpIpoDates(st.c, ipo), placed = r.groups.reduce((s,g)=>s+g.clientIds.length, 0);
+    const startOpts = Array.from({length: Math.max(1, fpDays(ipo.openDate||st.today, ipo.closeDate).length)}, (_,i)=>`<option value="${i+1}" ${r.startDay===i+1?'selected':''}>Day ${i+1}${i===0?' (open day)':''}</option>`).join('');
+    const rows = r.groups.map(g => {
+      const b = findBank(g.bankId), names = g.clientIds.map(id=>{ const cl=findClient(id); return cl?cl.clientName:'?'; });
+      return `<tr><td>${fmtDate(g.day)} <span class="small-muted">${fpDow(g.day)}${fpWork(st.c,g.day)?'':' · off day'}</span></td><td>${escapeHtml(b?b.bankName:'?')}</td><td><b>${g.clientIds.length}</b></td><td>${fmtMoney(g.clientIds.length*r.amt)}</td><td class="small-muted">${escapeHtml(names.slice(0,6).join(', '))}${names.length>6?` +${names.length-6} more`:''}</td></tr>`;
+    }).join('');
+    let warn = '';
+    if (!r.skip && r.unplaced.length){
+      const need = [];
+      if (r.reasonFunds) need.push(`about <b>${fmtMoney(r.reasonFunds*r.amt)}</b> more free money (${r.reasonFunds} client${r.reasonFunds===1?'':'s'})`);
+      if (r.reasonMandates) need.push(`<b>${r.reasonMandates}</b> more mandate slot${r.reasonMandates===1?'':'s'} within the IPO dates`);
+      warn = `<div class="notice warn" style="margin:10px 0;padding:10px 12px;border-radius:8px;background:rgba(200,150,62,.12);border:1px solid var(--gold);">⚠ <b>${r.unplaced.length}</b> client${r.unplaced.length===1?'':'s'} could not be placed. To fit them you need ${need.join(' and ')}.</div>`;
+    }
+    return `<div class="section-card">
+      <div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3><a class="lnk" href="javascript:void(0)" onclick="navigate('ipos',{id:${ipo.id}})">${escapeHtml(ipo.ipoName)}</a></h3>
+        <span class="small-muted">${fmtDate(ipo.openDate)} – ${fmtDate(ipo.closeDate)} · allotment ${fmtDate(D.allot)} · money free again from ${fmtDate(fpAdd(fpUnblock(st.c, null, D.allot)[0].date, st.c.reuseDelay))}${r.skip?'':''}</span>
+        <div class="spacer"></div>
+        <label class="small-muted"><input type="checkbox" ${r.skip?'':'checked'} onchange="fpSetIpoOpt(${ipo.id},'skip',!this.checked)"> Plan this IPO</label>
+        ${r.skip ? '' : `<button class="btn btn-primary btn-sm" ${placed?'':'disabled'} onclick="fpCreatePlans(${ipo.id})">Create ${placed} plan entr${placed===1?'y':'ies'}</button>`}</div>
+      <div class="sc-body">
+        ${r.skip ? '<p class="small-muted">Skipped — this IPO is not planned and holds no money in the forecast.</p>' : `
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:10px;">
+          <div class="f-group"><label>Start applying on</label><select onchange="fpSetIpoOpt(${ipo.id},'startDay',this.value)">${startOpts}</select></div>
+          <div class="f-group"><label>Amount per client (₹)</label><input type="number" min="0" step="500" style="width:110px" value="${r.amt}" onchange="fpSetIpoOpt(${ipo.id},'amount',this.value)"></div>
+          <div class="small-muted">Placed <b>${placed}</b> of <b>${r.eligible}</b> eligible clients</div></div>
+        ${warn}
+        ${rows ? `<div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Apply on</th><th>Bank</th><th>Clients</th><th>Money blocked</th><th>Who</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="small-muted">Nobody could be placed yet — check bank balances and mandates in Setup.</p>'}`}
+      </div></div>`;
+  }).join('');
+}
+function fpTimelineHtml(st, sug){
+  const events = {}; const ev = (d, t) => { (events[d] = events[d] || []).push(t); };
+  fpUpcomingIpos(st.today).forEach(ipo => { const D = fpIpoDates(st.c, ipo), n = ipo.ipoName;
+    ev(ipo.openDate, n+' opens'); ev(ipo.closeDate, n+' closes'); ev(D.allot, n+' allotment'); ev(fpAdd(D.allot,1), n+' money starts unblocking'); ev(D.sale, n+' listing / sale'); ev(D.pay, n+' client payments'); });
+  const holiday = d => !fpWork(st.c, d);
+  const show = st.dates.slice(0, Math.max(7, Number(fpState.days)||21));
+  const head = st.banks.map(b=>`<th colspan="1" style="text-align:right;">${escapeHtml(b.bankName)}</th>`).join('');
+  const rows = show.map(d => {
+    const cells = st.banks.map(b => {
+      const free = st.avail[b.id][st.idx[d]], used = fpUsed(st, b.id, d), cap = fpCap(b.id, d);
+      const bad = free < -0.5;
+      return `<td style="text-align:right;white-space:nowrap;"><b class="${bad?'danger':''}">${fpK(free)}</b> <span class="small-muted">free</span><br><a class="lnk ${used>cap?'danger':''}" href="javascript:void(0)" title="Click to change the mandates for this bank on this date" onclick="fpMandateModal(${b.id},'${d}')">${used}/${cap}</a> <span class="small-muted">mandates</span></td>`;
+    }).join('');
+    const e = (events[d]||[]).filter((x,i,a)=>a.indexOf(x)===i);
+    return `<tr class="${holiday(d)?'fp-off':''}"><td style="white-space:nowrap;"><b>${fmtDate(d)}</b> <span class="small-muted">${fpDow(d)}${S.settings.holidays && S.settings.holidays.includes(d) ? ' · holiday' : ''}</span></td>${cells}<td class="small-muted">${escapeHtml(e.join(' · '))}</td></tr>`;
+  }).join('');
+  return `<div class="section-card"><div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>Day by day — free money and mandates</h3><div class="spacer"></div>
+      <label class="small-muted"><input type="checkbox" ${fpState.include?'checked':''} onchange="fpState.include=this.checked;render()"> include the suggested plan</label>
+      <select onchange="fpState.days=Number(this.value);render()">${[14,21,30,45,60].map(n=>`<option value="${n}" ${Number(fpState.days)===n?'selected':''}>Next ${n} days</option>`).join('')}</select></div>
+    <div class="sc-body"><div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Date</th>${head}<th>What happens</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="hint"><b>Free</b> = money in the bank that is not blocked on that day, after the applications already made, the plans already saved${fpState.include?', and the suggestion above':''}. Shaded rows are weekends / holidays — you can still apply on those days, but allotment and sale never happen on them. A red figure means the bank would be short.</p></div></div>`;
+}
+function fpTab(){
+  const st = fpBuild(), c = st.c;
+  const base = st.banks.length ? null : true;
+  const sug = fpSuggest(st);                       // mutates st (includes the suggestion)
+  const stView = fpState.include ? st : fpBuild(); // timeline with or without the suggestion
+  const today = st.today;
+  const totalBal = st.banks.reduce((s,b)=>s+(Number(b.balance)||0),0);
+  const freeNow = (() => { const b0 = fpBuild(); return b0.banks.reduce((s,b)=>s+b0.avail[b.id][0],0); })();
+  const active = S.clients.filter(x=>x.status!=='Inactive').length;
+  const totalPlaced = sug.reduce((s,r)=>s+(r.skip?0:r.groups.reduce((a,g)=>a+g.clientIds.length,0)),0);
+  const totalUn = sug.reduce((s,r)=>s+(r.skip?0:r.unplaced.length),0);
+  const rate = fpRate(c);
+  const noBal = st.banks.some(b => b.balance==null);
+  return `
+  <div class="kpi-grid" style="margin-bottom:12px;">
+    <div class="kpi-card"><div class="lbl">Active clients</div><div class="val">${active}</div></div>
+    <div class="kpi-card"><div class="lbl">Banks</div><div class="val">${st.banks.length}</div><div class="small-muted">${fmtMoney(totalBal)} in total</div></div>
+    <div class="kpi-card"><div class="lbl">Free money today</div><div class="val gold">${fmtMoney(freeNow)}</div><div class="small-muted">after blocked applications</div></div>
+    <div class="kpi-card"><div class="lbl">Suggested to apply</div><div class="val ok">${totalPlaced}</div><div class="small-muted">${totalUn ? `<b class="danger">${totalUn} could not be placed</b>` : 'everyone fits'}</div></div>
+  </div>
+  ${noBal ? `<div class="notice warn" style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:rgba(200,150,62,.12);border:1px solid var(--gold);">Some banks have no balance entered yet, so they count as ₹0. Open <b>Setup</b> below and type each bank's balance.</div>` : ''}
+  ${fpSetupHtml(st.banks, c)}
+  <p class="small-muted" style="margin:10px 2px;">Planning with ${Math.round(rate*100)}% of unresolved applications getting allotted${c.allot==='hist'?' (your history)':c.allot==='worst'?' (worst case)':''}. IPOs are planned in the order they open; within an IPO, clients are placed in your client order, on the earliest day and bank that has both a free mandate and enough free money.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px;">
+    <button class="btn btn-primary" ${totalPlaced?'':'disabled'} onclick="fpCreatePlans(null)">Create all suggested plans (${totalPlaced})</button>
+    <span class="small-muted" style="align-self:center;">Saved as normal plans — you can still edit them under Plans.</span>
+  </div>
+  ${fpSuggestionHtml(sug, st)}
+  ${fpTimelineHtml(stView, sug)}`;
+}
+
 </script>
 </body>
 </html>
