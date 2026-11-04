@@ -3683,7 +3683,7 @@ function dashboardBody(){
 let reportsTab = 'client';
 const REPORT_GROUPS = [
   ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['gap','Our vs Client']]],
-  ['money','Money',[['cashflow','Cash flow'],['roi','ROI & capital'],['settlement','Settlement']]],
+  ['settlement','Settlement',[['settlement','Settlement']]],
   ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['stmt','Statements (PDF)']]],
   ['ipos','IPOs',[['ipo','IPO analysis']]],
   ['banks','Banks',[['bank','Bank analysis']]],
@@ -3705,8 +3705,6 @@ function reportsTabContent(){
   if (reportsTab==='bank') return reportBankAnalysis();
   if (reportsTab==='scorecard') return reportClientScorecards();
   if (reportsTab==='pivot') return reportBuilder();
-  if (reportsTab==='roi') return reportRoi();
-  if (reportsTab==='cashflow') return reportCashFlow();
   if (reportsTab==='gap') return reportGap();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
   if (reportsTab==='yearly') return reportYearlySummary();
