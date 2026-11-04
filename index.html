@@ -1166,7 +1166,7 @@ function render(){
     case 'checklist': c.innerHTML = viewChecklist(); break;
     case 'results': c.innerHTML = viewResults(); break;
     case 'planning': c.innerHTML = viewPlanning(); afterPlanning(); break;
-    case 'clients': c.innerHTML = S.params.id ? (S.params.statement ? viewClientStatement(S.params.id) : viewClientDetail(S.params.id)) : viewClients(); break;
+    case 'clients': c.innerHTML = S.params.id ? viewClientDetail(S.params.id) : viewClients(); break;
     case 'ipos': c.innerHTML = S.params.id ? viewIpoDetail(S.params.id) : viewIpos(); break;
     case 'applications': c.innerHTML = viewApplications(); break;
     case 'allotments': c.innerHTML = viewAllotments(); break;
@@ -1727,7 +1727,7 @@ function viewClientDetail(id){
     <div class="sc-head">
       <h3>${escapeHtml(c.clientId)} — ${escapeHtml(c.clientName)}${getTopClientIds().has(c.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top Client</span>' : ''}</h3>
       <div class="spacer"></div>
-      <button class="btn btn-ghost btn-sm no-print" onclick="navigate('clients',{id:${c.id},statement:true})">Statement</button>
+      <button class="btn btn-ghost btn-sm no-print" onclick="openStatementFor(${c.id})">Statement PDF</button>
       <button class="btn btn-ghost btn-sm no-print" onclick="editClient(${c.id})">Edit Client</button>
     </div>
     <div class="sc-body">
@@ -1905,7 +1905,7 @@ function clientAccountCardHtml(c){
     <div class="sc-head"><h3>Account &amp; Payments</h3><div class="spacer"></div>
       <button class="btn btn-primary btn-sm" onclick="recordPayment(${c.id},'in')">+ Payment Received</button>
       ${credit>0.5?`<button class="btn btn-ghost btn-sm" onclick="applyCredits(${c.id})">Apply ${fmtMoney(credit)} unapplied credit</button>`:''}
-      <button class="btn btn-ghost btn-sm" onclick="navigate('clients',{id:${c.id},statement:true})">Statement</button></div>
+      <button class="btn btn-ghost btn-sm" onclick="openStatementFor(${c.id})">Statement PDF</button></div>
     <div class="sc-body">
       <div class="kpi-grid" style="margin-bottom:12px;">
         <div class="kpi-card"><div class="lbl">Still to Receive From Client</div><div class="val ${receivable>0?'danger':''}">${fmtMoney(receivable)}</div></div>
@@ -1916,108 +1916,7 @@ function clientAccountCardHtml(c){
   </div>`;
 }
 
-/* ---- statement 2.0 ---- */
-let stmtState = { preset:'all', from:'', to:'' };
-function setStmt(k, v){ stmtState[k] = v; render(); }
 function bizName(){ return (S.settings.businessName || '').trim() || 'IPO Management Portal'; }
-function clientStatementData(clientId, r){
-  const apps = S.applications.filter(a=>a.clientId===clientId);
-  const recv = [], sales = [];
-  apps.forEach(a=>{
-    const c = calcAllotmentSale(a); if (!c.applicable || !a.saleDate) return;
-    const ipo = findIpo(a.ipoId), nm = ipo ? ipo.ipoName : 'IPO';
-    recv.push({ date:a.saleDate, kind:0, desc:`${nm} — sold; amount due`, debit:c.grossFinal, credit:0 });
-    const al = allocatedTo(a.id,'in');
-    if (a.amountReceiveStatus === 'Received' && al < c.grossFinal - 0.5) recv.push({ date:a.receivedDate || a.saleDate, kind:1, desc:`${nm} — marked received`, debit:0, credit:r2(c.grossFinal - al) });
-    sales.push({ a, c, ipo });
-  });
-  S.payments.filter(p=>p.clientId===clientId && p.type==='in').forEach(p=>{
-    recv.push({ date:p.date, kind:1, desc:`Payment received — ${p.mode||''}${p.note?' ('+p.note+')':''}`, debit:0, credit:p.amount });
-  });
-  // balance = debit − credit (client owes)
-  const build = (list, sign) => {
-    list.sort((x,y)=>x.date.localeCompare(y.date) || x.kind - y.kind);
-    let bal = 0; const rows = []; let opening = 0, totDebit = 0, totCredit = 0;
-    list.forEach(e=>{
-      const delta = sign*(e.debit - e.credit);
-      if (e.date < r.from){ opening += delta; bal += delta; return; }
-      if (e.date > r.to) return;
-      bal += delta; totDebit += e.debit; totCredit += e.credit; rows.push({ ...e, bal });
-    });
-    return { rows, opening: r2(opening), closing: r2(bal), totDebit: r2(totDebit), totCredit: r2(totCredit) };
-  };
-  const inRangeSales = sales.filter(x=>x.a.saleDate >= r.from && x.a.saleDate <= r.to).sort((x,y)=>x.a.saleDate.localeCompare(y.a.saleDate));
-  return { recv: build(recv, 1), sales: inRangeSales };
-}
-function stmtPeriodLabel(r){ return stmtState.preset==='all' ? 'All time' : `${fmtDate(r.from)} – ${fmtDate(r.to)}`; }
-function stmtSummaryText(c, D, r){
-  const tot = D.sales.reduce((t,x)=>({ profit:t.profit+x.c.ourFinal+x.c.clientFinal, ours:t.ours+x.c.ourFinal, theirs:t.theirs+x.c.clientFinal }), { profit:0, ours:0, theirs:0 });
-  const lines = [`*${bizName()}*`, `Statement for ${c.clientName} — ${stmtPeriodLabel(r)}`, '',
-    `Sales: ${D.sales.length}`, `Total profit: ${fmtMoney(tot.profit)}`, `Your share: ${fmtMoney(tot.theirs)}  |  Our share: ${fmtMoney(tot.ours)}`, '',
-    `Received from you in this period: ${fmtMoney(D.recv.totCredit)}`, `Amount due to us (closing): ${fmtMoney(D.recv.closing)}`];
-  lines.push('', `Generated ${fmtDate(todayStr())}`);
-  return lines.join('\n');
-}
-function shareStatementWhatsApp(clientId){
-  const c = findClient(clientId); const r = presetRange(stmtState.preset, stmtState.from, stmtState.to);
-  const text = stmtSummaryText(c, clientStatementData(clientId, r), r);
-  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-}
-function copyStatementSummary(clientId){
-  const c = findClient(clientId); const r = presetRange(stmtState.preset, stmtState.from, stmtState.to);
-  const text = stmtSummaryText(c, clientStatementData(clientId, r), r);
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(()=>toast('Summary copied','ok'), ()=>toast('Could not copy','warn'));
-  else toast('Copy is not available in this browser','warn');
-}
-function viewClientStatement(id){
-  const c = findClient(id);
-  if (!c) return `<p>Client not found. <button class="link-btn" onclick="navigate('clients')">Back</button></p>`;
-  const r = presetRange(stmtState.preset, stmtState.from, stmtState.to);
-  const D = clientStatementData(id, r);
-  const presets = [['all','All Time'],['thisMonth','This Month'],['prevMonth','Last Month'],['thisFY','Current FY'],['prevFY','Previous FY'],['custom','Custom']];
-  const presetBtns = presets.map(([k,l])=>`<button class="btn btn-sm ${stmtState.preset===k?'btn-primary':'btn-ghost'}" onclick="setStmt('preset','${k}')">${l}</button>`).join('');
-  const tot = D.sales.reduce((t,x)=>({ profit:t.profit+x.c.ourFinal+x.c.clientFinal, ours:t.ours+x.c.ourFinal, theirs:t.theirs+x.c.clientFinal, applied:t.applied+(Number(x.a.amountApplied)||0), sale:t.sale+(Number(x.a.saleAmount)||0) }), { profit:0, ours:0, theirs:0, applied:0, sale:0 });
-  const ledgerRows = (L, sign, label) => {
-    const body = L.rows.map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${escapeHtml(e.desc)}</td><td style="text-align:right;">${e.debit?fmtMoney(e.debit):''}</td><td style="text-align:right;">${e.credit?fmtMoney(e.credit):''}</td><td style="text-align:right;"><b>${fmtMoney(e.bal)}</b></td></tr>`).join('');
-    return `<tr class="small-muted"><td></td><td>Opening balance</td><td></td><td></td><td style="text-align:right;">${fmtMoney(L.opening)}</td></tr>${body}
-      <tr style="font-weight:700;border-top:2px solid var(--border);"><td></td><td>Closing balance — ${label}</td><td style="text-align:right;">${fmtMoney(L.totDebit)}</td><td style="text-align:right;">${fmtMoney(L.totCredit)}</td><td style="text-align:right;">${fmtMoney(L.closing)}</td></tr>`;
-  };
-  const saleRows = D.sales.map(x=>{
-    const al = allocatedTo(x.a.id,'in');
-    const payStatus = x.a.amountReceiveStatus==='Received' ? 'Received' : (al>0 ? 'Part paid' : (x.a.amountReceiveStatus||'—'));
-    return `<tr><td>${fmtDate(x.a.saleDate)}</td><td>${escapeHtml(x.ipo?x.ipo.ipoName:'—')}</td><td style="text-align:right;">${fmtMoney(x.a.amountApplied)}</td><td style="text-align:right;">${fmtMoney(x.a.saleAmount)}</td>
-      <td style="text-align:right;">${fmtMoney(x.c.ourFinal+x.c.clientFinal)}</td><td style="text-align:right;">${appProfitShare(x.a)}%</td><td style="text-align:right;">${fmtMoney(x.c.ourFinal)}</td><td style="text-align:right;">${fmtMoney(x.c.clientFinal)}</td><td style="text-align:right;">${fmtMoney(x.c.grossFinal)}</td><td>${escapeHtml(payStatus)}</td></tr>`;
-  }).join('') || `<tr><td colspan="10" class="small-muted">No completed sales in this period.</td></tr>`;
-  const logo = S.settings.businessLogo ? `<img src="${S.settings.businessLogo}" alt="" style="max-height:64px;max-width:200px;object-fit:contain;">` : '';
-  return `
-  <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
-    <button class="link-btn" onclick="navigate('clients',{id:${c.id}})">&larr; Back to Client</button><div class="spacer" style="flex:1;"></div>
-    ${presetBtns}
-    ${stmtState.preset==='custom' ? `<input type="date" value="${stmtState.from}" onchange="setStmt('from', this.value)"><span>to</span><input type="date" value="${stmtState.to}" onchange="setStmt('to', this.value)">` : ''}
-    <button class="btn btn-primary btn-sm" onclick="window.print()">Print / Save as PDF</button>
-    <button class="btn btn-gold btn-sm" onclick="shareStatementWhatsApp(${c.id})">Share on WhatsApp</button>
-    <button class="btn btn-ghost btn-sm" onclick="copyStatementSummary(${c.id})">Copy summary</button>
-  </div>
-  <div class="section-card printable-report"><div class="sc-body" style="padding:24px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:2px solid var(--border);padding-bottom:14px;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:14px;">${logo}<div><h2 style="margin:0;">${escapeHtml(bizName())}</h2>${S.settings.businessTagline?`<div class="small-muted">${escapeHtml(S.settings.businessTagline)}</div>`:''}</div></div>
-      <div style="text-align:right;"><h3 style="margin:0;">Client Statement</h3><div class="small-muted">Period: ${stmtPeriodLabel(r)}</div><div class="small-muted">Generated ${fmtDate(todayStr())}</div></div>
-    </div>
-    <div style="margin-bottom:14px;"><b style="font-size:16px;">${escapeHtml(c.clientName)}</b> <span class="small-muted">${escapeHtml(c.clientId)}${c.referenceName?' · '+escapeHtml(c.referenceName):''}${c.subReference?' / '+escapeHtml(c.subReference):''}</span></div>
-    <div class="kpi-grid" style="margin-bottom:16px;">
-      <div class="kpi-card"><div class="lbl">Sales</div><div class="val">${D.sales.length}</div></div>
-      <div class="kpi-card"><div class="lbl">Total Profit</div><div class="val">${fmtMoney(tot.profit)}</div></div>
-      <div class="kpi-card"><div class="lbl">Client's Share</div><div class="val gold">${fmtMoney(tot.theirs)}</div></div>
-      <div class="kpi-card"><div class="lbl">Our Share</div><div class="val">${fmtMoney(tot.ours)}</div></div>
-      <div class="kpi-card"><div class="lbl">Amount Due to Us (closing)</div><div class="val ${D.recv.closing>0.5?'danger':''}">${fmtMoney(D.recv.closing)}</div></div>
-    </div>
-    <h4 style="margin:0 0 8px;">Sales</h4>
-    <div class="table-wrap"><table class="dt stmt-table"><thead><tr><th>Sold On</th><th>IPO</th><th>Applied</th><th>Sale Amount</th><th>Total Profit</th><th>Our %</th><th>Our Share</th><th>Client's Share</th><th>Amount Due</th><th>Payment</th></tr></thead><tbody>${saleRows}</tbody></table></div>
-    <h4 style="margin:18px 0 8px;">Account — Money Due From Client</h4>
-    <div class="table-wrap"><table class="dt stmt-table"><thead><tr><th>Date</th><th>Description</th><th style="text-align:right;">Due (+)</th><th style="text-align:right;">Received (−)</th><th style="text-align:right;">Balance Due</th></tr></thead><tbody>${ledgerRows(D.recv,1,'amount due to us')}</tbody></table></div>
-    <p class="hint" style="margin-top:14px;">Amount due = the client's purchase amount plus our share of the profit on each sale; it reduces as payments are recorded. ${S.settings.statementFooter?escapeHtml(S.settings.statementFooter):'This is a computer-generated statement.'}</p>
-  </div></div>`;
-}
 
 /* ---- branding (settings) ---- */
 function brandingCardHtml(){
@@ -2025,7 +1924,7 @@ function brandingCardHtml(){
   <div class="section-card">
     <div class="sc-head"><h3>Business Details (for statements)</h3></div>
     <div class="sc-body">
-      <p class="small-muted">Shown at the top of printed / shared client statements.</p>
+      <p class="small-muted">Shown as the portal name and on printouts.</p>
       <div class="form-grid">
         <div class="f-group"><label>Business name</label><input type="text" id="bizNameInput" value="${escapeHtml(S.settings.businessName||'')}" placeholder="IPO Management Portal"></div>
         <div class="f-group"><label>Tagline / contact line</label><input type="text" id="bizTaglineInput" value="${escapeHtml(S.settings.businessTagline||'')}" placeholder="e.g. +91 98xxxxxx · you@email.com"></div>
@@ -7170,11 +7069,12 @@ window.syncToDrive = async function(){
 </script>
 <script>
 /* =================== SUB-REFERENCE STATEMENT (PDF) ===================
-   One PDF per sub-reference: every person under it, sold applications only, by sale date,
+   One PDF per group or per person: every person under it, sold applications only, by sale date,
    grouped IPO-wise with a sub total per IPO and a grand total at the end.
    Columns: Sale Date | Name | Sales | Cost | Profit  (Profit = that person's own share).
    The PDF is written directly (no library), so it works offline. */
-let subStmtState = { sub:null, period:'thisMonth', from:'', to:'' };
+let subStmtState = { mode:'group', sub:null, person:null, period:'thisMonth', from:'', to:'' };
+function openStatementFor(id){ subStmtState.mode='person'; subStmtState.person=id; reportsTab='stmt'; navigate('reports'); }
 
 const STMT_PERIODS = [
   ['thisMonth','This month'], ['lastMonth','Last month'], ['last2','Last 2 months'], ['last3','Last 3 months'],
@@ -7201,12 +7101,13 @@ function stmtSubs(){
   if (blank) list.push('');
   return list;
 }
-function stmtSubLabel(v){ return v ? v : '(No sub-reference)'; }
+function stmtSubLabel(v){ return v ? v : '(No group)'; }
 function stmtData(){
   const subs = stmtSubs();
   if (subStmtState.sub === null || !subs.includes(subStmtState.sub)) subStmtState.sub = subs.length ? subs[0] : '';
-  const r = stmtRange(), sub = subStmtState.sub;
-  const people = S.clients.filter(c => (c.subReference||'') === sub);
+  const r = stmtRange(), sub = subStmtState.sub, person = subStmtState.mode==='person';
+  if (person && (subStmtState.person===null || !findClient(subStmtState.person))) subStmtState.person = S.clients.length ? S.clients[0].id : null;
+  const people = person ? S.clients.filter(c => c.id === subStmtState.person) : S.clients.filter(c => (c.subReference||'') === sub);
   const ids = new Set(people.map(c => c.id));
   const rows = [];
   S.applications.forEach(a => {
@@ -7221,7 +7122,7 @@ function stmtData(){
   const list = Array.from(groups.values()).sort((a,b)=> a.first.localeCompare(b.first) || a.ipo.localeCompare(b.ipo));
   const sum = rs => rs.reduce((t,x)=>({ sales:t.sales+x.sales, cost:t.cost+x.cost, profit:t.profit+x.profit }), { sales:0, cost:0, profit:0 });
   list.forEach(g => { g.rows.sort((a,b)=> a.date.localeCompare(b.date) || a.name.localeCompare(b.name)); g.tot = sum(g.rows); });
-  return { sub, range:r, groups:list, total:sum(rows), count:rows.length, names:new Set(rows.map(x=>x.name)).size, people:people.length };
+  return { person, title: person ? (people[0] ? people[0].clientName : '') : stmtSubLabel(sub), sub, range:r, groups:list, total:sum(rows), count:rows.length, names:new Set(rows.map(x=>x.name)).size, people:people.length };
 }
 function stmtNum(n){ n = Math.round(Number(n)||0); return (n<0?'-':'') + Math.abs(n).toLocaleString('en-IN'); }
 function stmtPeriodText(r){ return (r.from.startsWith('0001') ? 'Up to ' : fmtDate(r.from)+' to ') + (r.to.startsWith('9999') ? 'today' : fmtDate(r.to)); }
@@ -7231,6 +7132,7 @@ function setStmt(k, v){ subStmtState[k] = v; render(); }
 function reportStatements(){
   const D = stmtData(), subs = stmtSubs();
   const subOpts = subs.map(s=>`<option value="${escapeHtml(s)}" ${s===D.sub?'selected':''}>${escapeHtml(stmtSubLabel(s))}</option>`).join('');
+  const personOpts = S.clients.slice().sort((a,b)=>a.clientName.localeCompare(b.clientName)).map(c=>`<option value="${c.id}" ${c.id===subStmtState.person?'selected':''}>${escapeHtml(c.clientName)}</option>`).join('');
   const perOpts = STMT_PERIODS.map(p=>`<option value="${p[0]}" ${subStmtState.period===p[0]?'selected':''}>${p[1]}</option>`).join('');
   const body = D.groups.map(g => `
     <tr class="stmt-ipo"><td colspan="5"><b>${escapeHtml(g.ipo)}</b></td></tr>
@@ -7238,17 +7140,20 @@ function reportStatements(){
     <tr class="stmt-sub"><td colspan="2">Sub Total — ${escapeHtml(g.ipo)}</td><td class="num">${stmtNum(g.tot.sales)}</td><td class="num">${stmtNum(g.tot.cost)}</td><td class="num">${stmtNum(g.tot.profit)}</td></tr>`).join('');
   return `
   <div class="section-card">
-    <div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>Statement for a sub-reference</h3><div class="spacer"></div>
+    <div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>Statement (PDF)</h3><div class="spacer"></div>
       <button class="btn btn-primary" ${D.count?'':'disabled'} onclick="stmtDownload()">Download PDF</button></div>
     <div class="sc-body">
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
-        <div class="f-group"><label>Sub-reference</label><select onchange="setStmt('sub', this.value)">${subOpts || '<option value="">(none)</option>'}</select></div>
+        <div class="f-group"><label>Statement for</label><select onchange="setStmt('mode', this.value)"><option value="group" ${!D.person?'selected':''}>A whole group</option><option value="person" ${D.person?'selected':''}>One person</option></select></div>
+        ${D.person
+          ? `<div class="f-group"><label>Name</label><select onchange="setStmt('person', Number(this.value))">${personOpts}</select></div>`
+          : `<div class="f-group"><label>Group</label><select onchange="setStmt('sub', this.value)">${subOpts || '<option value="">(none)</option>'}</select></div>`}
         <div class="f-group"><label>Period</label><select onchange="setStmt('period', this.value)">${perOpts}</select></div>
         ${subStmtState.period==='custom' ? `<div class="f-group"><label>From</label><input type="date" value="${subStmtState.from}" onchange="setStmt('from', this.value)"></div><div class="f-group"><label>To</label><input type="date" value="${subStmtState.to}" onchange="setStmt('to', this.value)"></div>` : ''}
         <div class="small-muted" style="padding-bottom:8px;">${stmtPeriodText(D.range)} · by sale date</div>
       </div>
       <div class="kpi-grid" style="margin-bottom:14px;">
-        <div class="kpi-card"><div class="lbl">Names</div><div class="val">${D.names}</div><div class="small-muted">of ${D.people} under this sub-reference</div></div>
+        ${D.person ? '' : `<div class="kpi-card"><div class="lbl">Names</div><div class="val">${D.names}</div><div class="small-muted">of ${D.people} in this group</div></div>`}
         <div class="kpi-card"><div class="lbl">Sales made</div><div class="val">${D.count}</div></div>
         <div class="kpi-card"><div class="lbl">Total sales</div><div class="val">${fmtMoney(D.total.sales)}</div></div>
         <div class="kpi-card"><div class="lbl">Total cost</div><div class="val">${fmtMoney(D.total.cost)}</div></div>
@@ -7256,7 +7161,7 @@ function reportStatements(){
       </div>
       ${D.count ? `<div class="table-wrap"><table class="dt stmt-prev" data-enh="1"><thead><tr><th>Sale Date</th><th>Name</th><th class="num">Sales</th><th class="num">Cost</th><th class="num">Profit</th></tr></thead><tbody>${body}
         <tr class="stmt-grand"><td colspan="2">Grand Total</td><td class="num">${stmtNum(D.total.sales)}</td><td class="num">${stmtNum(D.total.cost)}</td><td class="num">${stmtNum(D.total.profit)}</td></tr></tbody></table></div>`
-        : `<p class="small-muted">No sales in this period for ${escapeHtml(stmtSubLabel(D.sub))}. Try another period.</p>`}
+        : `<p class="small-muted">No sales in this period for ${escapeHtml(D.title)}. Try another period.</p>`}
       <p class="hint">Only sold applications are included, by sale date, in rupees. The PDF has the same figures: a summary on top, each IPO with its sub total, and the grand total at the end.</p>
     </div>
   </div>`;
@@ -7291,13 +7196,13 @@ function stmtBuildPdf(D){
 
   newPage();
   text('Statement', M, y-14, 20, true);
-  text('Sub-reference: ' + stmtSubLabel(D.sub), M, y-36, 13, true);
+  text(D.title, M, y-36, 13, true);
   text('Period: ' + stmtPeriodText(D.range) + '  (by sale date)', M, y-54, 10, false);
   text('Prepared on ' + fmtDate(todayStr()), RIGHT, y-14, 9, false, 'r');
   y -= 72;
   // summary box
   const bh = 58; rect(M, y-bh, RIGHT-M, bh, 0.95);
-  const cells = [['Names', String(D.names)], ['Sales made', String(D.count)], ['Total sales (Rs.)', stmtNum(D.total.sales)], ['Total cost (Rs.)', stmtNum(D.total.cost)], ['Total profit (Rs.)', stmtNum(D.total.profit)]];
+  const cells = [...(D.person ? [] : [['Names', String(D.names)]]), ['Sales made', String(D.count)], ['Total sales (Rs.)', stmtNum(D.total.sales)], ['Total cost (Rs.)', stmtNum(D.total.cost)], ['Total profit (Rs.)', stmtNum(D.total.profit)]];
   const cw = (RIGHT-M)/cells.length;
   cells.forEach((c,i)=>{ text(c[0], M+i*cw+10, y-20, 8.5, false); text(c[1], M+i*cw+10, y-42, 13, true); });
   y -= bh + 18;
@@ -7351,7 +7256,7 @@ function stmtDownload(){
   const D = stmtData(); if (!D.count){ toast('No sales in this period','warn'); return; }
   const bytes = stmtBuildPdf(D);
   const r = D.range, tag = (r.from.startsWith('0001') ? 'upto' : r.from) + '_to_' + (r.to.startsWith('9999') ? todayStr() : r.to);
-  const name = 'Statement_' + stmtClean(stmtSubLabel(D.sub)).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'') + '_' + tag + '.pdf';
+  const name = 'Statement_' + stmtClean(D.title).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'') + '_' + tag + '.pdf';
   const blob = new Blob([bytes], { type:'application/pdf' }), url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 4000);
