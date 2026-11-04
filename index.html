@@ -500,6 +500,11 @@ table.dt thead th{position:static;}
   .fp-bank td[data-l^="Money back"], .fp-plan td[data-l^="When"]{flex-direction:column;align-items:flex-start;}
   .fp-bank td[data-l^="Money back"] select{max-width:100%;width:100%;}
 }
+
+.stmt-prev td.num, .stmt-prev th.num{ text-align:right; }
+.stmt-prev tr.stmt-ipo td{ background:var(--table-head-bg); }
+.stmt-prev tr.stmt-sub td{ font-weight:700; border-top:1px solid var(--border); }
+.stmt-prev tr.stmt-grand td{ font-weight:800; border-top:2px solid var(--text-dim); background:var(--table-head-bg); }
 </style>
 </head>
 <body>
@@ -3830,7 +3835,7 @@ let reportsTab = 'client';
 const REPORT_GROUPS = [
   ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['profit','Profit explorer'],['gap','Our vs Client']]],
   ['money','Money',[['cashflow','Cash flow'],['roi','ROI & capital'],['settlement','Settlement']]],
-  ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['subref','By sub-reference']]],
+  ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['subref','By sub-reference'],['stmt','Statements (PDF)']]],
   ['ipos','IPOs',[['ipo','IPO analysis'],['allotrate','Allotment rate']]],
   ['banks','Banks',[['bank','Bank analysis'],['pva','Planned vs actual']]],
   ['custom','Custom',[['pivot','Report builder']]]
@@ -3861,6 +3866,7 @@ function reportsTabContent(){
   if (reportsTab==='pva') return planningVarianceTab();
   if (reportsTab==='settlement') return reportSettlement();
   if (reportsTab==='subref') return reportSubReferenceProfit();
+  if (reportsTab==='stmt') return reportStatements();
   return '';
 }
 function reportTrends(){
@@ -7661,6 +7667,197 @@ function fpTab(){
   ${fpBanksCard(st.banks, c)}
   ${fpPlanCard(sug, st)}
   ${fpDayCard(stView)}`;
+}
+
+</script>
+<script>
+/* =================== SUB-REFERENCE STATEMENT (PDF) ===================
+   One PDF per sub-reference: every person under it, sold applications only, by sale date,
+   grouped IPO-wise with a sub total per IPO and a grand total at the end.
+   Columns: Sale Date | Name | Sales | Cost | Profit  (Profit = that person's own share).
+   The PDF is written directly (no library), so it works offline. */
+let subStmtState = { sub:null, period:'thisMonth', from:'', to:'' };
+
+const STMT_PERIODS = [
+  ['thisMonth','This month'], ['lastMonth','Last month'], ['last2','Last 2 months'], ['last3','Last 3 months'],
+  ['thisFY','This financial year'], ['lastFY','Last financial year'], ['thisYear','This year'], ['lastYear','Last year'], ['custom','Custom dates']
+];
+function stmtRange(){
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), iso = d => localDateStr(d), p = subStmtState.period;
+  if (p==='thisMonth') return { from:iso(new Date(y,m,1)), to:iso(new Date(y,m+1,0)) };
+  if (p==='lastMonth') return { from:iso(new Date(y,m-1,1)), to:iso(new Date(y,m,0)) };
+  if (p==='last2') return { from:iso(new Date(y,m-2,1)), to:iso(new Date(y,m,0)) };
+  if (p==='last3') return { from:iso(new Date(y,m-3,1)), to:iso(new Date(y,m,0)) };
+  const fy = m>=3 ? y : y-1;
+  if (p==='thisFY') return { from:iso(new Date(fy,3,1)), to:iso(new Date(fy+1,2,31)) };
+  if (p==='lastFY') return { from:iso(new Date(fy-1,3,1)), to:iso(new Date(fy,2,31)) };
+  if (p==='thisYear') return { from:y+'-01-01', to:y+'-12-31' };
+  if (p==='lastYear') return { from:(y-1)+'-01-01', to:(y-1)+'-12-31' };
+  return { from: subStmtState.from || '0001-01-01', to: subStmtState.to || '9999-12-31' };
+}
+function stmtSubs(){
+  const set = new Set((S.settings.subReferences||[]).filter(Boolean));
+  let blank = false;
+  S.clients.forEach(c => { if (c.subReference) set.add(c.subReference); else blank = true; });
+  const list = Array.from(set).sort((a,b)=>a.localeCompare(b));
+  if (blank) list.push('');
+  return list;
+}
+function stmtSubLabel(v){ return v ? v : '(No sub-reference)'; }
+function stmtData(){
+  const subs = stmtSubs();
+  if (subStmtState.sub === null || !subs.includes(subStmtState.sub)) subStmtState.sub = subs.length ? subs[0] : '';
+  const r = stmtRange(), sub = subStmtState.sub;
+  const people = S.clients.filter(c => (c.subReference||'') === sub);
+  const ids = new Set(people.map(c => c.id));
+  const rows = [];
+  S.applications.forEach(a => {
+    if (!ids.has(a.clientId) || a.saleStatus !== 'Sold' || !a.saleDate) return;
+    if (a.saleDate < r.from || a.saleDate > r.to) return;
+    const c = calcAllotmentSale(a); if (!c.applicable) return;
+    const cl = findClient(a.clientId), ipo = findIpo(a.ipoId);
+    rows.push({ date:a.saleDate, name: cl?cl.clientName:'?', ipo: ipo?ipo.ipoName:'?', ipoId:a.ipoId, sales:Number(a.saleAmount)||0, cost:Number(a.amountApplied)||0, profit:c.clientFinal });
+  });
+  const groups = new Map();
+  rows.forEach(x => { if (!groups.has(x.ipoId)) groups.set(x.ipoId, { ipo:x.ipo, rows:[], first:x.date }); const g = groups.get(x.ipoId); g.rows.push(x); if (x.date < g.first) g.first = x.date; });
+  const list = Array.from(groups.values()).sort((a,b)=> a.first.localeCompare(b.first) || a.ipo.localeCompare(b.ipo));
+  const sum = rs => rs.reduce((t,x)=>({ sales:t.sales+x.sales, cost:t.cost+x.cost, profit:t.profit+x.profit }), { sales:0, cost:0, profit:0 });
+  list.forEach(g => { g.rows.sort((a,b)=> a.date.localeCompare(b.date) || a.name.localeCompare(b.name)); g.tot = sum(g.rows); });
+  return { sub, range:r, groups:list, total:sum(rows), count:rows.length, names:new Set(rows.map(x=>x.name)).size, people:people.length };
+}
+function stmtNum(n){ n = Math.round(Number(n)||0); return (n<0?'-':'') + Math.abs(n).toLocaleString('en-IN'); }
+function stmtPeriodText(r){ return (r.from.startsWith('0001') ? 'Up to ' : fmtDate(r.from)+' to ') + (r.to.startsWith('9999') ? 'today' : fmtDate(r.to)); }
+
+/* ---------- on-screen ---------- */
+function setStmt(k, v){ subStmtState[k] = v; render(); }
+function reportStatements(){
+  const D = stmtData(), subs = stmtSubs();
+  const subOpts = subs.map(s=>`<option value="${escapeHtml(s)}" ${s===D.sub?'selected':''}>${escapeHtml(stmtSubLabel(s))}</option>`).join('');
+  const perOpts = STMT_PERIODS.map(p=>`<option value="${p[0]}" ${subStmtState.period===p[0]?'selected':''}>${p[1]}</option>`).join('');
+  const body = D.groups.map(g => `
+    <tr class="stmt-ipo"><td colspan="5"><b>${escapeHtml(g.ipo)}</b></td></tr>
+    ${g.rows.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td class="num">${stmtNum(x.sales)}</td><td class="num">${stmtNum(x.cost)}</td><td class="num">${stmtNum(x.profit)}</td></tr>`).join('')}
+    <tr class="stmt-sub"><td colspan="2">Sub Total — ${escapeHtml(g.ipo)}</td><td class="num">${stmtNum(g.tot.sales)}</td><td class="num">${stmtNum(g.tot.cost)}</td><td class="num">${stmtNum(g.tot.profit)}</td></tr>`).join('');
+  return `
+  <div class="section-card">
+    <div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>Statement for a sub-reference</h3><div class="spacer"></div>
+      <button class="btn btn-primary" ${D.count?'':'disabled'} onclick="stmtDownload()">Download PDF</button></div>
+    <div class="sc-body">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-group"><label>Sub-reference</label><select onchange="setStmt('sub', this.value)">${subOpts || '<option value="">(none)</option>'}</select></div>
+        <div class="f-group"><label>Period</label><select onchange="setStmt('period', this.value)">${perOpts}</select></div>
+        ${subStmtState.period==='custom' ? `<div class="f-group"><label>From</label><input type="date" value="${subStmtState.from}" onchange="setStmt('from', this.value)"></div><div class="f-group"><label>To</label><input type="date" value="${subStmtState.to}" onchange="setStmt('to', this.value)"></div>` : ''}
+        <div class="small-muted" style="padding-bottom:8px;">${stmtPeriodText(D.range)} · by sale date</div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        <div class="kpi-card"><div class="lbl">Names</div><div class="val">${D.names}</div><div class="small-muted">of ${D.people} under this sub-reference</div></div>
+        <div class="kpi-card"><div class="lbl">Sales made</div><div class="val">${D.count}</div></div>
+        <div class="kpi-card"><div class="lbl">Total sales</div><div class="val">${fmtMoney(D.total.sales)}</div></div>
+        <div class="kpi-card"><div class="lbl">Total cost</div><div class="val">${fmtMoney(D.total.cost)}</div></div>
+        <div class="kpi-card"><div class="lbl">Total profit</div><div class="val gold">${fmtMoney(D.total.profit)}</div></div>
+      </div>
+      ${D.count ? `<div class="table-wrap"><table class="dt stmt-prev" data-enh="1"><thead><tr><th>Sale Date</th><th>Name</th><th class="num">Sales</th><th class="num">Cost</th><th class="num">Profit</th></tr></thead><tbody>${body}
+        <tr class="stmt-grand"><td colspan="2">Grand Total</td><td class="num">${stmtNum(D.total.sales)}</td><td class="num">${stmtNum(D.total.cost)}</td><td class="num">${stmtNum(D.total.profit)}</td></tr></tbody></table></div>`
+        : `<p class="small-muted">No sales in this period for ${escapeHtml(stmtSubLabel(D.sub))}. Try another period.</p>`}
+      <p class="hint">Only sold applications are included, by sale date, in rupees. The PDF has the same figures: a summary on top, each IPO with its sub total, and the grand total at the end.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------- PDF writer (A4, Helvetica, no library) ---------- */
+const STMT_W = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+function stmtClean(t){ return String(t==null?'':t).replace(/[–—]/g,'-').replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/[^\x20-\x7E]/g,'?'); }
+function stmtWidth(t, size, bold){ let w = 0; for (const ch of stmtClean(t)){ const c = ch.charCodeAt(0)-32; w += (STMT_W[c]||556) * ((bold && !/[0-9 ,.\-]/.test(ch)) ? 1.06 : 1); } return w*size/1000; }
+function stmtFit(t, size, bold, maxW){ t = stmtClean(t); if (stmtWidth(t,size,bold) <= maxW) return t; while (t.length>1 && stmtWidth(t+'...',size,bold) > maxW) t = t.slice(0,-1); return t+'...'; }
+function stmtEsc(t){ return stmtClean(t).replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)'); }
+
+function stmtBuildPdf(D){
+  const PW = 595, PH = 842, M = 40, RIGHT = PW - M;
+  const COL = { date:M, name:M+88, sales:M+330, cost:M+410, profit:RIGHT };
+  const pages = []; let ops = null, y = 0;
+  const newPage = () => { ops = []; pages.push(ops); y = PH - M; };
+  const fillC = (g) => ops.push(`${g} ${g} ${g} rg`);
+  const text = (t, x, yy, size, bold, align) => {
+    t = stmtClean(t); const w = stmtWidth(t,size,bold); const px = align==='r' ? x - w : x;
+    ops.push(`BT /${bold?'F2':'F1'} ${size} Tf ${px.toFixed(2)} ${yy.toFixed(2)} Td (${stmtEsc(t)}) Tj ET`);
+  };
+  const rect = (x, yy, w, h, g) => { fillC(g); ops.push(`${x.toFixed(2)} ${yy.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`); fillC(0); };
+  const line = (x1, yy, x2, wdt, g) => { ops.push(`${g} G ${wdt} w ${x1} ${yy.toFixed(2)} m ${x2} ${yy.toFixed(2)} l S`); };
+  const colHead = () => {
+    rect(M, y-16, RIGHT-M, 20, 0.90);
+    text('Sale Date', COL.date+4, y-10, 9, true); text('Name', COL.name, y-10, 9, true);
+    text('Sales (Rs.)', COL.sales, y-10, 9, true, 'r'); text('Cost (Rs.)', COL.cost, y-10, 9, true, 'r'); text('Profit (Rs.)', COL.profit-4, y-10, 9, true, 'r');
+    y -= 24;
+  };
+  const need = (h) => { if (y - h < M + 28){ newPage(); colHead(); return true; } return false; };
+
+  newPage();
+  text('Statement', M, y-14, 20, true);
+  text('Sub-reference: ' + stmtSubLabel(D.sub), M, y-36, 13, true);
+  text('Period: ' + stmtPeriodText(D.range) + '  (by sale date)', M, y-54, 10, false);
+  text('Prepared on ' + fmtDate(todayStr()), RIGHT, y-14, 9, false, 'r');
+  y -= 72;
+  // summary box
+  const bh = 58; rect(M, y-bh, RIGHT-M, bh, 0.95);
+  const cells = [['Names', String(D.names)], ['Sales made', String(D.count)], ['Total sales (Rs.)', stmtNum(D.total.sales)], ['Total cost (Rs.)', stmtNum(D.total.cost)], ['Total profit (Rs.)', stmtNum(D.total.profit)]];
+  const cw = (RIGHT-M)/cells.length;
+  cells.forEach((c,i)=>{ text(c[0], M+i*cw+10, y-20, 8.5, false); text(c[1], M+i*cw+10, y-42, 13, true); });
+  y -= bh + 18;
+  colHead();
+
+  D.groups.forEach(g => {
+    need(18 + 17*2 + 20);
+    rect(M, y-15, RIGHT-M, 19, 0.96);
+    text(g.ipo, M+4, y-9, 10, true); y -= 21;
+    g.rows.forEach(x => {
+      if (need(17)) { rect(M, y-15, RIGHT-M, 19, 0.96); text(g.ipo + ' (continued)', M+4, y-9, 10, true); y -= 21; }
+      text(fmtDate(x.date), COL.date+4, y-9, 9.5, false);
+      text(stmtFit(x.name, 9.5, false, COL.sales-70-COL.name), COL.name, y-9, 9.5, false);
+      text(stmtNum(x.sales), COL.sales, y-9, 9.5, false, 'r'); text(stmtNum(x.cost), COL.cost, y-9, 9.5, false, 'r'); text(stmtNum(x.profit), COL.profit-4, y-9, 9.5, false, 'r');
+      line(M, y-14, RIGHT, 0.4, 0.85); y -= 17;
+    });
+    need(20);
+    line(M, y+1, RIGHT, 0.8, 0.4);
+    text('Sub Total - ' + g.ipo, M+4, y-12, 9.5, true);
+    text(stmtNum(g.tot.sales), COL.sales, y-12, 9.5, true, 'r'); text(stmtNum(g.tot.cost), COL.cost, y-12, 9.5, true, 'r'); text(stmtNum(g.tot.profit), COL.profit-4, y-12, 9.5, true, 'r');
+    y -= 28;
+  });
+  need(30);
+  rect(M, y-20, RIGHT-M, 24, 0.86);
+  text('Grand Total', M+4, y-12, 11, true);
+  text(stmtNum(D.total.sales), COL.sales, y-12, 11, true, 'r'); text(stmtNum(D.total.cost), COL.cost, y-12, 11, true, 'r'); text(stmtNum(D.total.profit), COL.profit-4, y-12, 11, true, 'r');
+
+  // page numbers
+  pages.forEach((p, i) => { const t = 'Page ' + (i+1) + ' of ' + pages.length; const w = stmtWidth(t, 8, false); p.push(`BT /F1 8 Tf ${(PW/2 - w/2).toFixed(2)} 22 Td (${stmtEsc(t)}) Tj ET`); });
+
+  // assemble objects
+  const objs = []; const add = s => { objs.push(s); return objs.length; };
+  const catalog = add(''), pagesObj = add(''), f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'), f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const kids = [];
+  pages.forEach(p => {
+    const stream = p.join('\n');
+    const c = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`));
+  });
+  objs[catalog-1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`;
+  objs[pagesObj-1] = `<< /Type /Pages /Kids [${kids.map(k=>k+' 0 R').join(' ')}] /Count ${kids.length} >>`;
+  let out = '%PDF-1.4\n'; const offs = [];
+  objs.forEach((o,i) => { offs.push(out.length); out += `${i+1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length+1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10,'0') + ' 00000 n \n').join('');
+  out += `trailer\n<< /Size ${objs.length+1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const bytes = new Uint8Array(out.length); for (let i=0;i<out.length;i++) bytes[i] = out.charCodeAt(i) & 255;
+  return bytes;
+}
+function stmtDownload(){
+  const D = stmtData(); if (!D.count){ toast('No sales in this period','warn'); return; }
+  const bytes = stmtBuildPdf(D);
+  const r = D.range, tag = (r.from.startsWith('0001') ? 'upto' : r.from) + '_to_' + (r.to.startsWith('9999') ? todayStr() : r.to);
+  const name = 'Statement_' + stmtClean(stmtSubLabel(D.sub)).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'') + '_' + tag + '.pdf';
+  const blob = new Blob([bytes], { type:'application/pdf' }), url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  toast('Statement downloaded: ' + name, 'ok');
 }
 
 </script>
