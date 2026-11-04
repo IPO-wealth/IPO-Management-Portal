@@ -890,6 +890,7 @@ async function syncPlanClientCount(plan){
 // ---- bank capacity ----
 // The per-bank-per-day mandate limit comes ONLY from Settings (any whole number >= 1). 6 is just the starting default.
 function capacityLimit(){ const n = Math.floor(Number(S.settings.mandateCapacityPerBankPerDay)); return n >= 1 ? n : 6; }
+function bankMandateCap(bankId){ const b = findBank(bankId); const n = b ? Math.floor(Number(b.mandateCap)) : NaN; return n >= 1 ? n : capacityLimit(); }
 function bankCapacity(bankAccountId, dateStr){
   const plans = S.ipoPlans.filter(p => p.bankAccountId === bankAccountId && p.plannedDate === dateStr && p.planStatus !== 'Cancelled');
   // Mandates = total individual client applications planned through this bank on this
@@ -897,7 +898,7 @@ function bankCapacity(bankAccountId, dateStr){
   // 6 mandates, not 1 — each client needs their own separate application/mandate
   // regardless of how many share the same IPO/bank/date.
   const planned = plans.reduce((s,p) => s + planClientCount(p), 0);
-  const capacity = (typeof fpCap==='function') ? fpCap(bankAccountId, dateStr) : capacityLimit();
+  const capacity = bankMandateCap(bankAccountId);
   const available = capacity - planned;
   const utilisation = capacity ? Math.round((planned / capacity) * 1000) / 10 : (planned ? 100 : 0);
   let status = 'Available';
@@ -1582,7 +1583,6 @@ function viewClients(){
         { key:'referenceName', label:'Reference' },
         { hidden:true, key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
         { hidden:true, key:'profitSharePct', label:'Our Share', num:true, val:r=>{ const o=clientOwnShare(r); return o!==null?o:defaultProfitShare(); }, render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b>${o}%</b>` : `<span class="small-muted">${defaultProfitShare()}% (default)</span>`; } },
-        { hidden:true, key:'priority', label:'Planning Order', num:true, val:r=>r.priority!=null&&r.priority!==''?Number(r.priority):'', render:r=>r.priority!=null&&r.priority!==''?r.priority:'—' },
         { hidden:true, key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>clientStats(r.id).apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" ${navAttr('applications',{clientId:r.clientName},'appsTbl')}>${clientStats(r.id).apps.length}</a>` },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>clientStats(r.id).allotted.length, render:r=>clientStats(r.id).allotted.length },
@@ -1608,7 +1608,6 @@ function clientFields(c){
     { key:'referenceName', label:'Reference', type:'select', options:S.settings.references, required:true },
     { key:'subReference', label:'Sub Reference', type:'select', options:['',...(S.settings.subReferences||[])], placeholder:'None' },
     { key:'status', label:'Status', type:'select', options:['Active','Inactive'] },
-    { key:'priority', label:'Planning order (optional)', type:'number', hint:'Lower number = placed first by the Fund planner. Blank = after everyone who has a number.' },
     { key:'profitSharePct', label:'Our Profit Share % (optional)', type:'number', hint:`Leave blank for the standard ${defaultProfitShare()}% (Settings → Profit Sharing). Fill in only for a client with a different deal — it applies to this client's NEW applications.` }
   ].map(f => fieldHtml(f, c ? c[f.key] : (f.key==='status'?'Active':''))).join('');
 }
@@ -1619,14 +1618,13 @@ function editClient(id){
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveClient(${id||'null'})">Save</button>`);
 }
 async function saveClient(id, force){
-  const fields = [{key:'clientName'},{key:'referenceName'},{key:'subReference'},{key:'status'},{key:'priority',type:'number'},{key:'profitSharePct',type:'number'}];
+  const fields = [{key:'clientName'},{key:'referenceName'},{key:'subReference'},{key:'status'},{key:'profitSharePct',type:'number'}];
   const data = readFields(fields);
   // Normalize: trim accidental leading/trailing spaces and collapse doubled internal spaces.
   data.clientName = (data.clientName||'').trim().replace(/\s+/g,' ');
   data.referenceName = (data.referenceName||'').trim().replace(/\s+/g,' ');
   data.subReference = (data.subReference||'').trim().replace(/\s+/g,' ');
   if (!data.clientName){ toast('Client name is required','warn'); return; }
-  if (data.priority === undefined || isNaN(data.priority)) data.priority = null;
   if (data.profitSharePct === null || data.profitSharePct === undefined || isNaN(data.profitSharePct)) data.profitSharePct = null;
   else if (data.profitSharePct < 0 || data.profitSharePct > 100){ toast('Profit share must be between 0 and 100','warn'); return; }
 
@@ -1720,7 +1718,6 @@ function viewClientDetail(id){
       <td>${fmtDate(a.saleDate)}</td>
       <td>${calc.applicable?fmtMoney(calc.grossFinal):'—'}${calc.grossOverridden?overrideBadge('Gross Received', calc.calculatedGross, calc.grossFinal, a.overrideReason, a.overrideChangedAt):''}</td>
       <td>${calc.applicable?fmtMoney(calc.ourFinal):'—'}${calc.ourOverridden?overrideBadge('Our Profit', calc.calculatedOur, calc.ourFinal, a.overrideReason, a.overrideChangedAt):''}</td>
-      <td>${payoutBadge(a)}</td>
     </tr>`;
   }).join('') || `<tr class="empty-row"><td colspan="11">No IPO history yet.</td></tr>`;
 
@@ -1763,21 +1760,20 @@ function viewClientDetail(id){
     <div class="sc-head"><h3>IPO History</h3></div>
     <div class="sc-body table-wrap">
       <table class="dt"><thead><tr>
-        <th>IPO</th><th>Planned</th><th>App Status</th><th>Bank</th><th>App Date</th><th>Amount Applied</th><th>Allotment</th><th>Sale Date</th><th>Gross Received</th><th>Our Profit</th><th>Client Payout</th>
+        <th>IPO</th><th>Planned</th><th>App Status</th><th>Bank</th><th>App Date</th><th>Amount Applied</th><th>Allotment</th><th>Sale Date</th><th>Gross Received</th><th>Our Profit</th>
       </tr></thead><tbody>${rows}</tbody></table>
     </div>
   </div>`;
 }
 </script>
 <script>
-/* =================== CLIENT LEDGER: payments, payouts, statements =================== */
+/* =================== CLIENT LEDGER: payments, statements =================== */
 /* Two money flows per client, both tracked in the "payments" store:
      'in'  = money received FROM the client (against the gross amount due on their sales)
      'out' = money paid TO the client (their share of the profit)
    Every payment is applied to the client's oldest unpaid sales first and remembers which sales it covered
    ("allocations"), so partial payments, ageing and real days-to-pay all work. A sale flips to "Received"
-   automatically once fully covered. Payouts are only tracked from a start date you choose, so old sales that
-   were already settled never show up as unsettled. */
+   automatically once fully covered. */
 const PAY_MODES = ['UPI','Bank Transfer','Cash','Cheque','Other'];
 const r2 = n => Math.round((Number(n)||0)*100)/100;
 var __payIdx = null;
@@ -1799,37 +1795,18 @@ function recvDue(a){
   const c = calcAllotmentSale(a); if (!c.applicable) return 0;
   return Math.max(0, r2(c.grossFinal - allocatedTo(a.id,'in')));
 }
-// money still to pay the client for one sale (0 unless payout tracking covers it)
-function payoutDue(a){
-  const start = S.settings.payoutTrackFrom;
-  if (!start || !a.saleDate || a.saleDate < start) return 0;
-  const c = calcAllotmentSale(a); if (!c.applicable) return 0;
-  return Math.max(0, r2(c.clientFinal - allocatedTo(a.id,'out')));
-}
-function payoutState(a){
-  const start = S.settings.payoutTrackFrom;
-  if (!start || !a.saleDate || a.saleDate < start) return null;
-  const c = calcAllotmentSale(a); if (!c.applicable) return null;
-  const due = payoutDue(a);
-  if (due <= 0.5) return 'Settled';
-  return allocatedTo(a.id,'out') > 0 ? 'Part paid' : 'Unsettled';
-}
-function payoutBadge(a){
-  const s = payoutState(a); if (!s) return '<span class="small-muted">—</span>';
-  return `<span class="badge ${s==='Settled'?'green':s==='Part paid'?'gold':'red'}">${s}</span>`;
-}
 function clientDues(clientId, type){
-  return S.applications.filter(a=>a.clientId===clientId && (type==='in' ? recvDue(a) > 0.5 : payoutDue(a) > 0.5))
+  return S.applications.filter(a=>a.clientId===clientId && recvDue(a) > 0.5)
     .sort((x,y)=>(x.saleDate||'').localeCompare(y.saleDate||'') || x.id - y.id);
 }
-function clientDueTotal(clientId, type){ return r2(clientDues(clientId,type).reduce((s,a)=>s+(type==='in'?recvDue(a):payoutDue(a)),0)); }
+function clientDueTotal(clientId, type){ return r2(clientDues(clientId,type).reduce((s,a)=>s+recvDue(a),0)); }
 
 // split an amount over the client's oldest unpaid sales first
 function allocateAmount(clientId, type, amount){
   let rem = r2(amount); const allocs = [];
   for (const a of clientDues(clientId, type)){
     if (rem <= 0.005) break;
-    const due = type==='in' ? recvDue(a) : payoutDue(a);
+    const due = recvDue(a);
     const take = Math.min(rem, due);
     if (take > 0.005){ allocs.push({ appId:a.id, amount:r2(take) }); rem = r2(rem - take); }
   }
@@ -1850,13 +1827,9 @@ async function syncReceivedFlags(appIds, dateStr){
 
 function recordPayment(clientId, type){
   const cl = findClient(clientId); if (!cl) return;
-  if (type === 'out' && !S.settings.payoutTrackFrom){ askPayoutStart(clientId); return; }
   const due = clientDueTotal(clientId, type), n = clientDues(clientId, type).length;
-  const isIn = type === 'in';
-  openModal(isIn ? `Payment Received — ${escapeHtml(cl.clientName)}` : `Payout to Client — ${escapeHtml(cl.clientName)}`,
-    `<p class="small-muted" style="margin-bottom:10px;">${isIn
-        ? `Outstanding from this client: <b>${fmtMoney(due)}</b> across ${n} sale(s).`
-        : `Client's profit still to pay out: <b>${fmtMoney(due)}</b> across ${n} sale(s) (tracked from ${fmtDate(S.settings.payoutTrackFrom)}).`}
+  openModal(`Payment Received — ${escapeHtml(cl.clientName)}`,
+    `<p class="small-muted" style="margin-bottom:10px;">Outstanding from this client: <b>${fmtMoney(due)}</b> across ${n} sale(s).
        The amount is applied to the oldest unpaid sales first.</p>
      <div class="form-grid">
        ${fieldHtml({key:'payDate',label:'Date',type:'date',required:true}, todayStr())}
@@ -1874,7 +1847,7 @@ async function savePayment(clientId, type){
   const rec = { clientId, type, date:f.payDate, amount:r2(f.payAmount), mode:f.payMode||'Other', note:(f.payNote||'').trim(), allocations:allocs, unallocated:rem,
                 createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
   const id = await putRec('payments', rec); rec.id = id; S.payments.push(rec); payIdxReset();
-  await audit(type==='in'?'Payment Received':'Payout To Client','Payment', id, null, rec);
+  await audit('Payment Received','Payment', id, null, rec);
   if (type === 'in') await syncReceivedFlags(allocs.map(x=>x.appId), f.payDate);
   closeModal();
   toast(rem > 0.5 ? `Saved — ${fmtMoney(rem)} is not matched to any sale yet (kept as credit)` : 'Payment saved', rem>0.5?'warn':'ok');
@@ -1883,7 +1856,7 @@ async function savePayment(clientId, type){
 // use up leftover credit on sales that have become due since the payment was made
 async function applyCredits(clientId){
   let applied = 0;
-  for (const type of ['in','out']){
+  for (const type of ['in']){
     const pays = S.payments.filter(p=>p.clientId===clientId && p.type===type && (p.unallocated||0) > 0.5).sort((a,b)=>a.date.localeCompare(b.date));
     for (const p of pays){
       const { allocs, rem } = allocateAmount(clientId, type, p.unallocated);
@@ -1899,7 +1872,7 @@ async function applyCredits(clientId){
 }
 function deletePayment(id){
   const p = S.payments.find(x=>x.id===id); if (!p) return;
-  confirmAction(`Delete this ${p.type==='in'?'payment received':'payout'} of ${fmtMoney(p.amount)} on ${fmtDate(p.date)}? The sales it covered become unpaid again.`, async () => {
+  confirmAction(`Delete this payment received of ${fmtMoney(p.amount)} on ${fmtDate(p.date)}? The sales it covered become unpaid again.`, async () => {
     await delRec('payments', id);
     S.payments = S.payments.filter(x=>x.id!==id); payIdxReset();
     if (p.type === 'in'){
@@ -1916,30 +1889,14 @@ function deletePayment(id){
     toast('Payment deleted','ok'); navigate('clients', { id: p.clientId });
   });
 }
-function askPayoutStart(clientId){
-  openModal('Start Tracking Client Payouts',
-    `<p style="font-size:13px;line-height:1.6;">Pick the date from which you want to track what you pay out to clients. Sales <b>before</b> this date are treated as already settled, so old sales don't all show up as unpaid. Sales on or after it show as <b>Unsettled</b> until you record payouts.</p>
-     <div class="form-grid">${fieldHtml({key:'payoutStart',label:'Track payouts from',type:'date',required:true}, todayStr())}</div>
-     <p class="hint">You can change this later in Settings.</p>`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="savePayoutStart(${clientId||'null'})">Start Tracking</button>`);
-}
-async function savePayoutStart(clientId){
-  const d = document.getElementById('fld_payoutStart').value;
-  if (!d){ toast('Choose a date','warn'); return; }
-  await saveSetting('payoutTrackFrom', d); payIdxReset();
-  closeModal(); toast(`Tracking client payouts from ${fmtDate(d)}`,'ok');
-  if (clientId) recordPayment(clientId, 'out'); else navigate('settings');
-}
-
 /* ---- account card on the client page ---- */
 function clientAccountCardHtml(c){
-  const receivable = clientDueTotal(c.id,'in'), payable = clientDueTotal(c.id,'out');
-  const tracking = !!S.settings.payoutTrackFrom;
-  const pays = S.payments.filter(p=>p.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date) || b.id-a.id);
-  const received = pays.filter(p=>p.type==='in').reduce((s,p)=>s+p.amount,0), paidOut = pays.filter(p=>p.type==='out').reduce((s,p)=>s+p.amount,0);
+  const receivable = clientDueTotal(c.id,'in');
+  const pays = S.payments.filter(p=>p.clientId===c.id && p.type==='in').sort((a,b)=>b.date.localeCompare(a.date) || b.id-a.id);
+  const received = pays.filter(p=>p.type==='in').reduce((s,p)=>s+p.amount,0);
   const credit = pays.reduce((s,p)=>s+(p.unallocated||0),0);
   const rows = pays.map(p=>`<tr><td>${fmtDate(p.date)}</td>
-      <td><span class="badge ${p.type==='in'?'green':'blue'}">${p.type==='in'?'Received':'Paid to client'}</span></td>
+      <td><span class="badge green">Received</span></td>
       <td><b>${fmtMoney(p.amount)}</b></td><td>${escapeHtml(p.mode||'')}</td><td>${escapeHtml(p.note||'')}</td>
       <td class="small-muted">${(p.allocations||[]).length} sale(s)${p.unallocated>0.5?` · <span class="danger">${fmtMoney(p.unallocated)} unapplied</span>`:''}</td>
       <td class="no-print"><button class="btn btn-sm btn-danger" onclick="deletePayment(${p.id})">Delete</button></td></tr>`).join('') || `<tr class="empty-row"><td colspan="7">No payments recorded yet.</td></tr>`;
@@ -1947,17 +1904,13 @@ function clientAccountCardHtml(c){
   <div class="section-card no-print">
     <div class="sc-head"><h3>Account &amp; Payments</h3><div class="spacer"></div>
       <button class="btn btn-primary btn-sm" onclick="recordPayment(${c.id},'in')">+ Payment Received</button>
-      <button class="btn btn-gold btn-sm" onclick="recordPayment(${c.id},'out')">+ Payout to Client</button>
       ${credit>0.5?`<button class="btn btn-ghost btn-sm" onclick="applyCredits(${c.id})">Apply ${fmtMoney(credit)} unapplied credit</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="navigate('clients',{id:${c.id},statement:true})">Statement</button></div>
     <div class="sc-body">
       <div class="kpi-grid" style="margin-bottom:12px;">
         <div class="kpi-card"><div class="lbl">Still to Receive From Client</div><div class="val ${receivable>0?'danger':''}">${fmtMoney(receivable)}</div></div>
         <div class="kpi-card"><div class="lbl">Received (recorded payments)</div><div class="val ok">${fmtMoney(received)}</div></div>
-        <div class="kpi-card"><div class="lbl">Client's Profit Still to Pay</div><div class="val ${payable>0?'danger':''}">${tracking?fmtMoney(payable):'—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Paid Out to Client</div><div class="val">${fmtMoney(paidOut)}</div></div>
       </div>
-      ${tracking?'':`<p class="small-muted">Client payout tracking is off. Click <b>+ Payout to Client</b> to choose a start date.</p>`}
       <div class="table-wrap"><table class="dt"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Mode</th><th>Note</th><th>Applied to</th><th class="no-print"></th></tr></thead><tbody>${rows}</tbody></table></div>
     </div>
   </div>`;
@@ -1969,22 +1922,19 @@ function setStmt(k, v){ stmtState[k] = v; render(); }
 function bizName(){ return (S.settings.businessName || '').trim() || 'IPO Management Portal'; }
 function clientStatementData(clientId, r){
   const apps = S.applications.filter(a=>a.clientId===clientId);
-  const start = S.settings.payoutTrackFrom;
-  const recv = [], pay = [], sales = [];
+  const recv = [], sales = [];
   apps.forEach(a=>{
     const c = calcAllotmentSale(a); if (!c.applicable || !a.saleDate) return;
     const ipo = findIpo(a.ipoId), nm = ipo ? ipo.ipoName : 'IPO';
     recv.push({ date:a.saleDate, kind:0, desc:`${nm} — sold; amount due`, debit:c.grossFinal, credit:0 });
     const al = allocatedTo(a.id,'in');
     if (a.amountReceiveStatus === 'Received' && al < c.grossFinal - 0.5) recv.push({ date:a.receivedDate || a.saleDate, kind:1, desc:`${nm} — marked received`, debit:0, credit:r2(c.grossFinal - al) });
-    if (start && a.saleDate >= start && c.clientFinal > 0) pay.push({ date:a.saleDate, kind:0, desc:`${nm} — client's profit`, debit:0, credit:c.clientFinal });
     sales.push({ a, c, ipo });
   });
-  S.payments.filter(p=>p.clientId===clientId).forEach(p=>{
-    const inn = p.type === 'in';
-    (inn ? recv : pay).push({ date:p.date, kind:1, desc:`${inn?'Payment received':'Paid to client'} — ${p.mode||''}${p.note?' ('+p.note+')':''}`, debit: inn?0:p.amount, credit: inn?p.amount:0 });
+  S.payments.filter(p=>p.clientId===clientId && p.type==='in').forEach(p=>{
+    recv.push({ date:p.date, kind:1, desc:`Payment received — ${p.mode||''}${p.note?' ('+p.note+')':''}`, debit:0, credit:p.amount });
   });
-  // receivable balance = debit − credit (client owes); payable balance = credit − debit (we owe)
+  // balance = debit − credit (client owes)
   const build = (list, sign) => {
     list.sort((x,y)=>x.date.localeCompare(y.date) || x.kind - y.kind);
     let bal = 0; const rows = []; let opening = 0, totDebit = 0, totCredit = 0;
@@ -1997,7 +1947,7 @@ function clientStatementData(clientId, r){
     return { rows, opening: r2(opening), closing: r2(bal), totDebit: r2(totDebit), totCredit: r2(totCredit) };
   };
   const inRangeSales = sales.filter(x=>x.a.saleDate >= r.from && x.a.saleDate <= r.to).sort((x,y)=>x.a.saleDate.localeCompare(y.a.saleDate));
-  return { recv: build(recv, 1), pay: build(pay, -1), sales: inRangeSales, tracking: !!start };
+  return { recv: build(recv, 1), sales: inRangeSales };
 }
 function stmtPeriodLabel(r){ return stmtState.preset==='all' ? 'All time' : `${fmtDate(r.from)} – ${fmtDate(r.to)}`; }
 function stmtSummaryText(c, D, r){
@@ -2005,7 +1955,6 @@ function stmtSummaryText(c, D, r){
   const lines = [`*${bizName()}*`, `Statement for ${c.clientName} — ${stmtPeriodLabel(r)}`, '',
     `Sales: ${D.sales.length}`, `Total profit: ${fmtMoney(tot.profit)}`, `Your share: ${fmtMoney(tot.theirs)}  |  Our share: ${fmtMoney(tot.ours)}`, '',
     `Received from you in this period: ${fmtMoney(D.recv.totCredit)}`, `Amount due to us (closing): ${fmtMoney(D.recv.closing)}`];
-  if (D.tracking) lines.push(`Paid to you in this period: ${fmtMoney(D.pay.totDebit)}`, `Your profit still to be paid (closing): ${fmtMoney(D.pay.closing)}`);
   lines.push('', `Generated ${fmtDate(todayStr())}`);
   return lines.join('\n');
 }
@@ -2037,8 +1986,8 @@ function viewClientStatement(id){
     const al = allocatedTo(x.a.id,'in');
     const payStatus = x.a.amountReceiveStatus==='Received' ? 'Received' : (al>0 ? 'Part paid' : (x.a.amountReceiveStatus||'—'));
     return `<tr><td>${fmtDate(x.a.saleDate)}</td><td>${escapeHtml(x.ipo?x.ipo.ipoName:'—')}</td><td style="text-align:right;">${fmtMoney(x.a.amountApplied)}</td><td style="text-align:right;">${fmtMoney(x.a.saleAmount)}</td>
-      <td style="text-align:right;">${fmtMoney(x.c.ourFinal+x.c.clientFinal)}</td><td style="text-align:right;">${appProfitShare(x.a)}%</td><td style="text-align:right;">${fmtMoney(x.c.ourFinal)}</td><td style="text-align:right;">${fmtMoney(x.c.clientFinal)}</td><td style="text-align:right;">${fmtMoney(x.c.grossFinal)}</td><td>${escapeHtml(payStatus)}</td>${D.tracking?`<td>${payoutState(x.a)||'—'}</td>`:''}</tr>`;
-  }).join('') || `<tr><td colspan="${D.tracking?11:10}" class="small-muted">No completed sales in this period.</td></tr>`;
+      <td style="text-align:right;">${fmtMoney(x.c.ourFinal+x.c.clientFinal)}</td><td style="text-align:right;">${appProfitShare(x.a)}%</td><td style="text-align:right;">${fmtMoney(x.c.ourFinal)}</td><td style="text-align:right;">${fmtMoney(x.c.clientFinal)}</td><td style="text-align:right;">${fmtMoney(x.c.grossFinal)}</td><td>${escapeHtml(payStatus)}</td></tr>`;
+  }).join('') || `<tr><td colspan="10" class="small-muted">No completed sales in this period.</td></tr>`;
   const logo = S.settings.businessLogo ? `<img src="${S.settings.businessLogo}" alt="" style="max-height:64px;max-width:200px;object-fit:contain;">` : '';
   return `
   <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
@@ -2061,14 +2010,11 @@ function viewClientStatement(id){
       <div class="kpi-card"><div class="lbl">Client's Share</div><div class="val gold">${fmtMoney(tot.theirs)}</div></div>
       <div class="kpi-card"><div class="lbl">Our Share</div><div class="val">${fmtMoney(tot.ours)}</div></div>
       <div class="kpi-card"><div class="lbl">Amount Due to Us (closing)</div><div class="val ${D.recv.closing>0.5?'danger':''}">${fmtMoney(D.recv.closing)}</div></div>
-      ${D.tracking?`<div class="kpi-card"><div class="lbl">Client Profit Still Unpaid (closing)</div><div class="val ${D.pay.closing>0.5?'danger':''}">${fmtMoney(D.pay.closing)}</div></div>`:''}
     </div>
     <h4 style="margin:0 0 8px;">Sales</h4>
-    <div class="table-wrap"><table class="dt stmt-table"><thead><tr><th>Sold On</th><th>IPO</th><th>Applied</th><th>Sale Amount</th><th>Total Profit</th><th>Our %</th><th>Our Share</th><th>Client's Share</th><th>Amount Due</th><th>Payment</th>${D.tracking?'<th>Payout</th>':''}</tr></thead><tbody>${saleRows}</tbody></table></div>
+    <div class="table-wrap"><table class="dt stmt-table"><thead><tr><th>Sold On</th><th>IPO</th><th>Applied</th><th>Sale Amount</th><th>Total Profit</th><th>Our %</th><th>Our Share</th><th>Client's Share</th><th>Amount Due</th><th>Payment</th></tr></thead><tbody>${saleRows}</tbody></table></div>
     <h4 style="margin:18px 0 8px;">Account — Money Due From Client</h4>
     <div class="table-wrap"><table class="dt stmt-table"><thead><tr><th>Date</th><th>Description</th><th style="text-align:right;">Due (+)</th><th style="text-align:right;">Received (−)</th><th style="text-align:right;">Balance Due</th></tr></thead><tbody>${ledgerRows(D.recv,1,'amount due to us')}</tbody></table></div>
-    ${D.tracking ? `<h4 style="margin:18px 0 8px;">Account — Client's Profit Payable</h4>
-    <div class="table-wrap"><table class="dt stmt-table"><thead><tr><th>Date</th><th>Description</th><th style="text-align:right;">Paid Out (−)</th><th style="text-align:right;">Profit Due (+)</th><th style="text-align:right;">Balance Payable</th></tr></thead><tbody>${ledgerRows(D.pay,-1,'profit still unpaid')}</tbody></table></div>` : ''}
     <p class="hint" style="margin-top:14px;">Amount due = the client's purchase amount plus our share of the profit on each sale; it reduces as payments are recorded. ${S.settings.statementFooter?escapeHtml(S.settings.statementFooter):'This is a computer-generated statement.'}</p>
   </div></div>`;
 }
@@ -2087,8 +2033,6 @@ function brandingCardHtml(){
         <div class="f-group"><label>Logo</label>
           ${S.settings.businessLogo?`<img src="${S.settings.businessLogo}" alt="" style="max-height:48px;display:block;margin-bottom:6px;"><button class="btn btn-ghost btn-sm" onclick="removeBusinessLogo()">Remove logo</button>`:''}
           <input type="file" accept="image/*" onchange="handleLogoUpload(this)"></div>
-        <div class="f-group"><label>Client payouts tracked from</label>
-          <input type="date" id="payoutStartInput" value="${S.settings.payoutTrackFrom||''}"><div class="hint">Sales before this date count as already settled. Leave empty to switch payout tracking off.</div></div>
       </div>
       <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="saveBranding()">Save</button>
     </div>
@@ -2098,7 +2042,6 @@ async function saveBranding(){
   await saveSetting('businessName', document.getElementById('bizNameInput').value.trim());
   await saveSetting('businessTagline', document.getElementById('bizTaglineInput').value.trim());
   await saveSetting('statementFooter', document.getElementById('bizFooterInput').value.trim());
-  await saveSetting('payoutTrackFrom', document.getElementById('payoutStartInput').value || '');
   payIdxReset(); toast('Business details saved','ok'); navigate('settings');
 }
 function handleLogoUpload(input){
@@ -2537,7 +2480,7 @@ function ipoFields(i){
     { key:'category', label:'Category (optional)', type:'select', options:['Mainboard','SME'], placeholder:'—' },
     { key:'issuePrice', label:'Issue Price per Share (optional)', type:'number' },
     { key:'lotSize', label:'Lot Size — shares per lot (optional)', type:'number' },
-    { key:'listingDate', label:'Listing / expected sale date (optional)', type:'date', hint:'Used by the Fund planner to know when allotted money comes back. If blank, it assumes 2 working days after allotment.' },
+    { key:'listingDate', label:'Listing / expected sale date (optional)', type:'date', hint:'Shown on the calendar.' },
     { key:'archiveStatus', label:'Active/Inactive', type:'select', options:['Active','Inactive'], hint:'Separate from the automatic Upcoming/Open/Closed lifecycle status below — this only controls whether the IPO is archived.' }
   ].map(f => fieldHtml(f, i ? (f.key==='archiveStatus' ? (i.archiveStatus||'Active') : i[f.key]) : (f.key==='archiveStatus' ? 'Active' : ''))).join('');
 }
@@ -2631,11 +2574,11 @@ let planningTab = 'plans'; // plans | calendar | variance | capacity
 
 function viewPlanning(){
   if (planningTab==='variance'||planningTab==='upcoming') planningTab='capacity';
+  if (planningTab==='funds') planningTab='plans';
   return `
   <div class="pills no-print">
     <button class="pill ${planningTab==='plans'?'on':''}" onclick="setPlanningTab('plans')">Plans</button>
     <button class="pill ${planningTab==='calendar'?'on':''}" onclick="setPlanningTab('calendar')">Calendar</button>
-    <button class="pill ${planningTab==='funds'?'on':''}" onclick="setPlanningTab('funds')">Fund planner</button>
     <button class="pill ${planningTab==='capacity'?'on':''}" onclick="setPlanningTab('capacity')">Capacity &amp; progress</button>
   </div>
   <div id="planningTabBody"></div>`;
@@ -2645,7 +2588,6 @@ function afterPlanning(){
   const el = document.getElementById('planningTabBody');
   if (planningTab==='plans') el.innerHTML = planningPlansTab();
   else if (planningTab==='calendar') el.innerHTML = planningCalendarTab();
-  else if (planningTab==='funds') el.innerHTML = fpTab();
   else if (planningTab==='capacity') el.innerHTML = planningCapacityTab() + planningUpcomingTab();
   if (planningTab==='plans') { setTimeout(()=>window.__tableRerender['plansTbl'] && window.__tableRerender['plansTbl'](), 0); }
 }
@@ -3355,8 +3297,6 @@ function viewAllotments(){
         { key:'ipoId', label:'IPO', options: sortedIpos().map(i=>i.ipoName), match:(r,v)=>{ const i=findIpo(r.ipoId); return i && i.ipoName===v; } },
         { key:'bankAccountId', label:'Bank', options: S.bankAccounts.map(b=>b.bankName), match:(r,v)=>{ const b=findBank(r.bankAccountId); return b && b.bankName===v; } },
         { key:'clientId', label:'Client', options: S.clients.map(c=>c.clientName), match:(r,v)=>{ const c=findClient(r.clientId); return c && c.clientName===v; } },
-        { key:'payout', label:'Payout', options:['Unsettled','Part paid','Settled'], match:(r,v)=>payoutState(r)===v },
-        { key:'aging', label:'Aging', options:['Overdue (>15 days)'], match:(r,v)=>recvDue(r)>0.5 && r.saleDate && dayDiff(r.saleDate,todayStr())>15 }
       ],
       pageSize: 12,
       stickyCol: 'clientId',
@@ -3370,7 +3310,6 @@ function viewAllotments(){
         { key:'saleAmount', label:'Sale Amount', num:true, sum:'money', val:r=>Number(r.saleAmount)||0, render:r=>r.saleAmount?fmtMoney(r.saleAmount):'—' },
         { hidden:true, key:'grossReceived', label:'Gross Received', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.grossFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.grossFinal)+(c.grossOverridden?overrideBadge('Gross Received', c.calculatedGross, c.grossFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
         { key:'amountReceiveStatus', label:'Recovery Status', val:r=>r.amountReceiveStatus||'', render:r=>r.amountReceiveStatus?`<span class="clickable" title="Click to quick-edit" onclick="event.stopPropagation(); quickEditRecoveryStatus(${r.id})">${badge(r.amountReceiveStatus)}</span>`:'—' },
-        { hidden:!S.settings.payoutTrackFrom, key:'payout', label:'Client Payout', val:r=>payoutState(r)||'—', render:r=>payoutBadge(r) },
         { key:'ourProfit', label:'Our Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.ourFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.ourFinal)+(c.ourOverridden?overrideBadge('Our Profit', c.calculatedOur, c.ourFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>{ const c=calcAllotmentSale(r); return c.applicable?c.clientFinal:0; }, render:r=>{ const c=calcAllotmentSale(r); return c.applicable?(fmtMoney(c.clientFinal)+(c.clientOverridden?overrideBadge('Client Profit', c.calculatedClient, c.clientFinal, r.overrideReason, r.overrideChangedAt):'')):'—'; } }
       ],
@@ -3780,11 +3719,9 @@ function dashboardBody(){
   const prevYearProfit = profitBetween(localDateStr(new Date(now.getFullYear()-1,0,1)), localDateStr(new Date(now.getFullYear()-1, now.getMonth(), now.getDate())));
   const recvList = S.applications.filter(a=>recvDue(a)>0.5);
   const toCollect = recvList.reduce((s,a)=>s+recvDue(a),0);
-  const overdueList = recvList.filter(a=>a.saleDate && dayDiff(a.saleDate,today)>15);
-  const overdueAmt = overdueList.reduce((s,a)=>s+recvDue(a),0);
+  const toSellList = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold');
   const pendingList = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
   const blocked = pendingList.reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
-  const owedList = S.applications.filter(a=>payoutDue(a)>0.5), owed = owedList.reduce((s,a)=>s+payoutDue(a),0);
   const monthGoal = Number(S.settings.monthlyProfitGoal)||0, yearGoal = Number(S.settings.yearlyProfitGoal)||0;
   const goalBar = (profit, goal) => { const pct = Math.min(100, Math.round(profit/goal*100)); return `<div class="progress mini"><div style="width:${pct}%"></div></div><div class="small-muted">${Math.round(profit/goal*100)}% of ${fmtMoney(goal)} goal</div>`; };
   const cards = `<div class="kpi-grid money-grid">
@@ -3792,10 +3729,10 @@ function dashboardBody(){
       ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${vsLine(monthlyProfit, monthlyClient, false)}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
     <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Profit — this year</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>
       ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${vsLine(yearlyProfit, yearlyClient, true)}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
-    <div class="kpi-card" ${drillAttr('Money still to collect', recvList)}><div class="lbl">To collect</div><div class="val ${overdueAmt?'danger':''}">${fmtMoney(toCollect)}</div>
-      <div class="small-muted">${recvList.length} sale${recvList.length===1?'':'s'}${overdueAmt?` · <b class="danger">${fmtMoney(overdueAmt)} overdue</b>`:''}</div></div>
-    ${S.settings.payoutTrackFrom ? `<div class="kpi-card" ${drillAttr('Profit owed to clients', owedList)}><div class="lbl">Owed to clients</div><div class="val">${fmtMoney(owed)}</div><div class="small-muted">${owedList.length} sale${owedList.length===1?'':'s'}</div></div>` : ''}
-    <div class="kpi-card" ${drillAttr('Capital blocked — awaiting allotment', pendingList)}><div class="lbl">Capital blocked</div><div class="val">${fmtMoney(blocked)}</div><div class="small-muted">${pendingList.length} application${pendingList.length===1?'':'s'} awaiting result</div></div>
+    <div class="kpi-card" ${drillAttr('Receivables pending', recvList)}><div class="lbl">Receivables pending</div><div class="val ${recvList.length?'danger':''}">${fmtMoney(toCollect)}</div>
+      <div class="small-muted">${recvList.length} sale${recvList.length===1?'':'s'} to collect</div></div>
+    <div class="kpi-card" ${drillAttr('Allotted — pending to sell', toSellList)}><div class="lbl">Pending to sell</div><div class="val">${toSellList.length}</div><div class="small-muted">allotted, not yet sold</div></div>
+    <div class="kpi-card" ${drillAttr('Awaiting allotment', pendingList)}><div class="lbl">Awaiting allotment</div><div class="val">${pendingList.length}</div><div class="small-muted">${fmtMoney(blocked)} blocked</div></div>
   </div>
   ${(!monthGoal && !yearGoal) ? '<div class="small-muted no-print" style="margin:-4px 2px 12px;">Want a target? <a href="javascript:void(0)" onclick="setSettingsTab(\'rules\');navigate(\'settings\')">Set a profit goal</a>.</div>' : ''}`;
 
@@ -3826,18 +3763,31 @@ function dashboardBody(){
       <div class="kpi-card" ${drillAttr('Sales in this period', soldInRange)}><div class="lbl" title="Profit from sales in the period ÷ number of sales">Avg profit / sale</div><div class="val">${fmtMoney(soldWithProfit?Math.round(profitInRange/soldWithProfit):0)}</div></div>
     </div>
     <p class="small-muted" style="margin-top:8px;">Applications are counted by application date, allotments by allotment date, profit and sales by sale date.</p></details>`;
-  return `${firstRunHtml()}${todayPanelHtml()}${cards}${period}`;
+  // ---- Receivables pending: who owes what (click a row to open the client) ----
+  const byClient = {};
+  recvList.forEach(a=>{ const g = byClient[a.clientId] || (byClient[a.clientId] = { id:a.clientId, apps:[], amt:0, oldest:'' }); g.apps.push(a); g.amt += recvDue(a); if (a.saleDate && (!g.oldest || a.saleDate<g.oldest)) g.oldest = a.saleDate; });
+  const recvRows = Object.values(byClient).sort((x,y)=>y.amt-x.amt);
+  const recvShow = recvRows.slice(0,8).map(g=>{ const c = findClient(g.id);
+    return `<tr class="clickable" onclick="navigate('clients',{id:${g.id}})"><td><b>${escapeHtml(c?c.clientName:'—')}</b></td>
+      <td>${g.apps.length}</td><td>${g.oldest?fmtDate(g.oldest):'—'}</td><td style="text-align:right;"><b>${fmtMoney(g.amt)}</b></td>${dcell((c?c.clientName:'Client')+' — receivables', g.apps, 'View')}</tr>`; }).join('');
+  const recvPanel = `<div class="section-card"><div class="sc-head"><h3>Receivables pending</h3><div class="spacer"></div>
+      ${recvList.length?`<button class="btn btn-ghost btn-sm" onclick="navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{amountReceiveStatus:'Receivable'}}})">View all ${recvList.length} sale${recvList.length===1?'':'s'}</button>`:''}</div>
+    <div class="sc-body">${recvRows.length
+      ? `<p class="small-muted" style="margin-bottom:8px;"><b>${fmtMoney(toCollect)}</b> across ${recvList.length} sale${recvList.length===1?'':'s'} from ${recvRows.length} client${recvRows.length===1?'':'s'}${recvRows.length>8?' — top 8 shown':''}. Click a client to open, or View to see the sales.</p>
+         <div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Sales</th><th>Oldest sale</th><th style="text-align:right;">Amount</th><th></th></tr></thead><tbody>${recvShow}</tbody></table></div>`
+      : '<p class="small-muted">Nothing pending — all sales have been collected.</p>'}</div></div>`;
+  return `${firstRunHtml()}${todayPanelHtml()}${cards}${recvPanel}${period}`;
 }
 </script>
 <script>
 /* =================== REPORTS =================== */
 let reportsTab = 'client';
 const REPORT_GROUPS = [
-  ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['profit','Profit explorer'],['gap','Our vs Client']]],
+  ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['gap','Our vs Client']]],
   ['money','Money',[['cashflow','Cash flow'],['roi','ROI & capital'],['settlement','Settlement']]],
-  ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['subref','By sub-reference'],['stmt','Statements (PDF)']]],
-  ['ipos','IPOs',[['ipo','IPO analysis'],['allotrate','Allotment rate']]],
-  ['banks','Banks',[['bank','Bank analysis'],['pva','Planned vs actual']]],
+  ['clients','Clients',[['client','Client analysis'],['scorecard','Scorecards'],['stmt','Statements (PDF)']]],
+  ['ipos','IPOs',[['ipo','IPO analysis']]],
+  ['banks','Banks',[['bank','Bank analysis']]],
   ['custom','Custom',[['pivot','Report builder']]]
 ];
 function viewReports(){
@@ -3854,18 +3804,14 @@ function reportsTabContent(){
   if (reportsTab==='client') return reportClientAnalysis();
   if (reportsTab==='ipo') return reportIpoAnalysis();
   if (reportsTab==='bank') return reportBankAnalysis();
-  if (reportsTab==='allotrate') return reportAllotmentRate();
   if (reportsTab==='scorecard') return reportClientScorecards();
   if (reportsTab==='pivot') return reportBuilder();
   if (reportsTab==='roi') return reportRoi();
   if (reportsTab==='cashflow') return reportCashFlow();
-  if (reportsTab==='profit') return reportProfitAnalysis();
   if (reportsTab==='gap') return reportGap();
   if (reportsTab==='trends'){ setTimeout(renderTrendsCharts, 0); return reportTrends(); }
   if (reportsTab==='yearly') return reportYearlySummary();
-  if (reportsTab==='pva') return planningVarianceTab();
   if (reportsTab==='settlement') return reportSettlement();
-  if (reportsTab==='subref') return reportSubReferenceProfit();
   if (reportsTab==='stmt') return reportStatements();
   return '';
 }
@@ -3912,11 +3858,6 @@ function reportTrends(){
   <div class="section-card">
     <div class="sc-head"><h3>Top 10 IPOs by Profit</h3></div>
     <div class="sc-body" id="topIposWrap"></div>
-  </div>
-
-  <div class="section-card">
-    <div class="sc-head"><h3>Aging Report — Pending Receivables</h3></div>
-    <div class="sc-body"><p class="small-muted">Sold applications still awaiting recovery, sorted by longest outstanding first. Anything over 15 days is flagged.</p><div id="agingReportWrap"></div></div>
   </div>`;
 }
 
@@ -4084,19 +4025,6 @@ function renderTrendsCharts(){
   if (topIposWrap) topIposWrap.innerHTML = ipoProfits.length
     ? `<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${ipoProfits.map(x=>`<tr class="clickable" onclick="navigate('ipos',{id:${x.id}})"><td>${escapeHtml(x.name)}</td><td>${fmtMoney(x.our)}</td><td>${fmtMoney(x.client)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small-muted">No profit recorded yet.</p>';
-
-  // ---- Aging report: sold + receivable, sorted by longest outstanding ----
-  const today = new Date(todayStr());
-  const aging = S.applications.filter(a=>a.saleStatus==='Sold' && a.amountReceiveStatus==='Receivable' && a.saleDate).map(a=>{
-    const c = findClient(a.clientId), b = findBank(a.bankAccountId), i = findIpo(a.ipoId);
-    const days = Math.round((today - new Date(a.saleDate)) / 86400000);
-    const calc = calcAllotmentSale(a);
-    return { clientDbId:a.clientId, client:c?c.clientName:'—', ipo:i?i.ipoName:'—', bank:b?b.bankName:'—', saleDate:a.saleDate, days, amount: calc.applicable?calc.grossFinal:0 };
-  }).sort((a,b)=>b.days-a.days);
-  const agingWrap = document.getElementById('agingReportWrap');
-  if (agingWrap) agingWrap.innerHTML = aging.length
-    ? `<div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>IPO</th><th>Bank</th><th>Sale Date</th><th>Days Outstanding</th><th>Amount</th></tr></thead><tbody>${aging.map(a=>`<tr class="clickable" onclick="navigate('clients',{id:${a.clientDbId}})"><td>${escapeHtml(a.client)}</td><td>${escapeHtml(a.ipo)}</td><td>${escapeHtml(a.bank)}</td><td>${fmtDate(a.saleDate)}</td><td class="${a.days>15?'danger':''}">${a.days} day${a.days===1?'':'s'}${a.days>15?' ⚠️':''}</td><td>${fmtMoney(a.amount)}</td></tr>`).join('')}</tbody></table></div>`
-    : '<p class="small-muted">Nothing pending — everything sold has been recovered.</p>';
 }
 
 let yearlySummaryYear = new Date().getFullYear();
@@ -4609,8 +4537,8 @@ function exportDrill(){
 }
 
 /* ---------- 18. Client scorecards ---------- */
-let scoreState = { sort:'profit', slowDays:15, ipoId:'' };
-function setScore(k, v){ scoreState[k] = (k==='slowDays') ? (Math.max(1, Math.floor(Number(v))||15)) : v; render(); }
+let scoreState = { sort:'profit', ipoId:'' };
+function setScore(k, v){ scoreState[k] = v; render(); }
 function clientScoreData(){
   const today = todayStr();
   const base = S.applications.filter(a => isLiveApp(a) && a.applicationStatus === 'Applied');
@@ -4624,20 +4552,19 @@ function clientScoreData(){
     const apps = base.filter(a=>a.clientId===cl.id);
     const al = apps.filter(a=>a.allotmentStatus==='Allotted'), na = apps.filter(a=>a.allotmentStatus==='Not Allotted');
     const decidedN = al.length + na.length;
-    let profit = 0, clientP = 0, soldN = 0, outAmt = 0, oldest = 0, paySum = 0, payN = 0;
+    let profit = 0, clientP = 0, soldN = 0, outAmt = 0, paySum = 0, payN = 0;
     const outApps = [];
     apps.forEach(a=>{
       const c = calcAllotmentSale(a); if (!c.applicable) return;
       profit += c.ourFinal; clientP += c.clientFinal; soldN++;
       if (a.amountReceiveStatus === 'Received' && a.receivedDate && a.saleDate){ paySum += Math.max(0, dayDiff(a.saleDate, a.receivedDate)); payN++; }
-      if (a.amountReceiveStatus === 'Receivable'){ outAmt += recvDue(a); outApps.push(a); if (a.saleDate) oldest = Math.max(oldest, dayDiff(a.saleDate, today)); }
+      if (a.amountReceiveStatus === 'Receivable'){ outAmt += recvDue(a); outApps.push(a); }
     });
-    const flag = !outApps.length ? 'Clear' : (oldest > scoreState.slowDays ? 'Slow payer' : 'Pending');
     // Expected profit per application: allotment rate (pulled toward the overall rate while there are few results) × typical profit per sale
     const smoothRate = (al.length + overallRate*3) / (decidedN + 3);
     const avgSale = soldN ? profit/soldN : overallAvgSale;
-    const expected = smoothRate * avgSale * (flag==='Slow payer' ? 0.5 : 1);
-    return { cl, apps, al, na, decidedN, rate: decidedN ? al.length/decidedN*100 : null, profit, clientP, soldN, avgPerApp: apps.length ? profit/apps.length : 0, outAmt, outApps, oldest, flag, expected, avgSale, payDays: payN ? paySum/payN : null, payN };
+    const expected = smoothRate * avgSale;
+    return { cl, apps, al, na, decidedN, rate: decidedN ? al.length/decidedN*100 : null, profit, clientP, soldN, avgPerApp: apps.length ? profit/apps.length : 0, outAmt, outApps, expected, avgSale, payDays: payN ? paySum/payN : null, payN };
   });
   return { rows, overallRate, overallAvgSale, today };
 }
@@ -4645,7 +4572,6 @@ function reportClientScorecards(){
   const D = clientScoreData();
   const sorters = { profit:(a,b)=>b.profit-a.profit, rate:(a,b)=>(b.rate??-1)-(a.rate??-1), avg:(a,b)=>b.avgPerApp-a.avgPerApp, outstanding:(a,b)=>b.outAmt-a.outAmt, apps:(a,b)=>b.apps.length-a.apps.length };
   const rows = D.rows.filter(r=>r.apps.length).sort(sorters[scoreState.sort]||sorters.profit);
-  const flagBadge = f => `<span class="badge ${f==='Clear'?'green':f==='Pending'?'gold':'red'}">${f}</span>`;
   const sortOpts = [['profit','Our profit'],['rate','Allotment rate'],['avg','Avg profit / application'],['outstanding','Outstanding amount'],['apps','Applications']].map(([k,l])=>`<option value="${k}" ${scoreState.sort===k?'selected':''}>${l}</option>`).join('');
   const body = rows.map(r=>`<tr>
     <td><a href="javascript:void(0)" onclick="openClientDetail(${r.cl.id})" style="color:var(--heading);font-weight:600;">${escapeHtml(r.cl.clientName)}</a>${r.cl.status==='Inactive'?' <span class="badge gray">Inactive</span>':''}<div class="small-muted">${escapeHtml(r.cl.referenceName||'—')}</div></td>
@@ -4655,7 +4581,7 @@ function reportClientScorecards(){
     <td>${r.rate==null?'—':`<b class="${r.rate/100>=D.overallRate?'ok':'danger'}">${r.rate.toFixed(0)}%</b>`}${r.decidedN<3?' <span class="small-muted" title="Fewer than 3 results — too early to judge">·</span>':''}</td>
     <td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.clientP)}</td><td>${fmtMoney(r.avgPerApp)}</td>
     ${dcell(`${r.cl.clientName} — amount still to receive`, r.outApps, r.outAmt?fmtMoney(r.outAmt):'—')}
-    <td>${r.outApps.length?`${r.oldest} days`:'—'}</td><td>${r.payDays==null?'—':r.payDays.toFixed(1)+' <span class="small-muted">('+r.payN+')</span>'}</td><td>${flagBadge(r.flag)}</td></tr>`).join('') || `<tr><td colspan="12" class="small-muted">No client applications yet.</td></tr>`;
+    <td>${r.payDays==null?'—':r.payDays.toFixed(1)+' <span class="small-muted">('+r.payN+')</span>'}</td></tr>`).join('') || `<tr><td colspan="10" class="small-muted">No client applications yet.</td></tr>`;
 
   // ---- who to prioritise for the next IPO ----
   const upcoming = S.ipos.filter(i=>ipoStatus(i)!=='Closed' && (i.archiveStatus||'Active')==='Active').sort((a,b)=>(a.openDate||'').localeCompare(b.openDate||''));
@@ -4668,29 +4594,28 @@ function reportClientScorecards(){
     prioHtml = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;"><label class="small-muted">For IPO</label>
       <select onchange="setScore('ipoId', this.value)">${upcoming.map(i=>`<option value="${i.id}" ${i.id===ipoId?'selected':''}>${escapeHtml(i.ipoName)} (${ipoStatus(i)})</option>`).join('')}</select>
       <span class="small-muted">Top ${cand.length} active clients not yet planned or applied for ${escapeHtml(ipo.ipoName)}</span></div>
-      <div class="table-wrap"><table class="dt"><thead><tr><th>#</th><th>Client</th><th>Reference</th><th>Allotment Rate</th><th>Avg Profit / Sale</th><th>Expected Profit / Application</th><th>Payment</th><th>Note</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="dt"><thead><tr><th>#</th><th>Client</th><th>Reference</th><th>Allotment Rate</th><th>Avg Profit / Sale</th><th>Expected Profit / Application</th><th>Note</th></tr></thead><tbody>
       ${cand.map((r,k)=>`<tr><td>${k+1}</td><td><a href="javascript:void(0)" onclick="openClientDetail(${r.cl.id})" style="color:var(--heading);font-weight:600;">${escapeHtml(r.cl.clientName)}</a></td><td>${escapeHtml(r.cl.referenceName||'—')}</td>
         <td>${r.rate==null?'—':r.rate.toFixed(0)+'%'} <span class="small-muted">(${r.decidedN} results)</span></td><td>${r.soldN?fmtMoney(r.avgSale):'<span class="small-muted">'+fmtMoney(r.avgSale)+' (avg)</span>'}</td>
-        <td><b>${fmtMoney(r.expected)}</b></td><td>${flagBadge(r.flag)}</td><td class="small-muted">${r.decidedN<3?'Few results yet — based mostly on the overall average':(r.flag==='Slow payer'?'Ranked lower — has overdue money':'')}</td></tr>`).join('') || '<tr><td colspan="8" class="small-muted">Every active client is already planned or applied for this IPO.</td></tr>'}
+        <td><b>${fmtMoney(r.expected)}</b></td><td class="small-muted">${r.decidedN<3?'Few results yet — based mostly on the overall average':''}</td></tr>`).join('') || '<tr><td colspan="8" class="small-muted">Every active client is already planned or applied for this IPO.</td></tr>'}
       </tbody></table></div>`;
   }
   return `
   <div class="section-card">
     <div class="sc-head"><h3>Who to Prioritise for the Next IPO</h3></div>
     <div class="sc-body">${prioHtml}
-      <p class="hint">Expected profit per application = the client's allotment rate × their usual profit per sale (halved if they have overdue money). With fewer than 3 results a client's rate is pulled toward the overall average (${(D.overallRate*100).toFixed(0)}%) so one lucky or unlucky result doesn't decide the ranking.</p></div>
+      <p class="hint">Expected profit per application = the client's allotment rate × their usual profit per sale. With fewer than 3 results a client's rate is pulled toward the overall average (${(D.overallRate*100).toFixed(0)}%) so one lucky or unlucky result doesn't decide the ranking.</p></div>
   </div>
   <div class="section-card">
     <div class="sc-head"><h3>Client Scorecards</h3></div>
     <div class="sc-body">
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
         <div class="f-group"><label>Sort by</label><select onchange="setScore('sort', this.value)">${sortOpts}</select></div>
-        <div class="f-group"><label>Mark "Slow payer" after (days)</label><input type="number" min="1" step="1" value="${scoreState.slowDays}" style="width:90px;" onchange="setScore('slowDays', this.value)"></div>
       </div>
       <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>Client</th><th>Applications</th><th>Results</th><th>Allotted</th><th>Allotment Rate</th><th>Our Profit</th><th>Client Profit</th><th>Avg Profit / Application</th><th>Still to Receive</th><th>Oldest Unpaid</th><th>Avg Days to Pay</th><th>Payment</th>
+        <th>Client</th><th>Applications</th><th>Results</th><th>Allotted</th><th>Allotment Rate</th><th>Our Profit</th><th>Client Profit</th><th>Avg Profit / Application</th><th>Still to Receive</th><th>Avg Days to Pay</th>
       </tr></thead><tbody>${body}</tbody></table></div>
-      <p class="hint"><b>Allotment rate</b> = allotted ÷ results declared (a dot means fewer than 3 results). Green = above your overall ${(D.overallRate*100).toFixed(0)}%. <b>Payment:</b> Clear = nothing owed; Pending = money receivable but not yet older than ${scoreState.slowDays} days; Slow payer = oldest unpaid sale is older than that. <b>Avg Days to Pay</b> = average days from sale to the date payment was recorded as received (only for payments recorded since the payment ledger was added; the number in brackets is how many sales it is based on). <b>Oldest Unpaid</b> = how long the oldest unpaid sale has been waiting. Click any count to see the records.</p>
+      <p class="hint"><b>Allotment rate</b> = allotted ÷ results declared (a dot means fewer than 3 results). Green = above your overall ${(D.overallRate*100).toFixed(0)}%. <b>Avg Days to Pay</b> = average days from sale to the date payment was recorded as received (only for payments recorded since the payment ledger was added; the number in brackets is how many sales it is based on). Click any count to see the records.</p>
     </div>
   </div>`;
 }
@@ -5295,7 +5220,7 @@ function viewSettingsRaw(){
   <div class="section-card">
     <div class="sc-head"><h3>Mandate Capacity</h3></div>
     <div class="sc-body">
-      <p class="small-muted">Usual number of client mandates allowed per bank per day. Used for capacity warnings across Planning, Bulk Plan Clients, and the Capacity Dashboard. Each bank can have its own number, and any date can be overridden, under Planning → Fund planner.</p>
+      <p class="small-muted">Usual number of client mandates allowed per bank per day. Used for capacity warnings across Planning, Bulk Plan Clients, and the Capacity Dashboard.</p>
       <div style="display:flex;gap:8px;align-items:center;">
         <input type="number" id="mandateCapInput" value="${capacityLimit()}" min="1" step="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
         <button class="btn btn-primary btn-sm" onclick="saveMandateCapacity()">Save</button>
@@ -6900,10 +6825,8 @@ function todoDigest(){
   dueRes.forEach(x=>items.push({ cls:'high', ico:'🏆', text:`Enter allotment result: ${x.i.ipoName} (${x.n} pending)`, go:`resultsState={ipoId:${x.i.id},pending:{}};navigate('results')` }));
   const toSell = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').length;
   if (toSell) items.push({ cls:'med', ico:'💰', text:`${toSell} allotted share${toSell===1?'':'s'} waiting to be sold`, go:`navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'}}})` });
-  const od = S.applications.filter(a=>recvDue(a)>0.5 && a.saleDate && dayDiff(a.saleDate,today)>15);
-  if (od.length) items.push({ cls:'high', ico:'⚠️', text:`${od.length} overdue receivable${od.length===1?'':'s'} — ${fmtMoney(od.reduce((s,a)=>s+recvDue(a),0))}`, go:`navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{aging:'Overdue (>15 days)'}}})` });
-  const pay = S.applications.reduce((s,a)=>s+payoutDue(a),0);
-  if (pay>0.5) items.push({ cls:'med', ico:'💸', text:`Client payouts due: ${fmtMoney(pay)}`, go:`navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{payout:'Unsettled'}}})` });
+  const rc = S.applications.filter(a=>recvDue(a)>0.5);
+  if (rc.length) items.push({ cls:'med', ico:'💵', text:`${rc.length} receivable${rc.length===1?'':'s'} pending — ${fmtMoney(rc.reduce((s,a)=>s+recvDue(a),0))}`, go:`navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{amountReceiveStatus:'Receivable'}}})` });
   S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{ const c=bankCapacity(b.id,today); if (c.status==='Over Capacity') items.push({ cls:'high', ico:'🏦', text:`${b.bankName} is over capacity today (${c.planned}/${c.capacity})`, go:"navigate('banks')" }); });
   const bk = daysSinceLastBackup(); if (bk===null || bk>7) items.push({ cls:'low', ico:'💾', text: bk===null?'No backup yet':`Last backup ${bk} days ago`, go:"setSettingsTab('data')" });
   return items;
@@ -6911,9 +6834,8 @@ function todoDigest(){
 function quickChipsHtml(){
   const chips = [
     ['Pending to Sell', "navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'}}})"],
-    ['Overdue receivable', "navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{aging:'Overdue (>15 days)'}}})"],
-    ['Awaiting allotment', "navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{allotmentStatus:'Pending'}}})"],
-    ['Payout unsettled', "navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{payout:'Unsettled'}}})"]
+    ['Receivables pending', "navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{amountReceiveStatus:'Receivable'}}})"],
+    ['Awaiting allotment', "navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{allotmentStatus:'Pending'}}})"]
   ].map(([l,f])=>`<button class="chip" onclick="${f}">${l}</button>`);
   const sp = S.settings.savedPresets || {}; const dest = { allotTbl:'allotments', appsTbl:'applications', clientsTbl:'clients', iposTbl:'ipos', banksTbl:'banks', plansTbl:'planning' };
   Object.entries(sp).forEach(([tid,list])=>(list||[]).forEach(p=>{ if(dest[tid]) chips.push(`<button class="chip star" title="Your saved view" data-nav='${escapeHtml(JSON.stringify({view:dest[tid],presetFilter:{tableId:tid,filterVals:p.filterVals||{},search:p.search||''}}))}' onclick="goFiltered(this)">⭐ ${escapeHtml(p.name)}</button>`); }));
@@ -7245,430 +7167,6 @@ window.syncToDrive = async function(){
   new MutationObserver(()=>{ if (busy) return; clearTimeout(timer); timer = setTimeout(run, 30); }).observe(document.body,{childList:true,subtree:true});
   window.enhanceTables = run;
 })();
-</script>
-<script>
-/* =================== FUND PLANNER ===================
-   Forecasts, day by day and bank by bank, how much money is free and how many mandates are left,
-   and suggests which clients should apply from which bank on which day for every upcoming IPO.
-   Model (all adjustable in Planning -> Fund planner -> Setup):
-   - Money is blocked from the application day.
-   - Not allotted: unblocked the day after the allotment date. If that is a weekend/holiday, each bank has its own split
-     (Day 1 % / Day 2 % / rest on the next working day).
-   - Allotted: money returns when the client pays = sale (listing) date + "payment delay" days.
-   - Unblocked money is reusable "reuse delay" days later (default 1 = the next day) so tight gaps are not relied upon.
-   - IPOs whose result is not known yet use the assumed allotment rate (your history, a number, or worst case = 100%). */
-let fpState = { include:true, days:14 };
-
-function fpCfg(){
-  const s = S.settings || {};
-  const num = (v, d) => { const n = Number(v); return (v===undefined||v===null||v===''||isNaN(n)) ? d : Math.max(0, n); };
-  return {
-    hol: new Set(Array.isArray(s.holidays) ? s.holidays : []),
-    payDelay: num(s.fpPayDelay, 1),
-    reuseDelay: num(s.fpReuseDelay, 1),
-    allot: (s.fpAllot===undefined || s.fpAllot===null || s.fpAllot==='') ? 'hist' : s.fpAllot
-  };
-}
-function fpD(s){ const p = s.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
-function fpAdd(s, n){ const d = fpD(s); d.setDate(d.getDate()+n); return localDateStr(d); }
-function fpWork(c, s){ const w = fpD(s).getDay(); return w!==0 && w!==6 && !c.hol.has(s); }
-function fpNextWork(c, s){ let x = s, i = 0; while (!fpWork(c,x) && i<60){ x = fpAdd(x,1); i++; } return x; }
-function fpAddWork(c, s, n){ let x = s; while (n>0){ x = fpAdd(x,1); if (fpWork(c,x)) n--; } return x; }
-function fpDays(from, to){ const out = []; let x = from, i = 0; while (x <= to && i < 400){ out.push(x); x = fpAdd(x,1); i++; } return out; }
-function fpDow(s){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][fpD(s).getDay()]; }
-function fpK(n){ n = Math.round(Number(n)||0); const a = Math.abs(n), sg = n<0?'−':''; if (a>=10000000) return sg+'₹'+(a/10000000).toFixed(2)+'Cr'; if (a>=100000) return sg+'₹'+(a/100000).toFixed(a>=1000000?1:2).replace(/\.?0+$/,'')+'L'; if (a>=1000) return sg+'₹'+(a/1000).toFixed(1).replace(/\.0$/,'')+'k'; return sg+'₹'+a; }
-
-function fpHistRate(){
-  let al = 0, na = 0;
-  S.applications.forEach(a => { if (!isLiveApp(a)) return; if (a.allotmentStatus==='Allotted') al++; else if (a.allotmentStatus==='Not Allotted') na++; });
-  return (al+na) >= 5 ? al/(al+na) : 1;
-}
-function fpRate(c){
-  if (c.allot === 'worst') return 1;
-  if (c.allot === 'hist') return fpHistRate();
-  const n = Number(c.allot); return (isNaN(n) ? 1 : Math.min(1, Math.max(0, n/100)));
-}
-function fpIpoDates(c, ipo){
-  const allot = ipo.allotmentDate || fpAddWork(c, ipo.closeDate, 1);
-  const sale = ipo.listingDate || fpAddWork(c, allot, 2);
-  return { allot, sale, pay: fpAdd(sale, c.payDelay) };
-}
-// Dates on which the money of a NOT-allotted application is unblocked, with the share released each day.
-function fpUnblock(c, bank, allot){
-  const d1 = fpAdd(allot, 1), W = fpNextWork(c, d1);
-  if (W === d1) return [{ date:d1, frac:1 }];
-  const p1 = Math.min(100, Math.max(0, Number(bank && bank.unblockDay1)||0)) / 100;
-  let p2 = Math.min(100, Math.max(0, Number(bank && bank.unblockDay2)||0)) / 100; if (p1+p2 > 1) p2 = 1-p1;
-  const d2 = fpAdd(d1, 1), out = [];
-  if (p1 > 0) out.push({ date:d1, frac:p1 });
-  if (d2 < W){ if (p2 > 0) out.push({ date:d2, frac:p2 }); out.push({ date:W, frac:1-p1-p2 }); }
-  else out.push({ date:W, frac:1-p1 });
-  return out.filter(x => x.frac > 1e-9);
-}
-function fpCap(bankId, date){
-  const ov = S.settings.mandateOverrides || {};
-  let v = ov[bankId+'|'+date]; if (v === undefined) v = ov['all|'+date];
-  if (v !== undefined && v !== null && v !== '' && isFinite(Number(v))) return Math.max(0, Math.floor(Number(v)));
-  const b = findBank(bankId); const n = b ? Math.floor(Number(b.mandateCap)) : NaN;
-  return n >= 1 ? n : capacityLimit();
-}
-function fpAmount(ipo){ const o = (S.settings.fpIpoOpts||{})[ipo.id]||{}; const a = Number(o.amount); return a > 0 ? a : (Number(ipo.minimumApplicationAmount)||0); }
-// Money committed by one application: part (1-r) is released by the unblock schedule, part r when the client pays.
-function fpSegments(c, bank, ipo, amt, from, r){
-  const D = fpIpoDates(c, ipo), segs = [];
-  fpUnblock(c, bank, D.allot).forEach(u => { const part = amt*(1-r)*u.frac; if (part > 0) segs.push({ amt:part, from, until:fpAdd(u.date, c.reuseDelay) }); });
-  if (r > 0) segs.push({ amt:amt*r, from, until:D.pay });
-  return segs;
-}
-function fpUpcomingIpos(today){
-  return S.ipos.filter(i => (i.archiveStatus||'Active')==='Active' && i.closeDate && i.closeDate >= today)
-    .sort((a,b)=> (a.openDate||'').localeCompare(b.openDate||'') || (a.closeDate||'').localeCompare(b.closeDate||''));
-}
-function fpBuild(){
-  const c = fpCfg(), today = todayStr(), r = fpRate(c);
-  const banks = S.bankAccounts.filter(b => b.status==='Active');
-  const bankIds = new Set(banks.map(b=>b.id));
-  const segs = [], inflows = [], used = new Map();
-  const addUsed = (bid, d) => { const k = bid+'|'+d; used.set(k, (used.get(k)||0)+1); };
-  const appKeys = new Set(S.applications.map(a => a.clientId+'|'+a.ipoId));
-
-  S.applications.forEach(a => {
-    if (!isLiveApp(a) || !bankIds.has(a.bankAccountId)) return;
-    const bank = findBank(a.bankAccountId), ipo = findIpo(a.ipoId); if (!bank || !ipo) return;
-    const amt = Number(a.amountApplied)||0; if (!amt) return;
-    const D = fpIpoDates(c, ipo);
-    if (a.applicationStatus !== 'Applied'){
-      const from = (a.applicationDate && a.applicationDate > today) ? a.applicationDate : today;
-      addUsed(bank.id, from);
-      fpSegments(c, bank, ipo, amt, from, r).forEach(s => segs.push({ bankId:bank.id, ...s }));
-      return;
-    }
-    if (a.applicationDate && a.applicationDate >= today) addUsed(bank.id, a.applicationDate);
-    if (a.allotmentStatus === 'Not Allotted'){
-      fpUnblock(c, bank, D.allot).forEach(u => { const until = fpAdd(u.date, c.reuseDelay); if (until > today) segs.push({ bankId:bank.id, amt:amt*u.frac, from:today, until }); });
-    } else if (a.allotmentStatus === 'Allotted' && D.allot <= today){
-      // already debited from the account; the money comes back when the client pays
-      if (a.saleStatus==='Sold' && a.amountReceiveStatus==='Received') return;
-      let at = (a.saleStatus==='Sold' && a.saleDate) ? fpAdd(a.saleDate, c.payDelay) : D.pay;
-      if (at <= today) at = fpAdd(today, 1);
-      inflows.push({ bankId:bank.id, amt, at });
-    } else {
-      fpSegments(c, bank, ipo, amt, (a.applicationDate && a.applicationDate>today) ? a.applicationDate : today, r).forEach(s => { if (s.until > today) segs.push({ bankId:bank.id, ...s }); });
-    }
-  });
-  S.ipoPlans.forEach(p => {
-    if (p.planStatus === 'Cancelled' || !bankIds.has(p.bankAccountId)) return;
-    const bank = findBank(p.bankAccountId), ipo = findIpo(p.ipoId); if (!bank || !ipo) return;
-    const amt = fpAmount(ipo); const from = p.plannedDate > today ? p.plannedDate : today;
-    S.plannedClients.filter(pc => pc.planId === p.id && !appKeys.has(pc.clientId+'|'+p.ipoId)).forEach(() => {
-      addUsed(bank.id, from);
-      fpSegments(c, bank, ipo, amt, from, r).forEach(s => segs.push({ bankId:bank.id, ...s }));
-    });
-  });
-  (S.settings.fpMoves || []).forEach(m => { if (bankIds.has(Number(m.bankId)) && m.date && isFinite(Number(m.amt))) inflows.push({ bankId:Number(m.bankId), amt:Number(m.amt), at: m.date < today ? today : m.date, move:true }); });
-
-  // timeline length: far enough to cover every upcoming IPO's money coming back
-  let end = fpAdd(today, 14);
-  segs.forEach(s => { if (s.until > end) end = s.until; });
-  inflows.forEach(i => { if (i.at > end) end = i.at; });
-  fpUpcomingIpos(today).forEach(ipo => { const D = fpIpoDates(c, ipo), e = fpAdd(D.pay, 3); if (e > end) end = e; if (ipo.closeDate > end) end = ipo.closeDate; });
-  const limit = fpAdd(today, 90); if (end > limit) end = limit;
-  const dates = fpDays(today, end), idx = {}; dates.forEach((d,i)=>{ idx[d] = i; });
-  const avail = {};
-  banks.forEach(b => { avail[b.id] = dates.map(() => Number(b.balance)||0); });
-  const ix = d => (d <= today ? 0 : (idx[d] === undefined ? dates.length : idx[d]));
-  segs.forEach(s => { const a = avail[s.bankId]; if (!a) return; for (let i = ix(s.from); i < Math.min(dates.length, ix(s.until)); i++) a[i] -= s.amt; });
-  inflows.forEach(f => { const a = avail[f.bankId]; if (!a) return; for (let i = ix(f.at); i < dates.length; i++) a[i] += f.amt; });
-  return { c, today, r, banks, dates, idx, avail, used, ix };
-}
-function fpUsed(st, bankId, date){ return st.used.get(bankId+'|'+date) || 0; }
-
-function fpClientOrder(){
-  const pr = c => { const n = Number(c.priority); return (c.priority===undefined||c.priority===null||c.priority===''||isNaN(n)) ? 1e9 : n; };
-  return S.clients.filter(c => c.status !== 'Inactive').slice().sort((a,b) => pr(a)-pr(b) || String(a.clientId).localeCompare(String(b.clientId), undefined, {numeric:true}));
-}
-// Place clients, IPO by IPO (earliest opening first), earliest day first, bank with most free money first.
-function fpSuggest(st){
-  const opts = S.settings.fpIpoOpts || {}, clients = fpClientOrder(), results = [];
-  const banksSorted = st.banks.slice().sort((a,b)=> (Number(b.balance)||0) - (Number(a.balance)||0));
-  fpUpcomingIpos(st.today).forEach(ipo => {
-    const o = opts[ipo.id] || {}, amt = fpAmount(ipo), D = fpIpoDates(st.c, ipo);
-    const res = { ipo, amt, skip:!!o.skip, startDay: Math.max(1, Math.floor(Number(o.startDay))||1), groups:[], unplaced:[], eligible:0, reasonFunds:0, reasonMandates:0, window:[] };
-    results.push(res);
-    const all = fpDays(ipo.openDate || st.today, ipo.closeDate);
-    res.window = all.filter(d => d >= st.today);
-    if (res.skip) return;
-    const eligible = clients.filter(cl => !S.applications.some(a => a.clientId===cl.id && a.ipoId===ipo.id) && !clientAlreadyPlannedForIpo(cl.id, ipo.id, null));
-    res.eligible = eligible.length;
-    const days = all.slice(res.startDay-1).filter(d => d >= st.today && st.idx[d] !== undefined);
-    // money this IPO holds, at every date of the timeline (identical for each bank apart from the unblock split)
-    const profile = {};
-    st.banks.forEach(b => {
-      const un = fpUnblock(st.c, b, D.allot).map(u => ({ at: fpAdd(u.date, st.c.reuseDelay), frac: u.frac }));
-      profile[b.id] = st.dates.map(d => { let rel = 0; un.forEach(u => { if (u.at <= d) rel += u.frac; }); return amt*(1-st.r)*(1-rel) + (d < D.pay ? amt*st.r : 0); });
-    });
-    const gmap = new Map();
-    eligible.forEach(cl => {
-      let placed = false, sawFundsBlock = false, sawMandateRoom = false;
-      for (const day of days){
-        for (const b of banksSorted){
-          if (fpUsed(st, b.id, day) >= fpCap(b.id, day)) continue;
-          sawMandateRoom = true;
-          const i0 = st.idx[day], a = st.avail[b.id], pf = profile[b.id]; let ok = true;
-          for (let t = i0; t < st.dates.length; t++){ if (a[t] - pf[t] < -0.5){ ok = false; break; } }
-          if (!ok){ sawFundsBlock = true; continue; }
-          for (let t = i0; t < st.dates.length; t++) a[t] -= pf[t];
-          st.used.set(b.id+'|'+day, fpUsed(st, b.id, day)+1);
-          const key = b.id+'|'+day; if (!gmap.has(key)) gmap.set(key, { bankId:b.id, day, clientIds:[] });
-          gmap.get(key).clientIds.push(cl.id); placed = true; break;
-        }
-        if (placed) break;
-      }
-      if (!placed){ res.unplaced.push(cl.id); if (sawFundsBlock || (sawMandateRoom && !sawFundsBlock)) res.reasonFunds++; else res.reasonMandates++; }
-    });
-    res.groups = Array.from(gmap.values()).sort((x,y)=> x.day.localeCompare(y.day) || x.bankId-y.bankId);
-  });
-  return results;
-}
-
-/* ---------- saving helpers ---------- */
-async function fpSaveBankField(id, field, raw){
-  const b = findBank(id); if (!b) return;
-  let v = raw === '' ? null : Number(raw);
-  if (v !== null && (isNaN(v) || v < 0)){ toast('Enter a number, 0 or more','warn'); render(); return; }
-  if (field==='mandateCap' && v !== null) v = Math.floor(v);
-  const updated = { ...b, [field]: v, updatedAt: new Date().toISOString() };
-  if (field === 'balance') updated.balanceAsOf = todayStr();
-  await putRec('bankAccounts', updated); Object.assign(b, updated);
-  render();
-}
-// Weekend / holiday unblock behaviour, as one simple choice per bank
-const FP_UNBLOCK = { next:[100,0], spread:[34,33], last:[0,0] };
-function fpUnblockKind(b){
-  const a = Number(b.unblockDay1)||0, c = Number(b.unblockDay2)||0;
-  if (a===100 && c===0) return 'next'; if (a===34 && c===33) return 'spread'; if (a===0 && c===0) return 'last'; return 'custom';
-}
-async function fpSetUnblock(id, kind){
-  const b = findBank(id); if (!b || !FP_UNBLOCK[kind]) return;
-  const updated = { ...b, unblockDay1: FP_UNBLOCK[kind][0], unblockDay2: FP_UNBLOCK[kind][1], updatedAt: new Date().toISOString() };
-  await putRec('bankAccounts', updated); Object.assign(b, updated); render();
-}
-async function fpSetOpt(k, v){ await saveSetting(k, v); render(); }
-async function fpSaveHolidays(){
-  const el = document.getElementById('fpHolidays'); if (!el) return;
-  const list = Array.from(new Set(el.value.split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean)));
-  const bad = list.filter(x => !/^\d{4}-\d{2}-\d{2}$/.test(x) || isNaN(fpD(x).getTime()));
-  if (bad.length){ toast('Use dates like 2026-11-14 — not understood: '+bad.slice(0,3).join(', '),'warn'); return; }
-  await saveSetting('holidays', list.sort()); toast('Holidays saved','ok'); render();
-}
-async function fpSetPriority(id, raw){
-  const c = findClient(id); if (!c) return; const v = raw === '' ? null : Number(raw);
-  const updated = { ...c, priority: (v===null||isNaN(v)) ? null : v, updatedAt: new Date().toISOString() };
-  await putRec('clients', updated); Object.assign(c, updated); render();
-}
-
-/* ---------- pop-ups ---------- */
-function fpMandateModal(bankId, date){
-  const banks = S.bankAccounts.filter(b=>b.status==='Active');
-  const cur = (bankId && date) ? fpCap(bankId, date) : '';
-  const ov = S.settings.mandateOverrides || {};
-  const keys = Object.keys(ov).filter(k => k.split('|')[1] >= todayStr()).sort((a,b)=> a.split('|')[1].localeCompare(b.split('|')[1]) || a.localeCompare(b));
-  const list = keys.length ? `<h4 style="margin:16px 0 6px;">Changes already set</h4><table class="dt" data-enh="1"><tbody>${keys.map(k=>{ const p=k.split('|'), b=p[0]==='all'?null:findBank(Number(p[0])); return `<tr><td>${fmtDate(p[1])}</td><td>${b?escapeHtml(b.bankName):'All banks'}</td><td><b>${ov[k]}</b> mandates</td><td><button class="btn btn-sm btn-ghost" onclick="fpDelMandate('${k}',${bankId||'null'},${date?`'${date}'`:'null'})">Remove</button></td></tr>`; }).join('')}</tbody></table>` : '';
-  openModal('Mandates on a date',
-    `<p class="small-muted">How many mandates can a bank take on a date? This replaces its usual number for those dates only.</p>
-     <div class="form-grid">
-       <div class="f-group"><label>Bank</label><select id="fpmBank"><option value="all">All banks</option>${banks.map(b=>`<option value="${b.id}" ${b.id===bankId?'selected':''}>${escapeHtml(b.bankName)}</option>`).join('')}</select></div>
-       <div class="f-group"><label>Mandates that day</label><input type="number" id="fpmN" min="0" step="1" value="${cur}"></div>
-       <div class="f-group"><label>From</label><input type="date" id="fpmFrom" value="${date||todayStr()}"></div>
-       <div class="f-group"><label>To (optional)</label><input type="date" id="fpmTo" value="${date||''}"></div>
-     </div>${list}`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="fpSaveMandates()">Save</button>`);
-}
-async function fpSaveMandates(){
-  const bank = document.getElementById('fpmBank').value, n = document.getElementById('fpmN').value;
-  const from = document.getElementById('fpmFrom').value, to = document.getElementById('fpmTo').value || from;
-  if (!from || to < from){ toast('Choose a valid date range','warn'); return; }
-  if (n === '' || isNaN(Number(n)) || Number(n) < 0){ toast('Enter the number of mandates','warn'); return; }
-  const ov = { ...(S.settings.mandateOverrides || {}) };
-  fpDays(from, to).forEach(d => { ov[bank+'|'+d] = Math.floor(Number(n)); });
-  await saveSetting('mandateOverrides', ov); closeModal(); toast('Saved','ok'); render();
-}
-async function fpDelMandate(key, bankId, date){
-  const ov = { ...(S.settings.mandateOverrides || {}) }; delete ov[key];
-  await saveSetting('mandateOverrides', ov); render(); fpMandateModal(bankId, date);
-}
-function fpMoveModal(){
-  const banks = S.bankAccounts.filter(b=>b.status==='Active'), moves = S.settings.fpMoves || [];
-  const list = moves.length ? `<h4 style="margin:16px 0 6px;">Already added</h4><table class="dt" data-enh="1"><tbody>${moves.map((m,i)=>{ const b=findBank(Number(m.bankId)); return `<tr><td>${fmtDate(m.date)}</td><td>${b?escapeHtml(b.bankName):'?'}</td><td><b>${m.amt>0?'+':''}${fmtMoney(m.amt)}</b></td><td><button class="btn btn-sm btn-ghost" onclick="fpDelMove(${i})">Remove</button></td></tr>`; }).join('')}</tbody></table>` : '';
-  openModal('Money you will add or take out',
-    `<p class="small-muted">Tell the planner about money you will put into a bank (or take out, with a minus sign) on a date.</p>
-     <div class="form-grid">
-       <div class="f-group"><label>Bank</label><select id="fpvBank">${banks.map(b=>`<option value="${b.id}">${escapeHtml(b.bankName)}</option>`).join('')}</select></div>
-       <div class="f-group"><label>Date</label><input type="date" id="fpvDate" value="${todayStr()}"></div>
-       <div class="f-group"><label>Amount (₹)</label><input type="number" id="fpvAmt" step="1000"></div>
-     </div>${list}`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="fpSaveMove()">Save</button>`);
-}
-async function fpSaveMove(){
-  const bankId = Number(document.getElementById('fpvBank').value), date = document.getElementById('fpvDate').value, amt = Number(document.getElementById('fpvAmt').value);
-  if (!bankId || !date || !amt){ toast('Bank, date and a non-zero amount are required','warn'); return; }
-  await saveSetting('fpMoves', [ ...(S.settings.fpMoves || []), { bankId, date, amt } ]); closeModal(); toast('Saved','ok'); render();
-}
-async function fpDelMove(i){ const list = (S.settings.fpMoves || []).slice(); list.splice(i,1); await saveSetting('fpMoves', list); render(); fpMoveModal(); }
-function fpOrderModal(){
-  openModal('Who is placed first',
-    `<p class="small-muted">Lower number = placed first. Leave blank to go after everyone who has a number. Inactive clients are never placed.</p>
-     <div class="table-wrap" style="max-height:55vh;overflow:auto;"><table class="dt" data-enh="1"><tbody>${fpClientOrder().map(cl=>`<tr><td>${escapeHtml(cl.clientId)} — ${escapeHtml(cl.clientName)}</td><td style="width:90px;"><input type="number" min="1" step="1" style="width:80px" value="${cl.priority!=null?cl.priority:''}" onchange="fpSetPriority(${cl.id}, this.value)"></td></tr>`).join('')}</tbody></table></div>`,
-    `<button class="btn btn-primary" onclick="closeModal()">Done</button>`);
-}
-function fpIpoOptModal(ipoId){
-  const ipo = findIpo(ipoId); if (!ipo) return;
-  const o = (S.settings.fpIpoOpts || {})[ipoId] || {};
-  const n = Math.max(1, fpDays(ipo.openDate || todayStr(), ipo.closeDate).length);
-  const startOpts = Array.from({length:n}, (_,i)=>`<option value="${i+1}" ${(Math.floor(Number(o.startDay))||1)===i+1?'selected':''}>Day ${i+1}${i===0?' (the day it opens)':''}</option>`).join('');
-  openModal('Options — '+escapeHtml(ipo.ipoName),
-    `<div class="form-grid">
-       <div class="f-group"><label>Plan this IPO?</label><select id="fpoSkip"><option value="0">Yes</option><option value="1" ${o.skip?'selected':''}>No — leave it out</option></select></div>
-       <div class="f-group"><label>Start applying on</label><select id="fpoStart">${startOpts}</select></div>
-       <div class="f-group"><label>Amount per client (₹)</label><input type="number" id="fpoAmt" min="0" step="500" value="${fpAmount(ipo)}"></div>
-     </div>`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="fpSaveIpoOpt(${ipoId})">Save</button>`);
-}
-async function fpSaveIpoOpt(ipoId){
-  const all = { ...(S.settings.fpIpoOpts || {}) };
-  const amt = Number(document.getElementById('fpoAmt').value);
-  all[ipoId] = { skip: document.getElementById('fpoSkip').value==='1', startDay: Math.max(1, Math.floor(Number(document.getElementById('fpoStart').value))||1), amount: amt>0 ? amt : null };
-  await saveSetting('fpIpoOpts', all); closeModal(); render();
-}
-
-async function fpCreatePlans(ipoId){
-  const st = fpBuild(), sug = fpSuggest(st); let nClients = 0, nPlans = 0;
-  beginUndo();
-  for (const r of sug){
-    if (r.skip || (ipoId && r.ipo.id !== ipoId)) continue;
-    for (const g of r.groups){
-      let plan = S.ipoPlans.find(x => x.ipoId===r.ipo.id && x.bankAccountId===g.bankId && x.plannedDate===g.day && x.planStatus!=='Cancelled');
-      if (!plan){
-        const rec = { ipoId:r.ipo.id, plannedDate:g.day, bankAccountId:g.bankId, countSynced:true, plannedClientCount:0, planStatus:'Planned', notes:'Created by Fund planner', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
-        const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec; nPlans++;
-        await audit('Plan Creation','IPOPlan', id, null, rec);
-      }
-      for (const cid of g.clientIds){
-        if (!S.plannedClients.some(pc => pc.planId===plan.id && pc.clientId===cid)){
-          const rec = { planId:plan.id, clientId:cid, createdAt:new Date().toISOString() };
-          const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec); nClients++;
-        }
-      }
-      await syncPlanClientCount(plan);
-    }
-  }
-  await endUndo('Fund planner created');
-  if (!nClients) toast('Nothing to create — no new clients could be placed','warn'); else toast(`${nClients} client(s) planned in ${nPlans} new plan(s)`,'ok');
-  navigate('planning');
-}
-
-/* ---------- the screen: 1 Banks · 2 Plan · 3 Day by day ---------- */
-function fpBanksCard(banks, c){
-  const holN = (S.settings.holidays||[]).length;
-  const rows = banks.map(b => {
-    const kind = fpUnblockKind(b), stale = b.balanceAsOf && b.balanceAsOf < todayStr();
-    const sel = (k, l) => `<option value="${k}" ${kind===k?'selected':''}>${l}</option>`;
-    return `<tr>
-      <td><b>${escapeHtml(b.bankName)}</b></td>
-      <td data-l="Balance (₹)"><input type="number" min="0" step="1000" style="width:120px" value="${b.balance!=null?b.balance:''}" placeholder="0" onchange="fpSaveBankField(${b.id},'balance',this.value)">${stale?`<div class="small-muted danger">as of ${fmtDate(b.balanceAsOf)}</div>`:''}</td>
-      <td data-l="Mandates per day"><input type="number" min="1" step="1" style="width:70px" value="${b.mandateCap!=null?b.mandateCap:''}" placeholder="${capacityLimit()}" onchange="fpSaveBankField(${b.id},'mandateCap',this.value)"></td>
-      <td data-l="Money back after a weekend allotment"><select onchange="fpSetUnblock(${b.id}, this.value)">
-        ${sel('last','All on next working day')}${sel('next','All next day (Saturday)')}${sel('spread','Spread Sat · Sun · Mon')}${kind==='custom'?`<option value="custom" selected>Custom (${b.unblockDay1||0}% / ${b.unblockDay2||0}%)</option>`:''}</select></td>
-    </tr>`;
-  }).join('') || `<tr><td colspan="4" class="small-muted">No active bank accounts. Add one under Bank Accounts.</td></tr>`;
-  const allotSel = c.allot==='worst' ? 'worst' : 'hist';
-  return `<div class="section-card"><div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>1 · Your banks</h3><div class="spacer"></div>
-      <button class="btn btn-ghost btn-sm" onclick="fpMandateModal()">Mandates on a date</button>
-      <button class="btn btn-ghost btn-sm" onclick="fpMoveModal()">Add / take out money</button>
-      <button class="btn btn-ghost btn-sm" onclick="fpOrderModal()">Client order</button></div>
-    <div class="sc-body">
-      <div class="table-wrap"><table class="dt fp-bank" data-enh="1"><thead><tr><th>Bank</th><th>Balance (₹)</th><th title="Leave blank to use the default of ${capacityLimit()}">Mandates per day</th><th title="Only matters when allotment is on a Friday or before a holiday: when does this bank give back the money of clients who were not allotted?">Money back after a weekend allotment</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="hint">Balance = all the money in the account, including what is blocked right now. Mandates per day can be changed for any single date from the day table below.</p>
-      <details class="collapse" style="margin-top:8px;"><summary>Holidays &amp; rules <span class="small-muted" style="font-weight:500;">${holN?holN+' holiday'+(holN>1?'s':''):'no holidays set'}</span></summary>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:8px;">
-          <div class="f-group"><label>Holidays (weekends are always off)</label><textarea id="fpHolidays" rows="3" style="width:100%" placeholder="2026-11-14, 2026-12-25">${escapeHtml((S.settings.holidays||[]).join(', '))}</textarea><button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="fpSaveHolidays()">Save holidays</button></div>
-          <div>
-            <div class="f-group"><label>When a result is not known yet, assume</label><select onchange="fpSetOpt('fpAllot', this.value)"><option value="hist" ${allotSel==='hist'?'selected':''}>My usual allotment rate (${Math.round(fpHistRate()*100)}%)</option><option value="worst" ${allotSel==='worst'?'selected':''}>Everyone is allotted (safest)</option></select></div>
-            <div class="f-group"><label>Clients pay me … day(s) after the sale date</label><input type="number" min="0" step="1" style="width:80px" value="${c.payDelay}" onchange="fpSetOpt('fpPayDelay', this.value)"></div>
-            <div class="f-group"><label>Money that unblocks can be used</label><select onchange="fpSetOpt('fpReuseDelay', this.value)"><option value="1" ${c.reuseDelay===1?'selected':''}>The next day (safe)</option><option value="0" ${c.reuseDelay===0?'selected':''}>The same day</option>${[0,1].includes(c.reuseDelay)?'':`<option value="${c.reuseDelay}" selected>${c.reuseDelay} days later</option>`}</select></div>
-          </div>
-        </div>
-      </details>
-    </div></div>`;
-}
-function fpPlanCard(sug, st){
-  if (!sug.length) return `<div class="section-card"><div class="sc-head"><h3>2 · Plan for upcoming IPOs</h3></div><div class="sc-body"><p class="small-muted">No upcoming or open IPO yet. Add an IPO with its open, close and allotment dates and it will appear here.</p></div></div>`;
-  const totalPlaced = sug.reduce((s,r)=>s+(r.skip?0:r.groups.reduce((a,g)=>a+g.clientIds.length,0)),0);
-  const rows = sug.map(r => {
-    const ipo = r.ipo, placed = r.groups.reduce((s,g)=>s+g.clientIds.length,0);
-    // one line per day: "Mon 20 Oct — HDFC 6 · ICICI 5"
-    const byDay = new Map(); r.groups.forEach(g => { if (!byDay.has(g.day)) byDay.set(g.day, []); const b = findBank(g.bankId); byDay.get(g.day).push(`${escapeHtml(b?b.bankName:'?')} <b>${g.clientIds.length}</b>`); });
-    const lines = Array.from(byDay.entries()).map(([d,parts]) => `<div>${fpDow(d)} ${fmtDate(d)} — ${parts.join(' · ')}</div>`).join('') || '<span class="small-muted">—</span>';
-    let status;
-    if (r.skip) status = '<span class="badge gray">Left out</span>';
-    else if (!r.eligible) status = '<span class="badge gray">Everyone already planned</span>';
-    else if (!r.unplaced.length) status = '<span class="badge green">All fit</span>';
-    else { const need = []; if (r.reasonFunds) need.push(fmtMoney(r.reasonFunds*r.amt)+' more money'); if (r.reasonMandates) need.push(r.reasonMandates+' more mandate'+(r.reasonMandates>1?'s':'')); status = `<span class="badge red">${r.unplaced.length} short</span><div class="small-muted">needs ${need.join(' + ')}</div>`; }
-    return `<tr>
-      <td><a class="lnk" href="javascript:void(0)" onclick="navigate('ipos',{id:${ipo.id}})"><b>${escapeHtml(ipo.ipoName)}</b></a><div class="small-muted">${fmtDate(ipo.openDate)} – ${fmtDate(ipo.closeDate)}</div></td>
-      <td data-l="When &amp; where">${r.skip?'<span class="small-muted">—</span>':lines}</td>
-      <td data-l="Clients">${r.skip?'—':`<b>${placed}</b> <span class="small-muted">of ${r.eligible}</span>`}</td>
-      <td data-l="Status">${status}</td>
-      <td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" title="Start day, amount, leave out" onclick="fpIpoOptModal(${ipo.id})">Options</button> ${(r.skip||!placed)?'':`<button class="btn btn-primary btn-sm" onclick="fpCreatePlans(${ipo.id})">Create</button>`}</td>
-    </tr>`;
-  }).join('');
-  const c = st.c;
-  return `<div class="section-card"><div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>2 · Plan for upcoming IPOs</h3><div class="spacer"></div>
-      <button class="btn btn-primary btn-sm" ${totalPlaced?'':'disabled'} onclick="fpCreatePlans(null)">Create all (${totalPlaced})</button></div>
-    <div class="sc-body"><div class="table-wrap"><table class="dt fp-bank fp-plan" data-enh="1"><thead><tr><th>IPO</th><th>When &amp; where to apply</th><th>Clients</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="hint">IPOs are planned in the order they open. Clients are placed in your client order, on the earliest day and bank with a free mandate and enough free money, assuming ${c.allot==='worst'?'everyone not yet declared is allotted':`${Math.round(fpRate(c)*100)}% of undeclared applications are allotted`}. "Create" saves the plan as normal plans you can still edit.</p></div></div>`;
-}
-function fpDayCard(st){
-  const events = {}; const ev = (d, t) => { (events[d] = events[d] || []).push(t); };
-  fpUpcomingIpos(st.today).forEach(ipo => { const D = fpIpoDates(st.c, ipo), n = ipo.ipoName;
-    ev(ipo.openDate, n+' opens'); ev(ipo.closeDate, n+' closes'); ev(D.allot, n+' allotment'); ev(fpAdd(D.allot,1), n+': money back from here'); ev(D.pay, n+': sale money back'); });
-  const show = st.dates.slice(0, Math.max(7, Number(fpState.days)||14));
-  const head = st.banks.map(b=>`<th style="text-align:right;">${escapeHtml(b.bankName)}</th>`).join('');
-  const rows = show.map(d => {
-    const cells = st.banks.map(b => {
-      const free = st.avail[b.id][st.idx[d]], used = fpUsed(st, b.id, d), cap = fpCap(b.id, d);
-      return `<td style="text-align:right;white-space:nowrap;"><b class="${free<-0.5?'danger':''}">${fpK(free)}</b><br><a class="lnk small-muted ${used>cap?'danger':''}" href="javascript:void(0)" title="Mandates used / allowed. Click to change for this date." onclick="fpMandateModal(${b.id},'${d}')">${used}/${cap}</a></td>`;
-    }).join('');
-    const e = (events[d]||[]).filter((x,i,a)=>a.indexOf(x)===i);
-    const off = !fpWork(st.c, d);
-    return `<tr class="${off?'fp-off':''}"><td style="white-space:nowrap;"><b>${fmtDate(d)}</b> <span class="small-muted">${fpDow(d)}${(S.settings.holidays||[]).includes(d)?' · holiday':''}</span></td>${cells}<td class="small-muted">${escapeHtml(e.join(' · '))}</td></tr>`;
-  }).join('');
-  return `<div class="section-card"><div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>3 · Day by day</h3><div class="spacer"></div>
-      <label class="small-muted"><input type="checkbox" ${fpState.include?'checked':''} onchange="fpState.include=this.checked;render()"> with the plan above</label>
-      <select onchange="fpState.days=Number(this.value);render()">${[14,30,60].map(n=>`<option value="${n}" ${Number(fpState.days||14)===n?'selected':''}>Next ${n} days</option>`).join('')}</select></div>
-    <div class="sc-body"><div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Date</th>${head}<th>What happens</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="hint">Each bank shows the <b>free money</b> that day (red = short) and <b>mandates used / allowed</b> (click to change). Grey rows are weekends and holidays: you can still apply, but allotment and sale never happen.</p></div></div>`;
-}
-function fpTab(){
-  const st = fpBuild(), c = st.c;
-  const sug = fpSuggest(st);                       // places clients (mutates st)
-  const stView = fpState.include ? st : fpBuild();
-  const b0 = fpBuild(); const freeNow = b0.banks.reduce((s,b)=>s+b0.avail[b.id][0],0);
-  const totalPlaced = sug.reduce((s,r)=>s+(r.skip?0:r.groups.reduce((a,g)=>a+g.clientIds.length,0)),0);
-  const totalShort = sug.reduce((s,r)=>s+(r.skip?0:r.unplaced.length),0);
-  const noBal = st.banks.length && st.banks.every(b => b.balance==null);
-  return `
-  <div class="kpi-grid" style="margin-bottom:12px;">
-    <div class="kpi-card"><div class="lbl">Free money today</div><div class="val gold">${fmtMoney(freeNow)}</div><div class="small-muted">${st.banks.length} bank${st.banks.length===1?'':'s'} · ${S.clients.filter(x=>x.status!=='Inactive').length} active clients</div></div>
-    <div class="kpi-card"><div class="lbl">Can be applied</div><div class="val ok">${totalPlaced}</div><div class="small-muted">in the plan below</div></div>
-    <div class="kpi-card"><div class="lbl">Left out</div><div class="val ${totalShort?'danger':''}">${totalShort}</div><div class="small-muted">${totalShort?'not enough money or mandates':'nobody left out'}</div></div>
-  </div>
-  ${noBal ? `<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:rgba(200,150,62,.12);border:1px solid var(--gold);">Start by typing each bank's <b>balance</b> in step 1 — until then every bank counts as ₹0.</div>` : ''}
-  ${fpBanksCard(st.banks, c)}
-  ${fpPlanCard(sug, st)}
-  ${fpDayCard(stView)}`;
-}
-
 </script>
 <script>
 /* =================== SUB-REFERENCE STATEMENT (PDF) ===================
