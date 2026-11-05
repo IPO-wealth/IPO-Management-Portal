@@ -465,8 +465,8 @@ table.dt thead th{position:static;}
 @media (max-width:900px){ #topbar{top:0 !important;height:auto !important;} }
 
 /* ---- polish round: floating button, quiet delete, bulk bar, settings ---- */
-@media (min-width:901px){ #quickAddBtn{display:none !important;} }
-@media (max-width:900px){ #content{padding-bottom:88px;} }
+
+@media (max-width:900px){ #content{padding-bottom:calc(110px + env(safe-area-inset-bottom,0px));} }
 .dt td .btn-danger, .table-wrap td .btn-danger{ background:transparent; color:var(--danger); border:1px solid var(--border); }
 .dt td .btn-danger:hover, .table-wrap td .btn-danger:hover{ background:var(--danger); color:#fff; border-color:var(--danger); }
 #bulkBar{ display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 10px; border:1px dashed var(--border); border-radius:8px; background:var(--bg,#f4f6fa); }
@@ -506,6 +506,44 @@ table.dt thead th{position:static;}
 .stmt-prev tr.stmt-ipo td{ background:var(--table-head-bg); }
 .stmt-prev tr.stmt-sub td{ font-weight:700; border-top:1px solid var(--border); }
 .stmt-prev tr.stmt-grand td{ font-weight:800; border-top:2px solid var(--text-dim); background:var(--table-head-bg); }
+
+/* ---- batch 3: dashboard folding on phones ---- */
+.mcol-body .sc-head h3{display:none;}
+.mcol-body > .section-card{margin-top:8px;}
+
+/* ---- batch 4: checklist on phones ---- */
+.ckUpi.ck-noupi{border-color:var(--danger) !important;background:rgba(200,60,60,.10) !important;}
+@media (max-width:900px){
+  .ck-plan-head{position:sticky;top:var(--topbar-h,56px);z-index:20;background:var(--card);padding:8px 2px;border-bottom:1px solid var(--border);box-shadow:0 2px 4px rgba(0,0,0,.04);}
+}
+
+/* ---- batch 7: bottom navigation + quick add ---- */
+#bottomNav{display:none;}
+#quickAddBtn{position:fixed;bottom:24px;right:24px;width:52px;height:52px;border-radius:50%;background:var(--navy);color:#fff;border:none;font-size:28px;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,.25);cursor:pointer;z-index:150;}
+[data-theme="dark"] #quickAddBtn{background:var(--gold);color:#0b1420;}
+#quickAddMenu{position:fixed;right:24px;bottom:86px;z-index:151;flex-direction:column;gap:2px;min-width:200px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);padding:6px;}
+#quickAddMenu button{background:transparent;border:0;color:var(--text);font:inherit;font-size:14px;text-align:left;padding:11px 12px;border-radius:7px;cursor:pointer;min-height:42px;}
+#quickAddMenu button:hover{background:var(--table-head-bg);}
+@media (max-width:900px){
+  #bottomNav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:160;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(0,0,0,.08);padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));}
+  #bottomNav .bn-item{flex:1;background:transparent;border:0;color:var(--text-dim);font:inherit;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;min-height:52px;cursor:pointer;border-radius:8px;}
+  #bottomNav .bn-item.on{color:var(--gold);font-weight:700;}
+  #bottomNav .bn-ico{font-size:20px;line-height:1.1;position:relative;}
+  #bottomNav .bn-lbl{font-size:11px;}
+  #bottomNav .bn-badge{position:absolute;top:-4px;right:-12px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:0 5px;line-height:1.4;}
+  #quickAddBtn{display:none !important;}
+  #quickAddMenu{left:50%;right:auto;transform:translateX(-50%);bottom:calc(72px + env(safe-area-inset-bottom,0px));width:min(280px,calc(100vw - 28px));}
+  #bottomNav .bn-add .bn-plus{width:40px;height:40px;border-radius:50%;background:var(--navy);color:#fff;font-size:26px;line-height:38px;text-align:center;margin-top:-14px;box-shadow:0 3px 8px rgba(0,0,0,.25);}
+  [data-theme="dark"] #bottomNav .bn-add .bn-plus{background:var(--gold);color:#0b1420;}
+  #bottomNav .bn-add .bn-lbl{margin-top:1px;}
+  #toastWrap{bottom:calc(130px + env(safe-area-inset-bottom,0px)) !important;}
+}
+
+@media (min-width:901px){
+  #quickAddBtn{display:none !important;}
+  #quickAddMenu{top:calc(60px + var(--topbar-h,56px) - 6px);bottom:auto;right:22px;}
+}
+@media (max-width:900px){ #topAddBtn{display:none !important;} }
 </style>
 </head>
 <body>
@@ -536,11 +574,15 @@ table.dt thead th{position:static;}
       <div id="notifPanel" style="display:none;position:absolute;top:100%;right:0;margin-top:6px;width:min(320px, calc(100vw - 24px));max-height:400px;overflow-y:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:60;"></div>
     </div>
     <span id="syncIndicator" class="badge gray" style="display:none;margin-right:4px;"></span>
+    <button class="quickBtn" id="topAddBtn" onclick="toggleQuickAdd()" title="Add something new">+ Add</button>
     <button class="quickBtn secondary" onclick="openCmdk()" title="Quick find & actions (Ctrl+K)" id="cmdkBtn">&#9776;&nbsp;<span class="hide-sm">Quick actions</span></button>
   </div>
   <div id="content"></div>
-  <button id="quickAddBtn" onclick="editApplication()" title="Quick Add Application" style="position:fixed;bottom:24px;right:24px;width:52px;height:52px;border-radius:50%;background:var(--navy);color:#fff;border:none;font-size:26px;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,.25);cursor:pointer;z-index:150;">+</button>
+  <button id="quickAddBtn" onclick="toggleQuickAdd()" title="Add…" aria-label="Quick add">+</button>
+  <div id="quickAddMenu" style="display:none;"></div>
 </div>
+
+<nav id="bottomNav" aria-label="Main"></nav>
 
 <div id="modalOverlay">
   <div class="modal-box" id="modalBox">
@@ -632,11 +674,18 @@ async function endUndo(label){
 }
 function putRec(name,obj){
   assertNotReadOnly(); assertMonthOpen(name,obj); idxReset();
+  let __newItem = null;
   if (window.__undoCap && RECYCLABLE.includes(name)){
-    const key = name+':'+obj.id;
-    if (!window.__undoCap.items.has(key)){ const old = obj.id!=null ? (S[name]||[]).find(x=>x.id===obj.id) : null; window.__undoCap.items.set(key,{ store:name, id:obj.id, prev: old?{...old}:null }); }
+    if (obj.id==null){ // a brand-new record: remember it so Undo can remove it once its id is known
+      __newItem = { store:name, id:null, prev:null }; window.__undoCap.n = (window.__undoCap.n||0)+1; window.__undoCap.items.set(name+':new:'+window.__undoCap.n, __newItem);
+    } else {
+      const key = name+':'+obj.id;
+      if (!window.__undoCap.items.has(key)){ const old = (S[name]||[]).find(x=>x.id===obj.id); window.__undoCap.items.set(key,{ store:name, id:obj.id, prev: old?{...old}:null }); }
+    }
   }
-  return __putRecRaw(name,obj);
+  const pr = __putRecRaw(name,obj);
+  if (__newItem) pr.then(id=>{ __newItem.id = id; });
+  return pr;
 }
 /* Recycle bin: every delete keeps a copy for 30 days; deletes made together share a batch so they restore together */
 let __trashBatch = null, __trashTimer = null;
@@ -979,6 +1028,7 @@ const NAV = [
 ];
 const OPS_TABS = [['checklist','Today'],['planning','Planning'],['applications','Applications'],['allotments','Allotments & Sale']];
 function renderNav(){
+  try { renderBottomNav(); } catch(e){}
   const el = document.getElementById('navList');
   el.innerHTML = NAV.map(n => `<div class="nav-item ${(S.view===n.id||(n.views&&n.views.includes(S.view)))?'active':''}" onclick="navigate('${n.go||n.id}')"><span class="ico">${n.ico}</span><span>${n.label}</span></div>`).join('');
 }
@@ -1085,6 +1135,8 @@ function computeNotifications(){
   if (awaitingSale.length) items.push({ text:`${awaitingSale.length} allotted application(s) awaiting sale`, go:()=>navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{allotmentStatus:'Allotted', saleStatus:'Pending to Sell'}}}) });
   const awaitingReceipt = S.applications.filter(a=>a.saleStatus==='Sold' && a.amountReceiveStatus==='Receivable');
   if (awaitingReceipt.length) items.push({ text:`${awaitingReceipt.length} sold application(s) awaiting receipt`, go:()=>navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{amountReceiveStatus:'Receivable'}}}) });
+  const hi = healthWeeklyIssues();
+  if (hi) items.push({ text:`Data Health Check found ${hi} issue${hi===1?'':'s'} — tap to review`, go:()=>setSettingsTab('data') });
   const daysSinceBackup = daysSinceLastBackup();
   if (daysSinceBackup === null || daysSinceBackup > 7){
     items.push({ text: daysSinceBackup===null ? 'No backup taken yet — export one or connect Google Drive' : `Last backup was ${daysSinceBackup} days ago — consider backing up`, go:()=>navigate('settings') });
@@ -1577,11 +1629,14 @@ function viewClients(){
       filters: [
         { key:'referenceName', label:'Reference', options:S.settings.references },
         { key:'subReference', label:'Sub Reference', options:S.settings.subReferences },
-        { key:'status', label:'Status', options:['Active','Inactive'] }
+        { key:'status', label:'Status', options:['Active','Inactive'] },
+        { key:'dues', label:'Money due', options:['Has dues','No dues'], match:(r,v)=>(clientDueTotal(r.id,'in')>0.5)===(v==='Has dues') }
       ],
       pageSize: 10,
       rowClick: 'openClientDetail',
+      extraToolbar: clientBulkToolbarHtml(),
       columns: [
+        { key:'sel', label:`<input type="checkbox" onclick="event.stopPropagation(); toggleAllClientSelection(this.checked)">`, render:r=>`<input type="checkbox" onclick="event.stopPropagation();" onchange="toggleClientSelection(${r.id}, this.checked)" ${__selectedClientIds.has(r.id)?'checked':''}>` },
         { key:'clientId', label:'Client ID' },
         { key:'clientName', label:'Name', render:r=>`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();openClientDetail(${r.id})">${escapeHtml(r.clientName)}</a>` + (getTopClientIds().has(r.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top</span>' : '') },
         { key:'referenceName', label:'Reference' },
@@ -1590,6 +1645,8 @@ function viewClients(){
         { hidden:true, key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>clientStats(r.id).apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" ${navAttr('applications',{clientId:r.clientName},'appsTbl')}>${clientStats(r.id).apps.length}</a>` },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>clientStats(r.id).allotted.length, render:r=>clientStats(r.id).allotted.length },
+        { key:'due', label:'Due from client', num:true, sum:'money', val:r=>clientDueTotal(r.id,'in'), render:r=>{ const d=clientDueTotal(r.id,'in'); return d>0.5?`<b class="danger">${fmtMoney(d)}</b>`:'<span class="small-muted">—</span>'; } },
+        { key:'lastApplied', label:'Last applied', val:r=>clientLastApplied(r), render:r=>{ const d=clientLastApplied(r); return d?fmtDate(d):'—'; } },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>clientStats(r.id).profit, render:r=>fmtMoney(clientStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>clientStats(r.id).clientProfit, render:r=>fmtMoney(clientStats(r.id).clientProfit) },
         { key:'status', label:'Status', render:r=>badge(r.status) }
@@ -1720,10 +1777,12 @@ function viewClientDetail(id){
       <td>${fmtMoney(a.amountApplied)}</td>
       <td>${badge(a.allotmentStatus||'Pending')}</td>
       <td>${fmtDate(a.saleDate)}</td>
+      <td>${a.saleAmount?fmtMoney(a.saleAmount):'—'}</td>
+      <td>${a.amountReceiveStatus?badge(a.amountReceiveStatus):'—'}</td>
       <td>${calc.applicable?fmtMoney(calc.grossFinal):'—'}${calc.grossOverridden?overrideBadge('Gross Received', calc.calculatedGross, calc.grossFinal, a.overrideReason, a.overrideChangedAt):''}</td>
       <td>${calc.applicable?fmtMoney(calc.ourFinal):'—'}${calc.ourOverridden?overrideBadge('Our Profit', calc.calculatedOur, calc.ourFinal, a.overrideReason, a.overrideChangedAt):''}</td>
     </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="11">No IPO history yet.</td></tr>`;
+  }).join('') || `<tr class="empty-row"><td colspan="12">No IPO history yet.</td></tr>`;
 
   return `
   <button class="link-btn no-print" onclick="navigate('clients')">&larr; Back to Clients</button>
@@ -1751,6 +1810,7 @@ function viewClientDetail(id){
         <div class="kpi-card"><div class="lbl">Applications</div><div class="val">${stats.apps.length}</div></div>
         <div class="kpi-card"><div class="lbl">Allotments</div><div class="val ok">${stats.allotted.length}</div></div>
         <div class="kpi-card"><div class="lbl">Not Allotted</div><div class="val danger">${stats.notAllotted.length}</div></div>
+        <div class="kpi-card"><div class="lbl">Allotment rate</div><div class="val">${(stats.allotted.length+stats.notAllotted.length)?Math.round(stats.allotted.length/(stats.allotted.length+stats.notAllotted.length)*1000)/10+'%':'—'}</div></div>
         <div class="kpi-card"><div class="lbl">Sold</div><div class="val">${stats.sold.length}</div></div>
         <div class="kpi-card"><div class="lbl">Amount Applied</div><div class="val">${fmtMoney(stats.amountApplied)}</div></div>
         <div class="kpi-card"><div class="lbl">Gross Received</div><div class="val">${fmtMoney(stats.grossReceived)}</div></div>
@@ -1764,7 +1824,7 @@ function viewClientDetail(id){
     <div class="sc-head"><h3>IPO History</h3></div>
     <div class="sc-body table-wrap">
       <table class="dt"><thead><tr>
-        <th>IPO</th><th>Planned</th><th>App Status</th><th>Bank</th><th>App Date</th><th>Amount Applied</th><th>Allotment</th><th>Sale Date</th><th>Gross Received</th><th>Our Profit</th>
+        <th>IPO</th><th>Planned</th><th>App Status</th><th>Bank</th><th>App Date</th><th>Amount Applied</th><th>Allotment</th><th>Sale Date</th><th>Sale Amount</th><th>Money</th><th>Gross Received</th><th>Our Profit</th>
       </tr></thead><tbody>${rows}</tbody></table>
     </div>
   </div>`;
@@ -1855,7 +1915,7 @@ async function savePayment(clientId, type){
   if (type === 'in') await syncReceivedFlags(allocs.map(x=>x.appId), f.payDate);
   closeModal();
   toast(rem > 0.5 ? `Saved — ${fmtMoney(rem)} is not matched to any sale yet (kept as credit)` : 'Payment saved', rem>0.5?'warn':'ok');
-  navigate('clients', { id: clientId });
+  if (window.__payReturn){ const v = window.__payReturn; window.__payReturn = null; navigate(v); } else navigate('clients', { id: clientId });
 }
 // use up leftover credit on sales that have become due since the payment was made
 async function applyCredits(clientId){
@@ -1907,7 +1967,7 @@ function clientAccountCardHtml(c){
   return `
   <div class="section-card no-print">
     <div class="sc-head"><h3>Account &amp; Payments</h3><div class="spacer"></div>
-      <button class="btn btn-primary btn-sm" onclick="recordPayment(${c.id},'in')">+ Payment Received</button>
+      <button class="btn btn-primary btn-sm" onclick="window.__payReturn=null;recordPayment(${c.id},'in')">+ Payment Received</button>
       ${credit>0.5?`<button class="btn btn-ghost btn-sm" onclick="applyCredits(${c.id})">Apply ${fmtMoney(credit)} unapplied credit</button>`:''}
       ${receivable>0.5?`<button class="btn btn-ghost btn-sm" onclick="clientDueWhatsApp(${c.id})">WhatsApp reminder</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="openStatementFor(${c.id})">Statement PDF</button></div>
@@ -1992,6 +2052,7 @@ function viewBanks(){
         { key:'status', label:'Status', render:r=>badge(r.status) },
         { hidden:true, key:'plans', label:'Plans (all-time)', num:true, sum:true, val:r=>bankStats(r.id).plans.length, render:r=>bankStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>bankStats(r.id).apps.length, render:r=>bankStats(r.id).apps.length },
+        { key:'blocked', label:'Blocked now', num:true, sum:'money', val:r=>bankBlockedNow(r.id), render:r=>{ const v=bankBlockedNow(r.id); return v?fmtMoney(v):'<span class="small-muted">—</span>'; } },
         { key:'upis', label:'UPI IDs', num:true, sum:true, val:r=>bankUpis(r.id).length, render:r=>bankUpis(r.id).length },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>bankStats(r.id).profit, render:r=>fmtMoney(bankStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>bankStats(r.id).clientProfit, render:r=>fmtMoney(bankStats(r.id).clientProfit) },
@@ -2341,6 +2402,8 @@ function viewIpos(){
         { hidden:true, key:'planned', label:'Planned', num:true, sum:true, val:r=>ipoStats(r.id).plans.length, render:r=>ipoStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>ipoStats(r.id).apps.length, render:r=>ipoStats(r.id).apps.length },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>ipoStats(r.id).allotted.length, render:r=>ipoStats(r.id).allotted.length },
+        { key:'resultPending', label:'Result', val:r=>ipoPendingResults(r), render:r=>ipoResultBadge(r) },
+        { key:'allotRate', label:'Allot. rate', num:true, val:r=>ipoAllotRate(r)||0, render:r=>{ const v=ipoAllotRate(r); return v===null?'—':v+'%'; } },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>ipoStats(r.id).profit, render:r=>fmtMoney(ipoStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>ipoStats(r.id).clientProfit, render:r=>fmtMoney(ipoStats(r.id).clientProfit) }
       ],
@@ -2350,7 +2413,7 @@ function viewIpos(){
     }));
   };
   setTimeout(()=>window.__tableRerender['iposTbl'](), 0);
-  return `
+  return `${settledIposBannerHtml()}
   <div class="section-card">
     <div class="sc-head"><h3>IPOs</h3><div class="spacer"></div><button class="btn btn-primary" onclick="editIpo()">+ Add IPO</button></div>
     <div class="sc-body" id="iposTblWrap"></div>
@@ -2489,7 +2552,7 @@ function planStatusComputed(plan){
 function planningPlansTab(){
   window.__tableRerender['plansTbl'] = () => {
     renderIntoWrap('plansTblWrap', renderDataTable('plansTbl', {
-      data: sortedPlans(),
+      data: plansForChip(),
       searchFn: (r,q) => { const ipo=findIpo(r.ipoId); return ((ipo?ipo.ipoName:'')+' '+r.plannedDate).toLowerCase().includes(q); },
       searchPlaceholder: 'Search by IPO...',
       filters: [
@@ -2519,6 +2582,7 @@ function planningPlansTab(){
       <button class="btn btn-gold" onclick="bulkPlanClients()">Bulk Plan Clients</button>
       <button class="btn btn-primary" onclick="editPlan()">+ New Plan</button>
     </div>
+    <div class="pills no-print" id="planChips" style="padding:8px 14px 0;margin:0;">${planChipsHtml()}</div>
     <div class="sc-body" id="plansTblWrap"></div>
   </div>`;
 }
@@ -2579,9 +2643,10 @@ async function savePlan(id, forceOverride){
     const rec = { ...data, plannedClientCount: 0, countSynced: true, planStatus: data.planStatus||'Planned', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const newId = await putRec('ipoPlans', rec); rec.id = newId; S.ipoPlans.push(rec);
     await audit('Plan Creation','IPOPlan', newId, null, rec);
-    toast('Plan created','ok');
+    toast('Plan created','ok'); window.__openClientsFor = newId;
   }
   closeModal(); navigate('planning');
+  if (window.__openClientsFor){ const pid = window.__openClientsFor; window.__openClientsFor = null; setTimeout(()=>planClients(pid), 60); }
 }
 function deletePlan(id){
   const p = findPlan(id);
@@ -2620,28 +2685,6 @@ function clientAlreadyPlannedForIpo(clientId, ipoId, excludePlanId){
 }
 
 /* ---- client mapping for a plan ---- */
-function planClients(planId){
-  const p = findPlan(planId);
-  const ipo = findIpo(p.ipoId);
-  const mapped = S.plannedClients.filter(pc => pc.planId === planId);
-  const rows = S.clients.map(c => {
-    const pc = mapped.find(m=>m.clientId===c.id);
-    const app = S.applications.find(a=>a.planId===planId && a.clientId===c.id);
-    const blockedElsewhere = !pc && clientAlreadyPlannedForIpo(c.id, p.ipoId, planId);
-    return `<tr>
-      <td>${escapeHtml(c.clientId)} — ${escapeHtml(c.clientName)}</td>
-      <td>${pc?'Yes':'No'}</td>
-      <td>${pc ? escapeHtml(findBank(p.bankAccountId).bankName) : '—'}</td>
-      <td>${app ? badge(app.applicationStatus) : (pc?badge('To Be Applied'):(blockedElsewhere?'<span class="badge gray">Already planned for this IPO</span>':'<span class="small-muted">Not Planned</span>'))}</td>
-      <td>${blockedElsewhere ? '<span class="small-muted">Blocked</span>' : `<label class="checkbox-row"><input type="checkbox" data-cid="${c.id}" ${pc?'checked':''} onchange="togglePlanClient(${planId},${c.id},this.checked)"> Plan</label>`}</td>
-    </tr>`;
-  }).join('');
-  openModal(`Plan Clients — ${escapeHtml(ipo.ipoName)}`,
-    `<p class="small-muted">Select which clients are planned for this IPO/bank/date slot. A client already planned for this IPO under another active plan cannot be selected again until that plan is deleted or cancelled.</p>
-     <div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Planned</th><th>Bank</th><th>Status</th><th>Toggle</th></tr></thead>
-     <tbody>${rows}</tbody></table></div>`,
-    `<button class="btn btn-primary" onclick="closeModal()">Done</button>`, true);
-}
 async function togglePlanClient(planId, clientId, checked){
   const plan = findPlan(planId);
   if (checked && clientAlreadyPlannedForIpo(clientId, plan.ipoId, planId)){
@@ -2892,7 +2935,7 @@ let __selectedAppIds = new Set();
 function viewApplications(){
   window.__tableRerender['appsTbl'] = () => {
     renderIntoWrap('appsTblWrap', renderDataTable('appsTbl', {
-      data: S.applications,
+      data: appsForChip(),
       searchFn: (r,q) => { const c=findClient(r.clientId), i=findIpo(r.ipoId); const u=S.bankUpiIds.find(x=>x.id===r.upiId); return ((c?c.clientName:'')+' '+(i?i.ipoName:'')+' '+(u?u.upiId:'')).toLowerCase().includes(q); },
       searchPlaceholder: 'Search client, IPO, UPI...',
       filters: [
@@ -2911,6 +2954,8 @@ function viewApplications(){
         { key:'upiId', label:'UPI ID', val:r=>{ const u=S.bankUpiIds.find(x=>x.id===r.upiId); return u?u.upiId:''; }, render:r=>{ const u=S.bankUpiIds.find(x=>x.id===r.upiId); return escapeHtml(u?u.upiId:'—'); } },
         { key:'amountApplied', label:'Amount Applied', num:true, sum:'money', val:r=>Number(r.amountApplied)||0, render:r=>fmtMoney(r.amountApplied) },
         { key:'applicationStatus', label:'Status', render:r=>badge(r.applicationStatus) + (r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : '') },
+        { key:'allotmentStatus', label:'Result', val:r=>isLiveApp(r)?(r.allotmentStatus||'Pending'):'', render:r=>isLiveApp(r)?badge(r.allotmentStatus||'Pending'):'—' },
+        { key:'saleStatus', label:'Sale', val:r=>r.saleStatus||'', render:r=>r.saleStatus?badge(r.saleStatus):'—' },
         { hidden:true, key:'plan', label:'From Plan', val:r=>r.planId?'Yes':'No', render:r=>r.planId?'Yes':'No' }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editApplication(${r.id})">Edit</button>
@@ -2932,6 +2977,7 @@ function viewApplications(){
       <button class="btn btn-ghost" onclick="bulkApplyFromPlan()">Bulk Apply</button>
       <button class="btn btn-primary" onclick="editApplication()">+ New Application</button>
     </div>
+    ${appChipsHtml()}
     <div class="sc-body" id="appsTblWrap"></div>
   </div>`;
 }
@@ -3174,7 +3220,7 @@ function viewAllotments(){
       <button class="btn btn-ghost btn-sm" onclick="clearAllotSelection()">Clear</button></span>
     </div>
     <div class="sc-body" style="padding-bottom:8px;">
-      ${quickSalePanelHtml()}
+      ${allotChipsHtml()}${collectPanelHtml()}${quickSalePanelHtml()}
       <details class="bulk-box" ${__selectedAllotIds.size?'open':''}><summary>Bulk update selected rows <span class="small-muted">(tick rows in the table first)</span></summary>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;padding:10px 0 14px;">
         <div class="f-group" style="min-width:200px;">
@@ -3568,9 +3614,9 @@ function dashboardBody(){
   const goalBar = (profit, goal) => { const pct = Math.min(100, Math.round(profit/goal*100)); return `<div class="progress mini"><div style="width:${pct}%"></div></div><div class="small-muted">${Math.round(profit/goal*100)}% of ${fmtMoney(goal)} goal</div>`; };
   const cards = `<div class="kpi-grid money-grid">
     <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)}><div class="lbl">Profit — this month</div><div class="val gold">${fmtMoney(monthlyProfit)}</div>
-      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${vsLine(monthlyProfit, monthlyClient, false)}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
+      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${vsLine(monthlyProfit, monthlyClient, false)}${collectLineHtml(soldThisMonth)}${projectionHtml(monthlyProfit)}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
     <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Profit — this year</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>
-      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${vsLine(yearlyProfit, yearlyClient, true)}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
+      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${vsLine(yearlyProfit, yearlyClient, true)}${collectLineHtml(soldThisYear)}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
     <div class="kpi-card" ${drillAttr('Receivables pending', recvList)}><div class="lbl">Receivables pending</div><div class="val ${recvList.length?'danger':''}">${fmtMoney(toCollect)}</div>
       <div class="small-muted">${recvList.length} sale${recvList.length===1?'':'s'} to collect</div></div>
     <div class="kpi-card" ${drillAttr('Allotted — pending to sell', toSellList)}><div class="lbl">Pending to sell</div><div class="val">${toSellList.length}</div><div class="small-muted">allotted, not yet sold</div></div>
@@ -3618,12 +3664,12 @@ function dashboardBody(){
       ? `<p class="small-muted" style="margin-bottom:8px;"><b>${fmtMoney(toCollect)}</b> across ${recvList.length} sale${recvList.length===1?'':'s'} from ${recvRows.length} client${recvRows.length===1?'':'s'}${recvRows.length>8?' — top 8 shown':''}. Click a client to open, or View to see the sales.</p>
          <div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Sales</th><th>Oldest sale</th><th style="text-align:right;">Amount</th><th></th></tr></thead><tbody>${recvShow}</tbody></table></div>`
       : '<p class="small-muted">Nothing pending — all sales have been collected.</p>'}</div></div>`;
-  return `${firstRunHtml()}${todayPanelHtml()}${cards}${capitalViewHtml()}${recvPanel}${weeklyReviewHtml()}${period}`;
+  return `${firstRunHtml()}${todayPanelHtml()}${cards}${capitalViewHtml()}${mobileCollapse('recv','Receivables pending',fmtMoney(toCollect),recvPanel)}${weeklyReviewHtml()}${period}`;
 }
 </script>
 <script>
 /* =================== REPORTS =================== */
-let reportsTab = 'client';
+let reportsTab = 'settlement';
 const REPORT_GROUPS = [
   ['profit','Profit',[['trends','Monthly & charts'],['yearly','By year'],['gap','Our vs Client']]],
   ['settlement','Settlement',[['settlement','Settlement']]],
@@ -3992,6 +4038,7 @@ function reportSettlement(){
   return `
   <div class="section-card printable-report">
     <div class="sc-head"><h3>Settlement by Reference</h3><div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm no-print" onclick="settlementWhatsApp()">Share on WhatsApp</button>
       <button class="btn btn-ghost btn-sm no-print" onclick="exportSettlement()">Download Excel</button>
       <button class="btn btn-primary btn-sm no-print" onclick="window.print()">Print / Save as PDF</button></div>
     <div class="sc-body">
@@ -4858,7 +4905,7 @@ function viewSettingsRaw(){
 
   <div class="section-card">
     <div class="sc-head"><h3>Audit Log</h3></div>
-    <div class="sc-body" id="auditTblWrap"></div>
+    <div class="sc-body">${auditPeopleSummaryHtml()}<div id="auditTblWrap"></div></div>
   </div>`;
 }
 /* Plain-language summary of an audit entry: "field: old → new" for each changed field. */
@@ -6074,7 +6121,7 @@ function viewChecklist(){
           <td data-label=""><input type="checkbox" class="ckChk" data-plan="${p.id}" data-cid="${x.cid}" ${x.done?'disabled checked':''} onchange="ckUpdateCount(${p.id})"></td>
           <td data-label="Client"><a class="lnk" href="javascript:void(0)" onclick="openClientDetail(${c.id})">${escapeHtml(c.clientName)}</a></td>
           <td data-label="Amount"><input type="number" class="ckAmt" id="ckAmt-${p.id}-${x.cid}" value="${(S.applications.find(a=>a.planId===p.id&&a.clientId===x.cid)||{}).amountApplied ?? (ipo?ipo.minimumApplicationAmount||'':'')}" ${x.done?'disabled':''} style="width:100px"></td>
-          <td data-label="UPI ID"><select class="ckUpi" id="ckUpi-${p.id}-${x.cid}" ${x.done?'disabled':''}>${x.done ? `<option>${escapeHtml(((S.bankUpiIds.find(u=>u.id===(S.applications.find(a=>a.planId===p.id&&a.clientId===x.cid)||{}).upiId))||{}).upiId||'—')}</option>` : opts}</select></td>
+          <td data-label="UPI ID"><select class="ckUpi${!x.done && !upi ? ' ck-noupi' : ''}" id="ckUpi-${p.id}-${x.cid}" ${x.done?'disabled':''} onchange="this.classList.toggle('ck-noupi',!this.value)">${x.done ? `<option>${escapeHtml(((S.bankUpiIds.find(u=>u.id===(S.applications.find(a=>a.planId===p.id&&a.clientId===x.cid)||{}).upiId))||{}).upiId||'—')}</option>` : opts}</select></td>
           <td data-label="Status">${x.done?'<span class="badge green">Applied ✓</span>':'<span class="badge gold">To do</span>'}</td></tr>`;
       }).join('') || `<tr class="empty-row"><td colspan="5">No clients mapped to this plan yet. <a href="javascript:void(0)" onclick="planClients(${p.id})">Add clients</a></td></tr>`;
       const left = list.filter(x=>!x.done).length;
@@ -6126,10 +6173,6 @@ async function ckSubmit(planId, force){
 
 /* ---------- Allotment Results (original point 27) ---------- */
 let resultsState = { ipoId:null, pending:{} };
-function resultsIpoChoices(){
-  const withLive = S.ipos.filter(i=>S.applications.some(a=>a.ipoId===i.id && isLiveApp(a)));
-  return withLive.sort((a,b)=>{ const pa=S.applications.filter(x=>x.ipoId===a.id&&isLiveApp(x)&&(!x.allotmentStatus||x.allotmentStatus==='Pending')).length>0, pb=S.applications.filter(x=>x.ipoId===b.id&&isLiveApp(x)&&(!x.allotmentStatus||x.allotmentStatus==='Pending')).length>0; return (pb-pa) || compareDatesDesc(a.allotmentDate,b.allotmentDate); });
-}
 function resultsApps(){ return S.applications.filter(a=>a.ipoId===resultsState.ipoId && isLiveApp(a)).sort((x,y)=>((findClient(x.clientId)||{}).clientName||'').localeCompare((findClient(y.clientId)||{}).clientName||'')); }
 function resCur(a){ return resultsState.pending[a.id] ?? (a.allotmentStatus||'Pending'); }
 function viewResults(){
@@ -6844,15 +6887,15 @@ function capitalViewHtml(){
   soon.concat(overdue).forEach(a=>{ const k = a.ipoId; if (!byIpo.has(k)) byIpo.set(k,{ ipo:findIpo(k), amt:0, n:0 }); const g = byIpo.get(k); g.amt += amt(a); g.n++; });
   const rows = Array.from(byIpo.values()).sort((x,y)=>(x.ipo.allotmentDate||'').localeCompare(y.ipo.allotmentDate||'')).map(g=>`<tr class="clickable" onclick="openIpoDetail(${g.ipo.id})"><td><b>${escapeHtml(g.ipo.ipoName)}</b></td><td>${fmtDate(g.ipo.allotmentDate)}${g.ipo.allotmentDate<today?' <span class="badge red">result due</span>':''}</td><td>${g.n}</td><td style="text-align:right;">${fmtMoney(g.amt)}</td></tr>`).join('');
   const sum = l => l.reduce((s,a)=>s+amt(a),0);
-  return `<div class="section-card"><div class="sc-head"><h3>Capital view</h3></div><div class="sc-body">
+  return mobileCollapse('capital','Capital view',fmtMoney(blocked)+' blocked',`<div class="section-card"><div class="sc-head"><h3>Capital view</h3></div><div class="sc-body">
     <div class="kpi-grid" style="margin-bottom:10px;">
       <div class="kpi-card" ${drillAttr('Money blocked in applications', pend)}><div class="lbl">Blocked today</div><div class="val">${fmtMoney(blocked)}</div><div class="small-muted">${pend.length} application${pend.length===1?'':'s'} awaiting result</div></div>
       <div class="kpi-card" ${drillAttr('Result due in the next 7 days', soon)}><div class="lbl">Result due in 7 days</div><div class="val">${fmtMoney(sum(soon))}</div><div class="small-muted">frees up if not allotted</div></div>
       <div class="kpi-card" ${drillAttr('Result date passed — enter result', overdue)}><div class="lbl">Result overdue</div><div class="val ${overdue.length?'danger':''}">${fmtMoney(sum(overdue))}</div><div class="small-muted">${overdue.length?'enter these results':'nothing overdue'}</div></div>
       <div class="kpi-card"><div class="lbl">Still to collect</div><div class="val ${collect>0.5?'danger':''}">${fmtMoney(collect)}</div><div class="small-muted">from clients</div></div>
     </div>
-    ${rows?`<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Result date</th><th>Apps</th><th style="text-align:right;">Money</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
-  </div></div>`;
+    ${rows?`<div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>IPO</th><th>Result date</th><th>Apps</th><th style="text-align:right;">Money</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
+  </div></div>`);
 }
 
 /* ---- Dashboard: weekly review ---- */
@@ -6882,7 +6925,7 @@ function weeklyReviewHtml(){
     return li('💵', `<b>${escapeHtml(c?c.clientName:'—')}</b> — ${fmtMoney(g.amt)} <span class="small-muted">(${days} days)</span>`, `navigate('clients',{id:${g.id}})`); }).join('') || '<p class="small-muted">No payment is more than 7 days late.</p>';
   const nextHtml = nextIpos.map(x=>li(x.i.openDate<=today?'🟢':'📋', `<b>${escapeHtml(x.i.ipoName)}</b> — ${x.i.openDate<=today?'open, closes '+fmtDate(x.i.closeDate):'opens '+fmtDate(x.i.openDate)}${x.plans?` · ${x.left} client${x.left===1?'':'s'} still to apply`:' · no plan yet'}`, `openIpoDetail(${x.i.id})`)).join('') || '<p class="small-muted">No IPO opening in the next 7 days.</p>';
   const h = t => `<h4 style="margin:12px 0 6px;font-size:13px;">${t}</h4>`;
-  return `<details class="collapse" ${dashOpen('weekly',true)} ontoggle="dashToggle('weekly',this.open)"><summary>Weekly review <span class="small-muted" style="font-weight:500;">last 7 days profit ${fmtMoney(weekProfit)}</span></summary>
+  return `<details class="collapse" ${dashOpen('weekly',!isMobileView())} ontoggle="dashToggle('weekly',this.open)"><summary>Weekly review <span class="small-muted" style="font-weight:500;">last 7 days profit ${fmtMoney(weekProfit)}</span></summary>
     ${h('1. What is pending')}<div class="todo-list">${pendHtml}</div>
     ${h(`2. Overdue to collect${overdueTotal>0.5?' — '+fmtMoney(overdueTotal):''}`)}<div class="todo-list">${overHtml}</div>
     ${h('3. What to apply next')}<div class="todo-list">${nextHtml}</div></details>`;
@@ -6991,7 +7034,7 @@ function quickSalePanelHtml(){
       <div class="f-group"><label>Sale date</label><input type="date" id="qsDate" value="${todayStr()}"></div>
       <div class="f-group"><label>Money from client</label><select id="qsRecv"><option value="Receivable">Receivable (still to collect)</option><option value="Received">Received</option></select></div>
       <button class="btn btn-primary" onclick="qsSave()">Save sales with an amount</button></div>
-    <div class="table-wrap flat"><table class="dt cards"><thead><tr><th>Client</th><th>IPO</th><th>Applied</th><th>Sale amount (₹)</th><th>Our profit</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap flat"><table class="dt cards" data-enh="1"><thead><tr><th>Client</th><th>IPO</th><th>Applied</th><th>Sale amount (₹)</th><th>Our profit</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${list.length>60?`<p class="hint">Showing the first 60 — save these, then the rest appear.</p>`:''}
     <p class="hint">Type each client's own sale amount for the full lot. Rows left empty are skipped. Profit uses each application's own share %.</p></details>`;
 }
@@ -7023,6 +7066,349 @@ async function qsSave(){
   } finally { await endUndo('Saved sale for'); }
   toast(`${n} sale${n===1?'':'s'} saved`,'ok'); navigate('allotments');
 }
+</script>
+
+<script>
+/* =================== BATCH 3: DASHBOARD HELPERS =================== */
+function isMobileView(){ try { return window.matchMedia('(max-width:640px)').matches; } catch(e){ return false; } }
+/* On phones a long dashboard section folds into a one-line summary; on larger screens it is shown open as before */
+function mobileCollapse(key, title, summaryExtra, html){
+  if (!isMobileView()) return html;
+  return `<details class="collapse mcol" ${dashOpen(key,false)} ontoggle="dashToggle('${key}',this.open)"><summary>${title} <span class="small-muted" style="font-weight:500;">${summaryExtra||''}</span></summary><div class="mcol-body">${html}</div></details>`;
+}
+/* D1: of the profit from these sales, how much is already collected from clients and how much is still with them */
+function ourCollectedSplit(apps){
+  let collected = 0, pending = 0;
+  apps.forEach(a=>{
+    const c = calcAllotmentSale(a); if (!c.applicable) return;
+    let frac = 1;
+    if (a.amountReceiveStatus==='Receivable' && c.grossFinal>0) frac = Math.max(0, Math.min(1, 1 - recvDue(a)/c.grossFinal));
+    collected += c.ourFinal*frac; pending += c.ourFinal*(1-frac);
+  });
+  return { collected, pending };
+}
+function collectLineHtml(apps){
+  const r = ourCollectedSplit(apps); if (Math.abs(r.pending) < 0.5) return '';
+  return `<div class="small-muted">Collected <b>${fmtMoney(r.collected)}</b> · <span class="danger">with clients ${fmtMoney(r.pending)}</span></div>`;
+}
+/* D2: where this month is heading if the pace so far continues */
+function projectionHtml(profitSoFar){
+  const now = new Date(), day = now.getDate(), days = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  if (day < 5 || day >= days || profitSoFar <= 0) return '';
+  return `<div class="small-muted" title="Profit so far ÷ days passed × days in the month. Sales are lumpy, so treat it as a rough guide.">At this pace ≈ <b>${fmtMoney(Math.round(profitSoFar/day*days))}</b> by month end</div>`;
+}
+</script>
+
+<script>
+/* =================== BATCH 4: OPERATIONS & PLANNING =================== */
+
+/* ---- T2: undo for "Mark ticked as Applied" ---- */
+(function(){
+  const f = window.ckSubmit; if (typeof f !== 'function') return;
+  window.ckSubmit = async function(){ beginUndo(); try { return await f.apply(this, arguments); } finally { await endUndo('Created'); } };
+})();
+
+/* ---- P2: client picker with search, active-only, and "select all not yet covered" ---- */
+function pcEligible(p, c){
+  if (c.status!=='Active') return false;
+  if (S.plannedClients.some(pc=>pc.planId===p.id && pc.clientId===c.id)) return false;
+  if (clientAlreadyPlannedForIpo(c.id, p.ipoId, p.id)) return false;
+  if (S.applications.some(a=>a.ipoId===p.ipoId && a.clientId===c.id && isLiveApp(a))) return false;
+  return true;
+}
+function planClients(planId){
+  const p = findPlan(planId); if (!p) return; const ipo = findIpo(p.ipoId), bank = findBank(p.bankAccountId);
+  const mapped = new Set(S.plannedClients.filter(pc=>pc.planId===planId).map(pc=>pc.clientId));
+  const list = S.clients.filter(c=>c.status==='Active' || mapped.has(c.id)).sort((a,b)=>a.clientName.localeCompare(b.clientName));
+  const elig = list.filter(c=>pcEligible(p,c)).length;
+  const rows = list.map(c=>{
+    const inPlan = mapped.has(c.id), app = S.applications.find(a=>a.planId===planId && a.clientId===c.id);
+    const other = !inPlan && clientAlreadyPlannedForIpo(c.id, p.ipoId, planId);
+    const hasApp = !inPlan && !other && S.applications.some(a=>a.ipoId===p.ipoId && a.clientId===c.id && isLiveApp(a));
+    const status = app ? badge(app.applicationStatus) : inPlan ? badge('To Be Applied') : other ? '<span class="badge gray">In another plan</span>' : hasApp ? '<span class="badge gray">Already applied</span>' : '<span class="small-muted">Not planned</span>';
+    const ctl = other ? '<span class="small-muted">Blocked</span>' : `<label class="checkbox-row"><input type="checkbox" class="pcChk" data-cid="${c.id}" data-elig="${pcEligible(p,c)?1:0}" ${inPlan?'checked':''} onchange="togglePlanClient(${planId},${c.id},this.checked).then(pcCount)"> ${inPlan?'Planned':'Add'}</label>`;
+    return `<tr data-n="${escapeHtml((c.clientName+' '+c.clientId).toLowerCase())}"><td data-label="Client"><b>${escapeHtml(c.clientName)}</b>${c.status!=='Active'?' <span class="badge gray">Inactive</span>':''}</td><td data-label="Status">${status}</td><td data-label="">${ctl}</td></tr>`;
+  }).join('');
+  openModal(`Plan Clients — ${escapeHtml(ipo?ipo.ipoName:'IPO')}`,
+    `<p class="small-muted" style="margin-bottom:8px;">${fmtDate(p.plannedDate)} · ${escapeHtml(bank?bank.bankName:'')} · <b id="pcCount">${mapped.size}</b> planned. Only active clients are listed.</p>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+       <input type="search" id="pcSearch" placeholder="Search client…" oninput="pcFilter(this.value)" style="flex:1;min-width:150px;">
+       <button class="btn btn-gold btn-sm" ${elig?'':'disabled'} onclick="pcSelectAll(${planId})">Add all ${elig} not yet covered</button></div>
+     <div class="table-wrap"><table class="dt cards" data-enh="1"><thead><tr><th>Client</th><th>Status</th><th></th></tr></thead><tbody id="pcRows">${rows||'<tr class="empty-row"><td colspan="3">No active clients.</td></tr>'}</tbody></table></div>`,
+    `<button class="btn btn-primary" onclick="closeModal();navigate('planning')">Done</button>`, true);
+}
+function pcFilter(q){ q=(q||'').trim().toLowerCase(); document.querySelectorAll('#pcRows tr[data-n]').forEach(tr=>{ tr.style.display = !q || tr.dataset.n.includes(q) ? '' : 'none'; }); }
+function pcCount(){ const el=document.getElementById('pcCount'); if (el) el.textContent = document.querySelectorAll('#pcRows .pcChk:checked').length; }
+async function pcSelectAll(planId){
+  const boxes = Array.from(document.querySelectorAll('#pcRows .pcChk')).filter(b=>!b.checked && b.dataset.elig==='1' && b.closest('tr').style.display!=='none');
+  if (!boxes.length) return; let n = 0;
+  for (const b of boxes){ b.checked = true; await togglePlanClient(planId, Number(b.dataset.cid), true); n++; }
+  pcCount(); toast(`${n} client${n===1?'':'s'} added to the plan`,'ok');
+}
+
+/* ---- P3: plans — nearest first, with quick filters ---- */
+let planChip = 'all';
+const PLAN_CHIPS = [['today','Today'],['week','Next 7 days'],['upcoming','Upcoming'],['past','Past'],['all','All']];
+function plansForChip(){
+  const t = todayStr(), w = addDaysIso(t,7);
+  let l = S.ipoPlans.slice();
+  if (planChip==='today') l = l.filter(p=>p.plannedDate===t);
+  else if (planChip==='week') l = l.filter(p=>p.plannedDate>=t && p.plannedDate<=w);
+  else if (planChip==='upcoming') l = l.filter(p=>p.plannedDate>=t);
+  else if (planChip==='past') l = l.filter(p=>p.plannedDate<t);
+  const up = l.filter(p=>p.plannedDate>=t).sort((a,b)=>a.plannedDate.localeCompare(b.plannedDate)), past = l.filter(p=>p.plannedDate<t).sort((a,b)=>b.plannedDate.localeCompare(a.plannedDate));
+  return up.concat(past);
+}
+function planChipsHtml(){ return PLAN_CHIPS.map(([k,l])=>`<button class="pill ${planChip===k?'on':''}" onclick="setPlanChip('${k}')">${l}</button>`).join(''); }
+function setPlanChip(k){ planChip = k; const el = document.getElementById('planChips'); if (el) el.innerHTML = planChipsHtml(); if (window.__tableState && window.__tableState.plansTbl) window.__tableState.plansTbl.page = 1; if (window.__tableRerender.plansTbl) window.__tableRerender.plansTbl(); }
+
+/* ---- A2: applications — date chips ---- */
+let appChip = 'all', appFrom = '', appTo = '';
+function appsForChip(){
+  const t = todayStr(); let from = '', to = '';
+  if (appChip==='today') from = to = t;
+  else if (appChip==='week') { from = addDaysIso(t,-6); to = t; }
+  else if (appChip==='month') { from = t.slice(0,8)+'01'; to = t; }
+  else if (appChip==='custom') { from = appFrom; to = appTo; }
+  return S.applications.filter(a=>(!from || (a.applicationDate||'')>=from) && (!to || (a.applicationDate||'')<=to));
+}
+function appChipsHtml(){
+  const chips = [['today','Applied today'],['week','Last 7 days'],['month','This month'],['all','All dates'],['custom','Custom']].map(([k,l])=>`<button class="pill ${appChip===k?'on':''}" onclick="setAppChip('${k}')">${l}</button>`).join('');
+  const cust = appChip==='custom' ? `<input type="date" value="${appFrom}" onchange="appFrom=this.value;setAppChip('custom')"><span class="small-muted">to</span><input type="date" value="${appTo}" onchange="appTo=this.value;setAppChip('custom')">` : '';
+  return `<div class="pills no-print" id="appChips" style="padding:8px 14px 0;margin:0;align-items:center;">${chips}${cust}</div>`;
+}
+function setAppChip(k){ appChip = k; const el = document.getElementById('appChips'); if (el) el.outerHTML = appChipsHtml(); if (window.__tableState && window.__tableState.appsTbl) window.__tableState.appsTbl.page = 1; if (window.__tableRerender.appsTbl) window.__tableRerender.appsTbl(); }
+
+/* ---- L1: money to collect, with Record Payment right on the Allotments screen ---- */
+function collectPanelHtml(){
+  const g = new Map();
+  S.applications.forEach(a=>{ const d = recvDue(a); if (d<=0.5) return; const x = g.get(a.clientId) || { id:a.clientId, amt:0, n:0, oldest:a.saleDate||'' }; x.amt += d; x.n++; if (a.saleDate && (!x.oldest || a.saleDate<x.oldest)) x.oldest = a.saleDate; g.set(a.clientId,x); });
+  const list = Array.from(g.values()).sort((a,b)=>(a.oldest||'9').localeCompare(b.oldest||'9'));
+  if (!list.length) return '';
+  const total = list.reduce((s,x)=>s+x.amt,0), today = todayStr();
+  const rows = list.map(x=>{ const c = findClient(x.id); const days = x.oldest ? dayDiff(x.oldest, today) : null;
+    return `<tr><td data-label="Client"><a class="lnk" href="javascript:void(0)" onclick="openClientDetail(${x.id})"><b>${escapeHtml(c?c.clientName:'—')}</b></a></td>
+      <td data-label="Sales">${x.n}</td><td data-label="Oldest sale">${x.oldest?fmtDate(x.oldest):'—'}${days!=null?` <span class="small-muted">(${days}d)</span>`:''}</td>
+      <td data-label="Due" class="num"><b>${fmtMoney(x.amt)}</b></td>
+      <td data-label=""><button class="btn btn-primary btn-sm" onclick="collectPay(${x.id})">Record payment</button> <button class="btn btn-ghost btn-sm" onclick="clientDueWhatsApp(${x.id})">WhatsApp</button></td></tr>`; }).join('');
+  return `<details class="collapse no-print" style="margin-bottom:14px;" ${dashOpen('collect',false)} ontoggle="dashToggle('collect',this.open)"><summary>Money to collect <span class="small-muted" style="font-weight:500;">${fmtMoney(total)} from ${list.length} client${list.length===1?'':'s'}</span></summary>
+    <div class="table-wrap flat" style="margin-top:8px;"><table class="dt cards" data-enh="1"><thead><tr><th>Client</th><th>Sales</th><th>Oldest sale</th><th class="num">Due</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+}
+function collectPay(clientId){ window.__payReturn = 'allotments'; recordPayment(clientId,'in'); }
+
+/* ---- L2: quick filter chips on Allotments & Sale ---- */
+function allotChipState(){
+  const fv = (window.__tableState && window.__tableState.allotTbl && window.__tableState.allotTbl.filterVals) || {};
+  if (fv.allotmentStatus==='Pending' && !fv.saleStatus && !fv.amountReceiveStatus) return 'result';
+  if (fv.allotmentStatus==='Allotted' && fv.saleStatus==='Pending to Sell') return 'sell';
+  if (fv.amountReceiveStatus==='Receivable' && !fv.allotmentStatus) return 'collect';
+  if (!fv.allotmentStatus && !fv.saleStatus && !fv.amountReceiveStatus) return 'all';
+  return '';
+}
+function allotChip(k){
+  if (!window.__tableState) window.__tableState = {};
+  const st = window.__tableState.allotTbl || (window.__tableState.allotTbl = { search:'', sortKey:null, sortDir:1, page:1, filterVals:{} });
+  const clear = { allotmentStatus:'', saleStatus:'', amountReceiveStatus:'' };
+  st.filterVals = { ...st.filterVals, ...clear, ...(k==='result'?{allotmentStatus:'Pending'}:k==='sell'?{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'}:k==='collect'?{amountReceiveStatus:'Receivable'}:{}) };
+  st.page = 1; navigate('allotments');
+}
+function allotChipsHtml(){
+  const cur = allotChipState();
+  return `<div class="pills no-print" style="margin-bottom:10px;">${[['all','All'],['result','Needs result'],['sell','To sell'],['collect','To collect']].map(([k,l])=>`<button class="pill ${cur===k?'on':''}" onclick="allotChip('${k}')">${l}</button>`).join('')}</div>`;
+}
+
+/* ---- R1: open Results on the IPO that most needs it; warn before the allotment date ---- */
+function resultsIpoChoices(){
+  const t = todayStr();
+  const withLive = S.ipos.filter(i=>S.applications.some(a=>a.ipoId===i.id && isLiveApp(a)));
+  const pend = i => S.applications.filter(x=>x.ipoId===i.id && isLiveApp(x) && (!x.allotmentStatus || x.allotmentStatus==='Pending')).length;
+  const rank = i => { const n = pend(i); if (!n) return 3; return (i.allotmentDate && i.allotmentDate<=t) ? 0 : 1; };
+  return withLive.sort((a,b)=> rank(a)-rank(b) || (rank(a)<=1 ? (a.allotmentDate||'9').localeCompare(b.allotmentDate||'9') : compareDatesDesc(a.allotmentDate,b.allotmentDate)));
+}
+(function(){
+  const rs = window.resSave; if (typeof rs !== 'function') return;
+  window.resSave = async function(){
+    const ipo = findIpo(resultsState.ipoId);
+    if (ipo && ipo.allotmentDate && ipo.allotmentDate > todayStr() && !window.__resForce){
+      confirmAction(`The allotment date for ${ipo.ipoName} is ${fmtDate(ipo.allotmentDate)}, which has not arrived yet. Save these results anyway?`, ()=>{ window.__resForce = true; Promise.resolve(rs()).finally(()=>{ window.__resForce = false; }); });
+      return;
+    }
+    return rs();
+  };
+})();
+</script>
+
+<script>
+/* =================== BATCH 5: CLIENTS, IPOS, BANKS =================== */
+
+/* ---- C1: money due + last applied ---- */
+function clientLastApplied(c){ let d = ''; clientStats(c.id).apps.forEach(a=>{ if ((a.applicationDate||'')>d) d = a.applicationDate; }); return d; }
+
+/* ---- C3: bulk actions on clients ---- */
+let __selectedClientIds = new Set();
+function toggleClientSelection(id, checked){ if (checked) __selectedClientIds.add(id); else __selectedClientIds.delete(id); __refreshClientSelectionUI(); }
+function toggleAllClientSelection(checked){
+  const ids = (window.__lastFilteredIds && window.__lastFilteredIds['clientsTbl']) || [];
+  ids.forEach(id => checked ? __selectedClientIds.add(id) : __selectedClientIds.delete(id)); __refreshClientSelectionUI();
+}
+function __refreshClientSelectionUI(){
+  if (window.__tableRerender['clientsTbl']) window.__tableRerender['clientsTbl']();
+  const el = document.getElementById('clientSelCount'); if (el) el.textContent = 'Selected: ' + __selectedClientIds.size;
+}
+async function bulkClientChange(mut, label){
+  if (!__selectedClientIds.size){ toast('Tick some clients first','warn'); return; }
+  beginUndo(); let n = 0;
+  try {
+    for (const id of __selectedClientIds){
+      const c = findClient(id); if (!c) continue;
+      const u = { ...c, ...mut(c), updatedAt:new Date().toISOString() };
+      if (JSON.stringify(u) === JSON.stringify({ ...c, updatedAt:u.updatedAt })) continue;
+      await putRec('clients', u); const prev = {...c}; Object.assign(c,u); await audit('Client Edit','Client', c.clientId, prev, u); n++;
+    }
+  } finally { await endUndo(label); }
+  __selectedClientIds = new Set(); navigate('clients');
+}
+function bulkClientStatus(st){ bulkClientChange(()=>({ status:st }), `Set ${st}:`); }
+function bulkClientReferencePrompt(){
+  if (!__selectedClientIds.size){ toast('Tick some clients first','warn'); return; }
+  const refs = S.settings.references || [], subs = ['', ...(S.settings.subReferences||[])];
+  openModal(`Change reference for ${__selectedClientIds.size} client(s)`,
+    `<div class="form-grid"><div class="f-group"><label>Reference</label><select id="bcRef"><option value="">— leave as is —</option>${refs.map(r=>`<option>${escapeHtml(r)}</option>`).join('')}</select></div>
+      <div class="f-group"><label>Sub reference</label><select id="bcSub"><option value="__keep">— leave as is —</option>${subs.map(r=>`<option value="${escapeHtml(r)}">${r?escapeHtml(r):'(none)'}</option>`).join('')}</select></div></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="bulkClientReferenceApply()">Apply</button>`);
+}
+function bulkClientReferenceApply(){
+  const ref = document.getElementById('bcRef').value, sub = document.getElementById('bcSub').value; closeModal();
+  bulkClientChange(()=>{ const m = {}; if (ref) m.referenceName = ref; if (sub!=='__keep') m.subReference = sub; return m; }, 'Updated');
+}
+function clientBulkToolbarHtml(){
+  return `<span class="selbar ${__selectedClientIds.size?'on':''}" style="display:${__selectedClientIds.size?'inline-flex':'none'};gap:6px;flex-wrap:wrap;">
+    <button class="btn btn-sm btn-ghost" onclick="bulkClientStatus('Inactive')">Make inactive</button><button class="btn btn-sm btn-ghost" onclick="bulkClientStatus('Active')">Make active</button>
+    <button class="btn btn-sm btn-ghost" onclick="bulkClientReferencePrompt()">Change reference…</button></span>
+    <span class="small-muted" id="clientSelCount">Selected: ${__selectedClientIds.size}</span>`;
+}
+
+/* ---- I1: results still to enter / allotment rate per IPO ---- */
+function ipoPendingResults(i){ return S.applications.filter(a=>a.ipoId===i.id && isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).length; }
+function ipoAllotRate(i){ const st = ipoStats(i.id); const n = st.allotted.length, no = st.apps.filter(a=>a.allotmentStatus==='Not Allotted').length; return (n+no) ? Math.round(n/(n+no)*1000)/10 : null; }
+function ipoResultBadge(i){
+  const n = ipoPendingResults(i); if (!n) return '<span class="small-muted">—</span>';
+  const due = i.allotmentDate && i.allotmentDate <= todayStr();
+  return `<span class="badge ${due?'red':'gray'}" title="${due?'Result date has passed — enter results':'Waiting for the result date'}">${n} ${due?'to enter':'awaiting'}</span>`;
+}
+
+/* ---- I2: suggest archiving IPOs that are completely settled ---- */
+function settledIpos(){
+  return S.ipos.filter(i=>{
+    if ((i.archiveStatus||'Active')==='Inactive' || ipoStatus(i)!=='Closed') return false;
+    const apps = S.applications.filter(a=>a.ipoId===i.id && isLiveApp(a)); if (!apps.length) return false;
+    return apps.every(a=> a.allotmentStatus==='Not Allotted' || (a.allotmentStatus==='Allotted' && a.saleStatus==='Sold' && recvDue(a)<=0.5 && a.amountReceiveStatus!=='Receivable'));
+  });
+}
+function settledIposBannerHtml(){
+  const l = settledIpos(); if (!l.length) return '';
+  return `<div class="section-card no-print"><div class="sc-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><span>🗂️ <b>${l.length} IPO${l.length===1?' is':'s are'} fully settled</b> (results in, sold, money collected): ${l.slice(0,4).map(i=>escapeHtml(i.ipoName)).join(', ')}${l.length>4?'…':''}</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="archiveSettledIpos()">Archive ${l.length===1?'it':'them'}</button></div></div>`;
+}
+async function archiveSettledIpos(){
+  const l = settledIpos(); if (!l.length) return; beginUndo();
+  try { for (const i of l){ const u = { ...i, archiveStatus:'Inactive', updatedAt:new Date().toISOString() }; await putRec('ipos', u); const prev = {...i}; Object.assign(i,u); await audit('IPO Deactivated','IPO', i.ipoId, prev, u); } }
+  finally { await endUndo('Archived'); }
+  navigate('ipos');
+}
+
+/* ---- B1: money blocked now, per bank (worked out from applications — nothing to type in) ---- */
+function bankBlockedNow(bankId){ return bankStats(bankId).apps.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).reduce((s,a)=>s+(Number(a.amountApplied)||0),0); }
+</script>
+
+<script>
+/* =================== BATCH 6: REPORTS & SETTINGS =================== */
+
+/* ---- Rp1: settlement summary for WhatsApp ---- */
+function settlementWhatsApp(){
+  const { r, refs } = settlementData(); if (!refs.size){ toast('No sales in this period','warn'); return; }
+  const money = n => '₹' + stmtNum(n);
+  const period = settleState.preset==='all' ? 'All time' : `${fmtDate(r.from)} to ${fmtDate(r.to)}`;
+  const grand = { sales:0, our:0, client:0, pending:0 };
+  const lines = [`*${bizName()} — Settlement*`, period, ''];
+  Array.from(refs.entries()).sort((a,b)=>b[1].total.our-a[1].total.our).forEach(([ref,R])=>{
+    const t = R.total; grand.sales += t.sales; grand.our += t.our; grand.client += t.client; grand.pending += t.pending;
+    lines.push(`*${ref}*: ${t.sales} sale${t.sales===1?'':'s'}`, `  Total profit ${money(t.our+t.client)} · Ours ${money(t.our)} · Clients ${money(t.client)}`, `  Still to collect ${money(t.pending)}`);
+  });
+  lines.push('', `*Total profit ${money(grand.our+grand.client)}*`, `Our share ${money(grand.our)} · Clients' share ${money(grand.client)}`, `Still to collect ${money(grand.pending)}`);
+  shareWhatsApp(lines.join('\n'));
+}
+
+/* ---- S1: weekly automatic Data Health Check (shown in the bell only when something is wrong) ---- */
+function healthWeeklyIssues(){
+  try {
+    const stale = Date.now() - Number(localStorage.getItem('healthCheckAt')||0) > 7*86400000;
+    if (stale || window.__healthRecheck){
+      window.__healthRecheck = false;
+      localStorage.setItem('healthIssues', String(runDataHealthCheck().length)); localStorage.setItem('healthCheckAt', String(Date.now()));
+    }
+    return Number(localStorage.getItem('healthIssues')||0);
+  } catch(e){ return 0; }
+}
+(function(){
+  const r = window.renderHealthCheckResults; if (typeof r !== 'function') return;
+  window.renderHealthCheckResults = function(){ window.__healthRecheck = true; healthWeeklyIssues(); return r.apply(this, arguments); };
+})();
+
+/* ---- S2: who changed what ---- */
+function auditPeopleSummaryHtml(){
+  const now = Date.now(), week = now - 7*86400000, by = new Map();
+  S.auditLogs.forEach(l=>{ const k = l.by || '—'; const x = by.get(k) || { n:0, w:0, last:'' }; x.n++; const t = Date.parse(l.timestamp)||0; if (t>=week) x.w++; if (l.timestamp > x.last) x.last = l.timestamp; by.set(k,x); });
+  if (!by.size) return '';
+  const rows = Array.from(by.entries()).sort((a,b)=>b[1].last.localeCompare(a[1].last)).map(([k,x])=>`<tr><td data-label="Person"><b>${escapeHtml(k)}</b></td><td data-label="Last 7 days">${x.w}</td><td data-label="All time">${x.n}</td><td data-label="Last change">${x.last?new Date(x.last).toLocaleString('en-IN'):'—'}</td></tr>`).join('');
+  return `<div class="table-wrap flat" style="margin-bottom:12px;"><table class="dt cards" data-enh="1"><thead><tr><th>Person</th><th>Changes (7 days)</th><th>Changes (all time)</th><th>Last change</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="hint" style="margin-bottom:10px;">Each person is recognised by the Google account they signed in with. Use the "By" filter below to see one person's changes.</p>`;
+}
+</script>
+
+<script>
+/* =================== BATCH 7: BOTTOM NAVIGATION (phones) & QUICK ADD (everywhere) =================== */
+const BOTTOM_NAV = [
+  { id:'dashboard', label:'Home', ico:'&#9673;', views:['dashboard'] },
+  { id:'checklist', label:'Today', ico:'&#9989;', views:['checklist','planning','applications'], badge:'checklist' },
+  { id:'clients', label:'Clients', ico:'&#128100;', views:['clients'] },
+  { id:'__add', label:'Add', ico:'+', views:[] },
+  { id:'allotments', label:'Sales', ico:'&#128176;', views:['allotments','results'], badge:'allotments' },
+  { id:'__more', label:'More', ico:'&#9776;', views:['ipos','banks','reports','settings'] }
+];
+function setTopbarVar(){ const t = document.getElementById('topbar'); if (t) document.documentElement.style.setProperty('--topbar-h', t.offsetHeight+'px'); }
+window.addEventListener('resize', setTopbarVar); window.addEventListener('load', ()=>setTimeout(setTopbarVar,300));
+function renderBottomNav(){
+  setTopbarVar();
+  const el = document.getElementById('bottomNav'); if (!el) return;
+  const c = opsCounts(), v = S.view;
+  el.innerHTML = BOTTOM_NAV.map(n=>{
+    const on = n.views.includes(v), cnt = n.badge ? (c[n.badge]||0) : 0;
+    const go = n.id==='__more' ? 'openSidebar()' : n.id==='__add' ? 'toggleQuickAdd()' : `navigate('${n.id}')`;
+    if (n.id==='__add') return `<button class="bn-item bn-add" onclick="${go}" aria-label="Add"><span class="bn-plus">+</span><span class="bn-lbl">Add</span></button>`;
+    return `<button class="bn-item ${on?'on':''}" onclick="${go}" aria-label="${n.label}"><span class="bn-ico">${n.ico}${cnt?`<span class="bn-badge">${cnt>99?'99+':cnt}</span>`:''}</span><span class="bn-lbl">${n.label}</span></button>`;
+  }).join('');
+}
+
+/* ---- G2: one "+" button that offers the common add actions ---- */
+function toggleQuickAdd(force){
+  const m = document.getElementById('quickAddMenu'); if (!m) return;
+  const open = force!==undefined ? force : m.style.display==='none';
+  if (!open){ m.style.display = 'none'; return; }
+  const items = [
+    ['New application','editApplication()'], ['New client','editClient()'], ['New IPO','editIpo()'], ['New plan','editPlan()'],
+    ['Payment received','quickPayPick()'], ['Enter sale prices',"navigate('allotments')"], ['Enter allotment results',"navigate('results')"]
+  ];
+  m.innerHTML = items.map(([l,f])=>`<button onclick="toggleQuickAdd(false);${f}">${l}</button>`).join('');
+  m.style.display = 'flex';
+}
+document.addEventListener('click', e=>{ const m = document.getElementById('quickAddMenu'); if (m && m.style.display!=='none' && !e.target.closest('#quickAddMenu') && !e.target.closest('#quickAddBtn') && !e.target.closest('.bn-add') && !e.target.closest('#topAddBtn')) m.style.display = 'none'; });
+function quickPayPick(){
+  const list = S.clients.filter(c=>clientDueTotal(c.id,'in')>0.5).sort((a,b)=>clientDueTotal(b.id,'in')-clientDueTotal(a.id,'in'));
+  if (!list.length){ toast('Nobody owes you money right now','ok'); return; }
+  openModal('Payment received from…', `<div class="f-group"><label>Client</label><select id="qpClient">${list.map(c=>`<option value="${c.id}">${escapeHtml(c.clientName)} — ${fmtMoney(clientDueTotal(c.id,'in'))}</option>`).join('')}</select></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="const id=Number(document.getElementById('qpClient').value);closeModal();window.__payReturn=null;recordPayment(id,'in')">Continue</button>`);
+}
+document.addEventListener('keydown', e=>{ if (e.key==='Escape') toggleQuickAdd(false); });
 </script>
 
 </body>
