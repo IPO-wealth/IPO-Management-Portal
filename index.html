@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>IPO Management Portal</title>
 <!-- PWA installability: manifest + icons are embedded as data URIs so the whole
      app stays a single file. This makes "Add to Home Screen" open as a real
@@ -630,7 +631,7 @@ async function endUndo(label){
   }});
 }
 function putRec(name,obj){
-  assertNotReadOnly(); idxReset();
+  assertNotReadOnly(); assertMonthOpen(name,obj); idxReset();
   if (window.__undoCap && RECYCLABLE.includes(name)){
     const key = name+':'+obj.id;
     if (!window.__undoCap.items.has(key)){ const old = obj.id!=null ? (S[name]||[]).find(x=>x.id===obj.id) : null; window.__undoCap.items.set(key,{ store:name, id:obj.id, prev: old?{...old}:null }); }
@@ -640,11 +641,13 @@ function putRec(name,obj){
 /* Recycle bin: every delete keeps a copy for 30 days; deletes made together share a batch so they restore together */
 let __trashBatch = null, __trashTimer = null;
 async function delRec(name,id){
-  assertNotReadOnly(); idxReset();
+  assertNotReadOnly(); assertMonthOpenForDelete(name,id); idxReset();
+  let __deleted = null;
   if (RECYCLABLE.includes(name) && !window.__suppressReadOnlyCheck){
     try {
       const rec = await getOne(name,id);
       if (rec){
+        __deleted = rec;
         const now = Date.now();
         if (!__trashBatch || now - __trashBatch.t > 2500) __trashBatch = { id: 'b'+now.toString(36)+Math.random().toString(36).slice(2,5), t: now, n:0 };
         __trashBatch.t = now; __trashBatch.n++;
@@ -656,11 +659,13 @@ async function delRec(name,id){
       }
     } catch(e){ console.warn('trash', e); }
   }
-  return __delRecRaw(name,id);
+  await __delRecRaw(name,id);
+  if (__deleted) await logTombstone(name, __deleted);
 }
 async function restoreTrashBatch(batchId){
   const items = S.trash.filter(t=>t.batchId===batchId); if (!items.length) return;
-  for (const t of items){ await __putRecRaw(t.store, t.payload); await __delRecRaw('trash', t.id); }
+  for (const t of items){ t.payload.updatedAt = new Date().toISOString(); await __putRecRaw(t.store, t.payload); await __delRecRaw('trash', t.id); }
+  await clearTombstones(items.map(t=>[t.store, t.payload]));
   S.trash = S.trash.filter(t=>t.batchId!==batchId);
   await loadAll(); toast(`Restored ${items.length} record(s)`,'ok'); navigate(S.view, S.params);
   if (typeof scheduleSync==='function') scheduleSync();
@@ -1768,9 +1773,9 @@ function viewClientDetail(id){
 </script>
 <script>
 /* =================== CLIENT LEDGER: payments, statements =================== */
-/* Two money flows per client, both tracked in the "payments" store:
-     'in'  = money received FROM the client (against the gross amount due on their sales)
-     'out' = money paid TO the client (their share of the profit)
+/* One money flow per client, tracked in the "payments" store:
+     'in'  = money received FROM the client (against the gross amount due on their sales).
+   There is no payout ledger: the client's share is already settled inside the gross amount they pay.
    Every payment is applied to the client's oldest unpaid sales first and remembers which sales it covered
    ("allocations"), so partial payments, ageing and real days-to-pay all work. A sale flips to "Received"
    automatically once fully covered. */
@@ -1779,7 +1784,7 @@ const r2 = n => Math.round((Number(n)||0)*100)/100;
 var __payIdx = null;
 function payIdx(){
   if (__payIdx) return __payIdx;
-  const idx = { in:new Map(), out:new Map() };
+  const idx = { in:new Map() };
   S.payments.forEach(p=>{
     const m = idx[p.type]; if (!m) return;
     (p.allocations||[]).forEach(x=> m.set(x.appId, (m.get(x.appId)||0) + (Number(x.amount)||0)));
@@ -1905,6 +1910,7 @@ function clientAccountCardHtml(c){
     <div class="sc-head"><h3>Account &amp; Payments</h3><div class="spacer"></div>
       <button class="btn btn-primary btn-sm" onclick="recordPayment(${c.id},'in')">+ Payment Received</button>
       ${credit>0.5?`<button class="btn btn-ghost btn-sm" onclick="applyCredits(${c.id})">Apply ${fmtMoney(credit)} unapplied credit</button>`:''}
+      ${receivable>0.5?`<button class="btn btn-ghost btn-sm" onclick="clientDueWhatsApp(${c.id})">WhatsApp reminder</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="openStatementFor(${c.id})">Statement PDF</button></div>
     <div class="sc-body">
       <div class="kpi-grid" style="margin-bottom:12px;">
@@ -1987,7 +1993,6 @@ function viewBanks(){
         { key:'status', label:'Status', render:r=>badge(r.status) },
         { hidden:true, key:'plans', label:'Plans (all-time)', num:true, sum:true, val:r=>bankStats(r.id).plans.length, render:r=>bankStats(r.id).plans.length },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>bankStats(r.id).apps.length, render:r=>bankStats(r.id).apps.length },
-        { key:'balance', label:'Balance', num:true, sum:'money', val:r=>Number(r.balance)||0, render:r=>r.balance!=null&&r.balance!==''?fmtMoney(r.balance):'<span class="small-muted">not set</span>' },
         { key:'upis', label:'UPI IDs', num:true, sum:true, val:r=>bankUpis(r.id).length, render:r=>bankUpis(r.id).length },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>bankStats(r.id).profit, render:r=>fmtMoney(bankStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>bankStats(r.id).clientProfit, render:r=>fmtMoney(bankStats(r.id).clientProfit) },
@@ -2179,23 +2184,6 @@ function runDataHealthCheck(){
     if (!bankIds.has(u.bankAccountId)) issues.push({ entity:'Bank UPI ID', id:u.id, message:`References a Bank Account that no longer exists (bankAccountId: ${u.bankAccountId})` });
   });
   return issues;
-}
-function renderHealthCheckResults(){
-  const wrap = document.getElementById('healthCheckWrap');
-  if (!wrap) return;
-  wrap.innerHTML = '<p class="small-muted">Checking...</p>';
-  setTimeout(()=>{
-    const issues = runDataHealthCheck();
-    if (!issues.length){
-      wrap.innerHTML = `<p style="color:var(--ok);font-size:13px;">✓ No issues found — every record's relationships check out correctly (${S.clients.length} clients, ${S.ipos.length} IPOs, ${S.bankAccounts.length} banks, ${S.ipoPlans.length} plans, ${S.applications.length} applications checked).</p>`;
-      return;
-    }
-    wrap.innerHTML = `<p style="color:var(--danger);font-size:13px;margin-bottom:8px;">⚠️ Found ${issues.length} issue(s):</p>
-      <div class="table-wrap" style="max-height:300px;overflow-y:auto;"><table class="dt"><thead><tr><th>Record Type</th><th>Record ID</th><th>Issue</th></tr></thead><tbody>
-      ${issues.map(i=>`<tr><td>${escapeHtml(i.entity)}</td><td>${i.id}</td><td>${escapeHtml(i.message)}</td></tr>`).join('')}
-      </tbody></table></div>
-      <p class="small-muted" style="margin-top:8px;">This is a diagnostic report only — nothing has been changed. If you see issues here, it usually means a record was deleted directly in a way that skipped this app's normal cascade-delete logic (e.g. restoring an old/partial backup).</p>`;
-  }, 50);
 }
 
 function navAttr(view, filterVals, tableId){
@@ -2866,34 +2854,6 @@ function planningCapacityTab(){
 }
 
 /* ---- planned vs actual variance ---- */
-function planningVarianceTab(){
-  const rows = S.ipoPlans.map(p=>{
-    const ipo = findIpo(p.ipoId); const bank = findBank(p.bankAccountId);
-    const acts = S.applications.filter(a=>a.planId===p.id);
-    const actualBank = acts.length ? findBank(acts[0].bankAccountId) : null;
-    const actualDate = acts.length ? acts[0].applicationDate : null;
-    return `<tr>
-      <td>${escapeHtml(ipo?ipo.ipoName:'—')}</td>
-      <td>${fmtDate(p.plannedDate)}</td>
-      <td>${escapeHtml(bank?bank.bankName:'—')}</td>
-      <td>${planClientCount(p)}</td>
-      <td>${actualDate?fmtDate(actualDate):'—'}</td>
-      <td>${actualBank?escapeHtml(actualBank.bankName):'—'}</td>
-      <td>${acts.length}</td>
-      <td>${badge(planVariance(p))}</td>
-    </tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="8">No plans yet.</td></tr>`;
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>Planned vs Actual</h3></div>
-    <div class="sc-body table-wrap">
-      <table class="dt"><thead><tr><th>IPO</th><th>Planned Date</th><th>Planned Bank</th><th>Planned Clients</th><th>Actual Date</th><th>Actual Bank</th><th>Actual Applications</th><th>Variance</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div>
-  </div>`;
-}
-
-/* ---- upcoming IPO planner ---- */
 function upcomingPlanningStatus(ipo){
   const plans = S.ipoPlans.filter(p=>p.ipoId===ipo.id);
   if (!plans.length) return 'Not Planned';
@@ -3675,7 +3635,7 @@ function dashboardBody(){
       ? `<p class="small-muted" style="margin-bottom:8px;"><b>${fmtMoney(toCollect)}</b> across ${recvList.length} sale${recvList.length===1?'':'s'} from ${recvRows.length} client${recvRows.length===1?'':'s'}${recvRows.length>8?' — top 8 shown':''}. Click a client to open, or View to see the sales.</p>
          <div class="table-wrap"><table class="dt"><thead><tr><th>Client</th><th>Sales</th><th>Oldest sale</th><th style="text-align:right;">Amount</th><th></th></tr></thead><tbody>${recvShow}</tbody></table></div>`
       : '<p class="small-muted">Nothing pending — all sales have been collected.</p>'}</div></div>`;
-  return `${firstRunHtml()}${todayPanelHtml()}${cards}${recvPanel}${period}`;
+  return `${firstRunHtml()}${todayPanelHtml()}${cards}${capitalViewHtml()}${recvPanel}${weeklyReviewHtml()}${period}`;
 }
 </script>
 <script>
@@ -3985,222 +3945,12 @@ function reportYearlySummary(){
     </div>
   </div>`;
 }
-/* =================== ROI, CASH FLOW, LISTING & GMP REPORTS =================== */
+/* =================== DATE HELPERS =================== */
 function addDaysIso(iso, n){ const [y,m,d] = iso.split('-').map(Number); return localDateStr(new Date(y, m-1, d+n)); }
 function dayDiff(a, b){
   const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
   return Math.round((Date.UTC(pb[0],pb[1]-1,pb[2]) - Date.UTC(pa[0],pa[1]-1,pa[2])) / 86400000);
 }
-// The date an application's money came free again: sale date if sold, allotment (refund) date if not allotted.
-function appReleaseDate(a){
-  if (a.saleStatus==='Sold' && a.saleDate) return a.saleDate;
-  if (a.allotmentStatus==='Not Allotted' && a.allotmentDate) return a.allotmentDate;
-  return null;
-}
-
-/* ---------- 12. ROI & capital efficiency ---------- */
-let roiState = { dim:'bank', from:'', to:'' };
-function setRoi(k, v){ roiState[k] = v; render(); }
-function roiRows(){
-  const dim = ALLOT_DIMS[roiState.dim] || ALLOT_DIMS.bank;
-  const groups = new Map();
-  S.applications.forEach(a=>{
-    if (a.applicationStatus !== 'Applied' || !a.applicationDate) return;
-    if (roiState.from && a.applicationDate < roiState.from) return;
-    if (roiState.to && a.applicationDate > roiState.to) return;
-    const k = dim.key(a);
-    if (!groups.has(k)) groups.set(k, { name:k, done:0, capital:0, capDays:0, daysSum:0, profit:0, open:0, openCapital:0, list:[], openList:[] });
-    const g = groups.get(k), amt = Number(a.amountApplied)||0, rel = appReleaseDate(a);
-    if (rel){
-      const days = Math.max(1, dayDiff(a.applicationDate, rel));
-      g.list.push(a); g.done++; g.capital += amt; g.capDays += amt*days; g.daysSum += days;
-      const c = calcAllotmentSale(a); if (c.applicable) g.profit += c.ourFinal;
-    } else { g.openList.push(a); g.open++; g.openCapital += amt; }
-  });
-  return Array.from(groups.values()).map(g=>({
-    ...g,
-    roi: g.capital ? g.profit / g.capital * 100 : null,
-    avgDays: g.done ? g.daysSum / g.done : null,
-    annual: g.capDays ? g.profit / g.capDays * 365 * 100 : null,
-    turns: g.done && g.daysSum ? 365 / (g.daysSum / g.done) : null
-  }));
-}
-function reportRoi(){
-  const all = roiRows();
-  const T = all.reduce((t,g)=>({ done:t.done+g.done, capital:t.capital+g.capital, capDays:t.capDays+g.capDays, daysSum:t.daysSum+g.daysSum, profit:t.profit+g.profit, openCapital:t.openCapital+g.openCapital, open:t.open+g.open }), { done:0, capital:0, capDays:0, daysSum:0, profit:0, openCapital:0, open:0 });
-  const rows = all.filter(g=>g.done>0).sort((a,b)=>(b.annual ?? -1e9) - (a.annual ?? -1e9));
-  const f1 = v => v==null ? '—' : v.toFixed(1);
-  const dimOpts = Object.entries(ALLOT_DIMS).map(([k,d])=>`<option value="${k}" ${roiState.dim===k?'selected':''}>${d.label}</option>`).join('');
-  const body = rows.map(g=>`<tr>
-    <td>${escapeHtml(roiState.dim==='month' && g.name.length===7 ? new Date(g.name+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : g.name)}</td>
-    ${dcell(g.name+' — completed applications', g.list, g.done)}<td>${fmtMoney(g.capital)}</td><td>${fmtMoney(g.profit)}</td>
-    <td><b class="${g.roi>=0?'ok':'danger'}">${f1(g.roi)}%</b></td>
-    <td>${f1(g.avgDays)}</td><td>${f1(g.turns)}</td>
-    <td><b class="${g.annual>=0?'ok':'danger'}">${f1(g.annual)}%</b></td>
-    ${dcell(g.name+' — money still blocked', g.openList, g.open ? `${g.open} · ${fmtMoney(g.openCapital)}` : '—')}</tr>`).join('') || `<tr><td colspan="9" class="small-muted">No completed applications (sold, or declared Not Allotted with an allotment date) match these filters yet.</td></tr>`;
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>ROI &amp; Capital Efficiency</h3></div>
-    <div class="sc-body">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
-        <div class="f-group"><label>Group by</label><select onchange="setRoi('dim', this.value)">${dimOpts}</select></div>
-        <div class="f-group"><label>Applied from</label><input type="date" value="${roiState.from}" onchange="setRoi('from', this.value)"></div>
-        <div class="f-group"><label>Applied to</label><input type="date" value="${roiState.to}" onchange="setRoi('to', this.value)"></div>
-      </div>
-      <div class="kpi-grid" style="margin-bottom:14px;">
-        <div class="kpi-card"><div class="lbl">Overall Return on Capital</div><div class="val gold">${T.capital ? (T.profit/T.capital*100).toFixed(2)+'%' : '—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Annualised Return</div><div class="val gold">${T.capDays ? (T.profit/T.capDays*365*100).toFixed(1)+'%' : '—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Avg Days Money Blocked</div><div class="val">${T.done ? (T.daysSum/T.done).toFixed(1) : '—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Capital Still Blocked</div><div class="val">${fmtMoney(T.openCapital)}</div></div>
-      </div>
-      <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>${ALLOT_DIMS[roiState.dim].label}</th><th>Completed Apps</th><th>Capital Used</th><th>Our Profit</th><th>Return on Capital</th><th>Avg Days Blocked</th><th>Times Recycled / Year</th><th>Annualised Return</th><th>Still Blocked (apps · ₹)</th>
-      </tr></thead><tbody>${body}</tbody></table></div>
-      <p class="hint"><b>How to read this:</b> an application is "completed" once its money is free again — sold (on the sale date) or declared Not Allotted (on the IPO's allotment date). <b>Return on Capital</b> = profit ÷ money applied, counting the applications that got nothing too. <b>Annualised Return</b> = what that profit would be over a full year if the same money kept working at the same pace. Applications still waiting for a result, or allotted but unsold, are shown under "Still Blocked" and are left out of the percentages.</p>
-    </div>
-  </div>`;
-}
-
-/* ---------- 13. Cash-flow calendar & forecast ---------- */
-let cfState = { from:'', to:'' };
-function setCf(k, v){ cfState[k] = v; render(); }
-function cashFlowData(from, to){
-  const apps = S.applications.filter(a => isLiveApp(a) && a.applicationDate);
-  // when does each app's money come free? known date if sold / not allotted; for results still pending, the IPO's allotment date (assumed refund)
-  const info = apps.map(a=>{
-    const amt = Number(a.amountApplied)||0;
-    const ipo = findIpo(a.ipoId);
-    const actual = a.applicationStatus === 'Applied';
-    const planned = a.applicationStatus === 'To Be Applied';
-    let release = appReleaseDate(a), kind = null;
-    if (a.saleStatus==='Sold' && a.saleDate) kind = 'sale';
-    else if (a.allotmentStatus==='Not Allotted' && a.allotmentDate) kind = 'refund';
-    else if (actual && (!a.allotmentStatus || a.allotmentStatus==='Pending')){ release = a.allotmentDate || (ipo && ipo.allotmentDate) || null; kind = release ? 'due' : null; }
-    return { a, amt, actual, planned, release, kind };
-  });
-  const blockedOn = d => info.reduce((s,x)=> s + ((x.actual && x.a.applicationDate <= d && (!x.release || x.release > d)) ? x.amt : 0), 0);
-  const days = [];
-  for (let d = from, n = 0; d <= to && n < 400; d = addDaysIso(d,1), n++){
-    const row = { date:d, out:0, planned:0, refund:0, due:0, sale:0, blocked:0 };
-    info.forEach(x=>{
-      if (x.a.applicationDate === d){ if (x.actual) row.out += x.amt; else if (x.planned) row.planned += x.amt; }
-      if (x.release === d){
-        if (x.kind==='refund') row.refund += x.amt;
-        else if (x.kind==='due') row.due += x.amt;
-        else if (x.kind==='sale') row.sale += Number(x.a.saleAmount)||0;
-      }
-    });
-    row.blocked = blockedOn(d);
-    days.push(row);
-  }
-  return { days, blockedOn };
-}
-function reportCashFlow(){
-  const today = todayStr();
-  const from = cfState.from || addDaysIso(today,-7), to = cfState.to || addDaysIso(today,30);
-  const { days, blockedOn } = cashFlowData(from, to);
-  const active = days.filter(r => r.out||r.planned||r.refund||r.due||r.sale||r.date===today);
-  const maxBlocked = Math.max(1, ...days.map(r=>r.blocked));
-  const peak = days.reduce((p,r)=> r.blocked > p.blocked ? r : p, { blocked:-1, date:'' });
-  const next7 = days.filter(r=>r.date>=today && r.date<=addDaysIso(today,7));
-  const freeing7 = next7.reduce((s,r)=>s+r.refund+r.due,0);
-  const plannedOut = days.filter(r=>r.date>=today).reduce((s,r)=>s+r.planned,0);
-  const toReceive = S.applications.reduce((s,a)=>s+recvDue(a), 0);
-  const body = active.map(r=>`<tr ${r.date===today?'style="background:var(--table-head-bg);font-weight:600;"':''}>
-    <td>${fmtDate(r.date)}${r.date===today?' <span class="badge gold">Today</span>':''}${r.date<today?' <span class="small-muted">(past)</span>':''}</td>
-    <td>${r.out?fmtMoney(r.out):'—'}</td><td>${r.planned?fmtMoney(r.planned):'—'}</td>
-    <td>${r.refund?fmtMoney(r.refund):'—'}</td><td>${r.due?fmtMoney(r.due):'—'}</td><td>${r.sale?fmtMoney(r.sale):'—'}</td>
-    <td>${fmtMoney(r.blocked)}<div style="height:5px;border-radius:3px;background:var(--border);margin-top:3px;min-width:80px;"><div style="height:5px;border-radius:3px;width:${(r.blocked/maxBlocked*100).toFixed(0)}%;background:var(--gold, #c9a227);"></div></div></td></tr>`).join('') || `<tr><td colspan="7" class="small-muted">No money movement in this date range.</td></tr>`;
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>Cash-Flow Calendar &amp; Forecast</h3></div>
-    <div class="sc-body">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
-        <div class="f-group"><label>From</label><input type="date" value="${from}" onchange="setCf('from', this.value)"></div>
-        <div class="f-group"><label>To</label><input type="date" value="${to}" onchange="setCf('to', this.value)"></div>
-        <button class="btn btn-ghost btn-sm" onclick="cfState={from:'',to:''}; render();">Reset (last 7 days + next 30)</button>
-      </div>
-      <div class="kpi-grid" style="margin-bottom:14px;">
-        <div class="kpi-card"><div class="lbl">Capital Blocked Today</div><div class="val">${fmtMoney(blockedOn(today))}</div></div>
-        <div class="kpi-card"><div class="lbl">Peak Capital Needed (this range)</div><div class="val gold">${fmtMoney(Math.max(0,peak.blocked))}</div><div class="small-muted">${peak.date?fmtDate(peak.date):''}</div></div>
-        <div class="kpi-card"><div class="lbl">Freeing Up in Next 7 Days</div><div class="val ok">${fmtMoney(freeing7)}</div></div>
-        <div class="kpi-card"><div class="lbl">Planned Applications (to be blocked)</div><div class="val">${fmtMoney(plannedOut)}</div></div>
-        <div class="kpi-card"><div class="lbl">Still to Receive From Clients</div><div class="val gold">${fmtMoney(toReceive)}</div></div>
-      </div>
-      <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>Date</th><th>Blocked (applied)</th><th>Planned to apply</th><th>Refund (not allotted)</th><th>Result due (refund or shares)</th><th>Sale proceeds</th><th>Capital blocked at day end</th>
-      </tr></thead><tbody>${body}</tbody></table></div>
-      <p class="hint">Only days with activity are listed. <b>Blocked</b> = money tied up when the application is made. <b>Result due</b> = applications still waiting for a result, on the IPO's allotment date — the money comes back if they are not allotted. <b>Capital blocked at day end</b> assumes those pending applications are refunded on the allotment date; allotted shares that aren't sold yet stay blocked. Cancelled / Mandate Failed applications are ignored. Set each IPO's allotment date so the forecast is accurate.</p>
-    </div>
-  </div>`;
-}
-
-/* ---------- 14. Listing & GMP analysis ---------- */
-let listingState = { cat:'' };
-function setListing(k, v){ listingState[k] = v; render(); }
-function ipoGmpPct(i){ return (Number(i.issuePrice)>0 && i.gmp!=null && i.gmp!=='') ? Number(i.gmp)/Number(i.issuePrice)*100 : null; }
-function ipoListingGainPct(i){ return (Number(i.issuePrice)>0 && i.listingPrice!=null && i.listingPrice!=='') ? (Number(i.listingPrice)-Number(i.issuePrice))/Number(i.issuePrice)*100 : null; }
-function ipoGainPerLot(i){ return (Number(i.lotSize)>0 && ipoListingGainPct(i)!=null) ? (Number(i.listingPrice)-Number(i.issuePrice))*Number(i.lotSize) : null; }
-function pearson(xs, ys){
-  const n = xs.length; if (n < 3) return null;
-  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
-  let sxy=0, sxx=0, syy=0; for (let k=0;k<n;k++){ sxy+=(xs[k]-mx)*(ys[k]-my); sxx+=(xs[k]-mx)**2; syy+=(ys[k]-my)**2; }
-  return (sxx && syy) ? sxy/Math.sqrt(sxx*syy) : null;
-}
-function reportListing(){
-  const list = S.ipos.filter(i => (!listingState.cat || i.category===listingState.cat) && (i.issuePrice || i.gmp!=null || i.listingPrice!=null));
-  const f1 = v => v==null ? '—' : v.toFixed(1);
-  const rows = list.slice().sort((a,b)=>(b.openDate||'').localeCompare(a.openDate||'')).map(i=>{
-    const st = ipoStats(i.id), gp = ipoGmpPct(i), lg = ipoListingGainPct(i), lot = ipoGainPerLot(i);
-    const gmpErr = (lg!=null && gp!=null) ? lg - gp : null;
-    return { i, gp, lg, lot, gmpErr, allotted: st.allotted.length, profit: st.profit, perAllot: st.allotted.length ? st.profit/st.allotted.length : null };
-  });
-  const withBoth = rows.filter(r=>r.gp!=null && r.lg!=null);
-  const withListing = rows.filter(r=>r.lg!=null);
-  const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
-  const corr = pearson(withBoth.map(r=>r.gp), withBoth.map(r=>r.lg));
-  const corrText = corr==null ? 'Needs GMP and listing price on at least 3 IPOs' : (Math.abs(corr)>=0.7 ? 'Strong' : Math.abs(corr)>=0.4 ? 'Moderate' : 'Weak') + (corr>=0?' — higher GMP usually meant a higher listing gain':' — GMP pointed the wrong way');
-  // does GMP predict YOUR profit? bucket IPOs by GMP %
-  const buckets = [['Below 0%',-1e9,0],['0% – 10%',0,10],['10% – 25%',10,25],['25% and above',25,1e9]].map(([label,lo,hi])=>{
-    const rs = rows.filter(r=>r.gp!=null && r.gp>=lo && r.gp<hi);
-    const al = rs.reduce((s,r)=>s+r.allotted,0), pr = rs.reduce((s,r)=>s+r.profit,0);
-    return `<tr><td>${label}</td><td>${rs.length}</td><td>${f1(avg(rs.filter(r=>r.lg!=null).map(r=>r.lg)))}${rs.some(r=>r.lg!=null)?'%':''}</td><td>${al}</td><td>${fmtMoney(pr)}</td><td>${al?fmtMoney(pr/al):'—'}</td></tr>`;
-  }).join('');
-  const body = rows.map(r=>`<tr>
-    ${dcell(r.i.ipoName+' — all applications', S.applications.filter(a=>a.ipoId===r.i.id), escapeHtml(r.i.ipoName))}<td>${escapeHtml(r.i.category||'—')}</td>
-    <td>${r.i.issuePrice?fmtMoney(r.i.issuePrice):'—'}</td><td>${r.i.lotSize||'—'}</td>
-    <td>${r.i.gmp!=null?fmtMoney(r.i.gmp):'—'}</td><td>${f1(r.gp)}${r.gp!=null?'%':''}</td>
-    <td>${r.i.listingDate?fmtDate(r.i.listingDate):'—'}</td><td>${r.i.listingPrice!=null?fmtMoney(r.i.listingPrice):'—'}</td>
-    <td>${r.lg==null?'—':`<b class="${r.lg>=0?'ok':'danger'}">${r.lg.toFixed(1)}%</b>`}</td>
-    <td>${r.lot==null?'—':`<span class="${r.lot>=0?'ok':'danger'}">${fmtMoney(r.lot)}</span>`}</td>
-    <td>${r.gmpErr==null?'—':(r.gmpErr>=0?'+':'')+r.gmpErr.toFixed(1)+' pts'}</td>
-    <td>${r.allotted}</td><td><span class="${r.profit<0?'danger':''}">${fmtMoney(r.profit)}</span>${r.profit<0?' <span class="badge red">Loss</span>':''}</td></tr>`).join('') || `<tr><td colspan="13" class="small-muted">No IPOs have price details yet. Open an IPO → Edit and fill in Issue Price, GMP, Listing Price etc.</td></tr>`;
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>Listing &amp; GMP Analysis</h3></div>
-    <div class="sc-body">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
-        <div class="f-group"><label>Category</label><select onchange="setListing('cat', this.value)">
-          ${['','Mainboard','SME'].map(c=>`<option value="${c}" ${listingState.cat===c?'selected':''}>${c||'All'}</option>`).join('')}</select></div>
-      </div>
-      <div class="kpi-grid" style="margin-bottom:14px;">
-        <div class="kpi-card"><div class="lbl">IPOs With Listing Data</div><div class="val">${withListing.length}</div></div>
-        <div class="kpi-card"><div class="lbl">Avg Listing Gain</div><div class="val gold">${withListing.length?f1(avg(withListing.map(r=>r.lg)))+'%':'—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Listed Above Issue Price</div><div class="val ok">${withListing.length?Math.round(withListing.filter(r=>r.lg>0).length/withListing.length*100)+'%':'—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Avg GMP Miss</div><div class="val">${withBoth.length?f1(avg(withBoth.map(r=>Math.abs(r.gmpErr))))+' pts':'—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Loss-Making IPOs (yours)</div><div class="val danger">${rows.filter(r=>r.profit<0).length}</div></div>
-      </div>
-      <p style="font-size:13px;margin:0 0 14px;"><b>Does GMP predict listing gain?</b> ${corrText}.</p>
-      <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>IPO</th><th>Category</th><th>Issue Price</th><th>Lot Size</th><th>GMP</th><th>GMP %</th><th>Listing Date</th><th>Listing Price</th><th>Listing Gain %</th><th>Gain / Lot</th><th>Actual − GMP</th><th>Your Allotments</th><th>Your Profit</th>
-      </tr></thead><tbody>${body}</tbody></table></div>
-      <h4 style="margin:18px 0 8px;">Your results by GMP level</h4>
-      <div class="table-wrap"><table class="dt"><thead><tr><th>GMP was…</th><th>IPOs</th><th>Avg Listing Gain</th><th>Your Allotments</th><th>Your Profit</th><th>Profit / Allotment</th></tr></thead><tbody>${buckets}</tbody></table></div>
-      <p class="hint">GMP % = GMP ÷ issue price. Listing Gain % = (listing price − issue price) ÷ issue price. "Actual − GMP" shows how far the real listing gain was above (+) or below (−) what the GMP suggested. With only a few IPOs the patterns can be luck — they get more useful as you fill in more.</p>
-    </div>
-  </div>`;
-}
-
 /* ---- Settlement by Reference ----
    For a chosen period (by SALE date): each Reference → Sub-Reference (→ client) with how much was sold, the total profit,
    our share vs the clients' share, and how much of the money owed to you has been collected vs is still receivable.
@@ -4269,6 +4019,7 @@ function reportSettlement(){
         <label class="checkbox-row"><input type="checkbox" ${settleState.showClients?'checked':''} onchange="setSettle('showClients', this.checked)"> Show clients</label>
       </div>
       <p style="margin:0 0 12px;font-size:13px;"><b>Period:</b> ${settleState.preset==='all'?'All time':`${fmtDate(r.from)} – ${fmtDate(r.to)}`} (sales made in this period)${settleState.ref?` · <b>Reference:</b> ${escapeHtml(settleState.ref)}`:''} · <span class="small-muted">Generated ${fmtDate(todayStr())}</span></p>
+      ${monthClosePanelHtml()}
       <div class="kpi-grid" style="margin-bottom:14px;">
         <div class="kpi-card"><div class="lbl">Total Profit</div><div class="val">${fmtMoney(grand.our+grand.client)}</div></div>
         <div class="kpi-card"><div class="lbl">Our Share</div><div class="val gold">${fmtMoney(grand.our)}</div></div>
@@ -4300,7 +4051,6 @@ function exportSettlement(){
    (bank, UPI, reference, sub-reference, client, IPO, amount, month) and showing the allotment rate.
    Rate = Allotted ÷ (Allotted + Not Allotted), i.e. only applications whose result is already out —
    Pending ones are shown separately so they never drag the rate down. Cancelled / failed applications are ignored. */
-let allotRate = { dim:'bank', from:'', to:'', minDecided:1 };
 const ALLOT_DIMS = {
   bank:   { label:'Bank',            key:a=>{ const b=findBank(a.bankAccountId); return b?b.bankName:'(unknown bank)'; } },
   upi:    { label:'UPI ID',          key:a=>{ const u=S.bankUpiIds.find(x=>x.id===a.upiId); const b=findBank(a.bankAccountId); return u ? `${u.upiId}${b?' ('+b.bankName+')':''}` : '(no UPI recorded)'; } },
@@ -4311,75 +4061,6 @@ const ALLOT_DIMS = {
   amount: { label:'Application Amount', key:a=>{ const n=Number(a.amountApplied)||0; return n<=15000?'Up to ₹15,000':n<=50000?'₹15,001 – ₹50,000':n<=100000?'₹50,001 – ₹1,00,000':'Above ₹1,00,000'; } },
   month:  { label:'Application Month', key:a=>(a.applicationDate||'').slice(0,7)||'(no date)' }
 };
-function setAllotRate(k, v){ allotRate[k] = (k==='minDecided') ? Math.max(1, Math.floor(Number(v))||1) : v; render(); }
-function allotRateRows(){
-  const dim = ALLOT_DIMS[allotRate.dim] || ALLOT_DIMS.bank;
-  const groups = new Map();
-  S.applications.forEach(a=>{
-    if (!isLiveApp(a)) return;
-    if (allotRate.from && (!a.applicationDate || a.applicationDate < allotRate.from)) return;
-    if (allotRate.to && (!a.applicationDate || a.applicationDate > allotRate.to)) return;
-    const k = dim.key(a);
-    if (!groups.has(k)) groups.set(k, { name:k, total:0, allotted:0, notAllotted:0, pending:0, amount:0, profit:0, clientProfit:0, apps:[] });
-    const g = groups.get(k);
-    g.apps.push(a);
-    g.total++; g.amount += Number(a.amountApplied)||0;
-    if (a.allotmentStatus==='Allotted') g.allotted++;
-    else if (a.allotmentStatus==='Not Allotted') g.notAllotted++;
-    else g.pending++;
-    const c = calcAllotmentSale(a); if (c.applicable){ g.profit += c.ourFinal; g.clientProfit += c.clientFinal; }
-  });
-  const rows = Array.from(groups.values()).map(g=>({ ...g, decided: g.allotted+g.notAllotted, rate: (g.allotted+g.notAllotted) ? g.allotted/(g.allotted+g.notAllotted)*100 : null }));
-  return rows;
-}
-function reportAllotmentRate(){
-  const all = allotRateRows();
-  const totAllotted = all.reduce((s,r)=>s+r.allotted,0), totDecided = all.reduce((s,r)=>s+r.decided,0), totPending = all.reduce((s,r)=>s+r.pending,0);
-  const overall = totDecided ? totAllotted/totDecided*100 : 0;
-  const rows = all.filter(r=>r.decided >= allotRate.minDecided)
-    .sort((a,b)=> (b.rate ?? -1) - (a.rate ?? -1) || b.decided - a.decided);
-  window.__allotRateExport = rows;
-  const dimOpts = Object.entries(ALLOT_DIMS).map(([k,d])=>`<option value="${k}" ${allotRate.dim===k?'selected':''}>${d.label}</option>`).join('');
-  const body = rows.map(r=>{
-    const cls = r.rate==null ? '' : (r.rate >= overall ? 'ok' : 'danger');
-    const bar = r.rate==null ? '' : `<div style="height:6px;border-radius:3px;background:var(--border);margin-top:4px;min-width:90px;"><div style="height:6px;border-radius:3px;width:${Math.min(100,r.rate).toFixed(0)}%;background:var(--${r.rate>=overall?'ok':'danger'}, #888);"></div></div>`;
-    const ppa = r.decided ? fmtMoney(r.profit / r.decided) : '—';
-    return `<tr>
-      <td>${escapeHtml(allotRate.dim==='month' && r.name.length===7 ? new Date(r.name+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : r.name)}</td>
-      ${dcell(r.name+' — applications', r.apps, r.total)}${dcell(r.name+' — allotted', r.apps.filter(a=>a.allotmentStatus==='Allotted'), r.allotted)}${dcell(r.name+' — not allotted', r.apps.filter(a=>a.allotmentStatus==='Not Allotted'), r.notAllotted)}${dcell(r.name+' — awaiting result', r.apps.filter(a=>!a.allotmentStatus||a.allotmentStatus==='Pending'), r.pending)}
-      <td><b class="${cls}">${r.rate==null?'—':r.rate.toFixed(1)+'%'}</b>${bar}</td>
-      <td>${fmtMoney(r.amount)}</td><td>${fmtMoney(r.profit)}</td><td>${fmtMoney(r.clientProfit)}</td><td>${ppa}</td></tr>`;
-  }).join('') || `<tr><td colspan="10" class="small-muted">No applications with a declared result match these filters yet.</td></tr>`;
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>Allotment Rate Analysis</h3><div class="spacer"></div>
-      <button class="btn btn-ghost btn-sm" onclick="exportAllotRate()">Download Excel</button></div>
-    <div class="sc-body">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
-        <div class="f-group"><label>Group by</label><select onchange="setAllotRate('dim', this.value)">${dimOpts}</select></div>
-        <div class="f-group"><label>Applied from</label><input type="date" value="${allotRate.from}" onchange="setAllotRate('from', this.value)"></div>
-        <div class="f-group"><label>Applied to</label><input type="date" value="${allotRate.to}" onchange="setAllotRate('to', this.value)"></div>
-        <div class="f-group"><label>Hide groups with fewer than</label><input type="number" min="1" step="1" value="${allotRate.minDecided}" style="width:70px;" onchange="setAllotRate('minDecided', this.value)"><span class="small-muted"> results</span></div>
-      </div>
-      <div class="kpi-grid" style="margin-bottom:14px;">
-        <div class="kpi-card"><div class="lbl">Overall Allotment Rate</div><div class="val gold">${totDecided?overall.toFixed(1)+'%':'—'}</div></div>
-        <div class="kpi-card"><div class="lbl">Allotted</div><div class="val ok">${totAllotted}</div></div>
-        <div class="kpi-card"><div class="lbl">Results Declared</div><div class="val">${totDecided}</div></div>
-        <div class="kpi-card"><div class="lbl">Awaiting Result</div><div class="val">${totPending}</div></div>
-      </div>
-      <div class="table-wrap"><table class="dt"><thead><tr>
-        <th>${ALLOT_DIMS[allotRate.dim].label}</th><th>Applications</th><th>Allotted</th><th>Not Allotted</th><th>Pending</th><th>Allotment Rate</th><th>Amount Applied</th><th>Our Profit</th><th>Client Profit</th><th>Our Profit / Result</th>
-      </tr></thead><tbody>${body}</tbody></table></div>
-      <p class="hint">Rate = Allotted ÷ (Allotted + Not Allotted). Pending applications are not counted against the rate. Green = above your overall rate, red = below. Small groups can look extreme by luck — raise "Hide groups with fewer than" to focus on groups with enough results to trust. Cancelled / Mandate Failed applications are ignored.</p>
-    </div>
-  </div>`;
-}
-function exportAllotRate(){
-  const rows = (window.__allotRateExport||[]).map(r=>({ [ALLOT_DIMS[allotRate.dim].label]:r.name, 'Applications':r.total, 'Allotted':r.allotted, 'Not Allotted':r.notAllotted, 'Pending':r.pending, 'Allotment Rate %': r.rate==null?'':Number(r.rate.toFixed(1)), 'Amount Applied':r.amount, 'Our Profit':r.profit, 'Client Profit':r.clientProfit }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Allotment Rate');
-  XLSX.writeFile(wb, `Allotment_Rate_by_${allotRate.dim}_${todayStr()}.xlsx`);
-}
 /* =================== DRILL-DOWN, CLIENT SCORECARDS, REPORT BUILDER =================== */
 
 /* ---------- 19. Drill-down: click a number → see the records behind it ---------- */
@@ -4835,25 +4516,6 @@ function reportBankAnalysis(){
   return `<div class="section-card"><div class="sc-body table-wrap"><table class="dt"><thead><tr><th>Bank</th><th>Planned IPOs</th><th>Actual IPOs</th><th>Applications</th><th>Allotments</th><th>Amount Applied</th><th>Amount Blocked</th><th>Pending Receivables</th><th>Gross Received</th><th>Our Profit</th><th>Client Profit</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div class="sc-body"><p class="small-muted">Amount Blocked = amount currently tied up in applications still awaiting an allotment decision (excludes Not Allotted and already-resolved applications). Pending Receivables = count of sold applications whose recovery is still outstanding.</p></div></div>`;
 }
-let praRange = { preset:'thisMonth', from:null, to:null };
-let praFilters = { ipoId:'', clientId:'', bankId:'', reference:'', subReference:'' };
-function resolvePraRange(){
-  const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth();
-  const p = praRange.preset;
-  if (p === 'thisMonth') return { from: isoDate(new Date(y,m,1)), to: isoDate(new Date(y,m+1,0)) };
-  if (p === 'thisYear') return { from: isoDate(new Date(y,0,1)), to: isoDate(new Date(y,11,31)) };
-  if (p === 'custom') return { from: praRange.from || '0001-01-01', to: praRange.to || '9999-12-31' };
-  return { from:'0001-01-01', to:'9999-12-31' }; // 'all'
-}
-function setPraPreset(p){ praRange.preset = p; render(); }
-function setPraCustom(){
-  praRange.preset = 'custom';
-  praRange.from = document.getElementById('praFrom').value;
-  praRange.to = document.getElementById('praTo').value;
-  render();
-}
-function setPraFilter(key, val){ praFilters[key] = val; render(); }
 /* =================== OUR vs CLIENT PROFIT GAP =================== */
 let gapState = { dim:'ipo', period:'all' };
 window.__gapG = {};
@@ -4940,110 +4602,6 @@ function reportGap(){
     </div>
   </div>`;
 }
-function reportProfitAnalysis(){
-  const r = resolvePraRange();
-  // Filters (IPO/Client/Bank/Reference) apply to every figure below; the date
-  // range applies only to the profit figures, which are dated by Sale Date —
-  // Capital Blocked / Receivables are current outstanding balances, not
-  // historical, so they intentionally ignore the date range.
-  const matchesFilters = a => {
-    if (praFilters.ipoId && String(a.ipoId)!==praFilters.ipoId) return false;
-    if (praFilters.bankId && String(a.bankAccountId)!==praFilters.bankId) return false;
-    if (praFilters.clientId && String(a.clientId)!==praFilters.clientId) return false;
-    if (praFilters.reference || praFilters.subReference){
-      const c = findClient(a.clientId);
-      if (praFilters.reference && (!c || c.referenceName !== praFilters.reference)) return false;
-      if (praFilters.subReference && (!c || c.subReference !== praFilters.subReference)) return false;
-    }
-    return true;
-  };
-  const allFiltered = S.applications.filter(matchesFilters);
-  const soldInRange = allFiltered.filter(a => a.saleStatus==='Sold' && inRange(a.saleDate, r));
-
-  let grossProfit=0, ourProfit=0, clientProfit=0;
-  soldInRange.forEach(a=>{ const c=calcAllotmentSale(a); if (c.applicable){ grossProfit+=c.grossFinal; ourProfit+=c.ourFinal; clientProfit+=c.clientFinal; } });
-  const monthNow = new Date();
-  const soldThisMonth = allFiltered.filter(a=>a.saleStatus==='Sold' && a.saleDate>=isoDate(new Date(monthNow.getFullYear(),monthNow.getMonth(),1)) && a.saleDate<=todayStr());
-  const soldThisYear = allFiltered.filter(a=>a.saleStatus==='Sold' && a.saleDate>=isoDate(new Date(monthNow.getFullYear(),0,1)) && a.saleDate<=todayStr());
-  const monthlyProfit = soldThisMonth.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); },0);
-  const yearlyProfit = soldThisYear.reduce((s,a)=>{ const c=calcAllotmentSale(a); return s+(c.applicable?c.ourFinal:0); },0);
-  const avgProfitPerMonth = Math.round(yearlyProfit / (monthNow.getMonth()+1));
-  let totalReceived=0, totalReceivable=0;
-  allFiltered.forEach(a=>{ const c=calcAllotmentSale(a); if (c.applicable){ if (a.amountReceiveStatus==='Received') totalReceived+=c.grossFinal; if (a.amountReceiveStatus==='Receivable') totalReceivable+=recvDue(a); } });
-  const totalCapitalBlocked = allFiltered.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending')).reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
-
-  const presetBtns = [['thisMonth','This Month'],['thisYear','This Year'],['all','All Time'],['custom','Custom']]
-    .map(([k,l]) => `<button class="btn btn-sm ${praRange.preset===k?'btn-primary':'btn-ghost'}" onclick="setPraPreset('${k}')">${l}</button>`).join('');
-
-  return `
-  <div class="section-card">
-    <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-      ${presetBtns}
-      ${praRange.preset==='custom' ? `<input type="date" id="praFrom" value="${praRange.from||''}" onchange="setPraCustom()"><span>to</span><input type="date" id="praTo" value="${praRange.to||''}" onchange="setPraCustom()">` : ''}
-      <span class="small-muted" style="margin-left:auto;">Profit figures: ${fmtDate(r.from)} – ${fmtDate(r.to)} (by Sale Date)</span>
-    </div>
-    <div class="sc-body" style="display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border);">
-      <select onchange="setPraFilter('ipoId', this.value)">
-        <option value="">IPO: All</option>
-        ${sortedIpos().map(i=>`<option value="${i.id}" ${praFilters.ipoId===String(i.id)?'selected':''}>${escapeHtml(i.ipoName)}</option>`).join('')}
-      </select>
-      <select onchange="setPraFilter('clientId', this.value)">
-        <option value="">Client: All</option>
-        ${S.clients.map(c=>`<option value="${c.id}" ${praFilters.clientId===String(c.id)?'selected':''}>${escapeHtml(c.clientName)}</option>`).join('')}
-      </select>
-      <select onchange="setPraFilter('bankId', this.value)">
-        <option value="">Bank: All</option>
-        ${S.bankAccounts.map(b=>`<option value="${b.id}" ${praFilters.bankId===String(b.id)?'selected':''}>${escapeHtml(b.bankName)}</option>`).join('')}
-      </select>
-      <select onchange="setPraFilter('reference', this.value)">
-        <option value="">Reference: All</option>
-        ${(S.settings.references||[]).map(rf=>`<option value="${escapeHtml(rf)}" ${praFilters.reference===rf?'selected':''}>${escapeHtml(rf)}</option>`).join('')}
-      </select>
-      <select onchange="setPraFilter('subReference', this.value)">
-        <option value="">Sub Reference: All</option>
-        ${(S.settings.subReferences||[]).map(rf=>`<option value="${escapeHtml(rf)}" ${praFilters.subReference===rf?'selected':''}>${escapeHtml(rf)}</option>`).join('')}
-      </select>
-    </div>
-  </div>
-
-  <div class="kpi-grid">
-    <div class="kpi-card"><div class="lbl">Monthly Profit</div><div class="val gold">${fmtMoney(monthlyProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Yearly Profit</div><div class="val gold">${fmtMoney(yearlyProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Avg Profit / Month</div><div class="val">${fmtMoney(avgProfitPerMonth)}</div></div>
-    <div class="kpi-card"><div class="lbl">Gross Received (range)</div><div class="val">${fmtMoney(grossProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Gross Profit (range)</div><div class="val gold">${fmtMoney(ourProfit + clientProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Our Profit (range)</div><div class="val gold">${fmtMoney(ourProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Client Profit (range)</div><div class="val">${fmtMoney(clientProfit)}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Received</div><div class="val ok">${fmtMoney(totalReceived)}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Receivables</div><div class="val ${totalReceivable>0?'danger':''}">${fmtMoney(totalReceivable)}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Capital Blocked</div><div class="val">${fmtMoney(totalCapitalBlocked)}</div></div>
-  </div>
-  <p class="small-muted">Uses the same profit calculation logic as the Dashboard and Allotment &amp; Sale tab — figures will always match. Monthly/Yearly/Avg figures reflect the real calendar month/year (independent of the range buttons above), matching the Dashboard's Overview cards; the other figures respect the selected range and filters.</p>`;
-}
-
-function reportPlanningPerformance(){
-  const totalPlanned = S.ipoPlans.length;
-  const totalActual = new Set(S.applications.filter(a=>a.planId).map(a=>a.planId)).size;
-  const executed = S.ipoPlans.filter(p=>planVariance(p)==='Matched').length;
-  const notExecuted = S.ipoPlans.filter(p=>planVariance(p)==='Pending').length;
-  const bankChanged = S.ipoPlans.filter(p=>planVariance(p)==='Bank Changed').length;
-  const dateChanged = S.ipoPlans.filter(p=>planVariance(p)==='Date Changed').length;
-  const dateSet = new Set(S.ipoPlans.map(p=>p.plannedDate));
-  let overCapacityDays = 0, utilSum = 0, utilCount = 0;
-  S.bankAccounts.forEach(b=>{ dateSet.forEach(d=>{ const cap = bankCapacity(b.id,d); if (cap.planned>0){ utilSum += cap.utilisation; utilCount++; if (cap.status==='Over Capacity') overCapacityDays++; } }); });
-  const avgUtil = utilCount ? Math.round((utilSum/utilCount)*10)/10 : 0;
-  return `<div class="kpi-grid">
-    <div class="kpi-card"><div class="lbl">Total Planned IPO Slots</div><div class="val">${totalPlanned}</div></div>
-    <div class="kpi-card"><div class="lbl">Total Actual IPO Slots</div><div class="val">${totalActual}</div></div>
-    <div class="kpi-card"><div class="lbl">Plans Executed</div><div class="val ok">${executed}</div></div>
-    <div class="kpi-card"><div class="lbl">Plans Not Executed</div><div class="val danger">${notExecuted}</div></div>
-    <div class="kpi-card"><div class="lbl">Plans With Bank Change</div><div class="val">${bankChanged}</div></div>
-    <div class="kpi-card"><div class="lbl">Plans With Date Change</div><div class="val">${dateChanged}</div></div>
-    <div class="kpi-card"><div class="lbl">Over-Capacity Days</div><div class="val danger">${overCapacityDays}</div></div>
-    <div class="kpi-card"><div class="lbl">Average Bank Utilisation</div><div class="val">${avgUtil}%</div></div>
-  </div>`;
-}
-
 /* =================== SETTINGS =================== */
 
 /* Settings split into tabs so each screen stays short and simple */
@@ -5443,7 +5001,7 @@ function exportAllToExcel(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(upiSheet), 'Bank UPI IDs');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(paymentsSheet), 'Client Payments');
 
-  const iposSheet = S.ipos.map(i=>({ 'IPO ID':i.ipoId, 'IPO Name':i.ipoName, 'Min Amount':Number(i.minimumApplicationAmount)||0, 'Open Date':toExcelDate(i.openDate), 'Close Date':toExcelDate(i.closeDate), 'Allotment Date':toExcelDate(i.allotmentDate), 'Category':i.category||'', 'Issue Price':i.issuePrice!=null?i.issuePrice:'', 'Lot Size':i.lotSize!=null?i.lotSize:'', 'GMP':i.gmp!=null?i.gmp:'', 'Listing Date':toExcelDate(i.listingDate), 'Listing Price':i.listingPrice!=null?i.listingPrice:'', 'Status':ipoStatus(i), 'Active/Inactive':i.archiveStatus||'Active' }));
+  const iposSheet = S.ipos.map(i=>({ 'IPO ID':i.ipoId, 'IPO Name':i.ipoName, 'Min Amount':Number(i.minimumApplicationAmount)||0, 'Open Date':toExcelDate(i.openDate), 'Close Date':toExcelDate(i.closeDate), 'Allotment Date':toExcelDate(i.allotmentDate), 'Category':i.category||'', 'Issue Price':i.issuePrice!=null?i.issuePrice:'', 'Lot Size':i.lotSize!=null?i.lotSize:'', 'Listing Date':toExcelDate(i.listingDate), 'Listing Price':i.listingPrice!=null?i.listingPrice:'', 'Status':ipoStatus(i), 'Active/Inactive':i.archiveStatus||'Active' }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(iposSheet), 'IPOs');
 
   const plansSheet = S.ipoPlans.map(p=>{ const ipo=findIpo(p.ipoId), bank=findBank(p.bankAccountId); return { 'Plan ID':p.id, 'IPO':ipo?ipo.ipoName:'', 'Planned Date':toExcelDate(p.plannedDate), 'Bank':bank?bank.bankName:'', 'Planned Clients':planClientCount(p), 'Status':planStatusComputed(p), 'Variance':planVariance(p), 'Notes':p.notes||'' }; });
@@ -6302,32 +5860,6 @@ async function driveGetFileMeta(fileId){
   return json;
 }
 
-async function syncToDrive(){
-  if (!window.__drive.signedIn || !window.__drive.fileId) return;
-  if (!navigator.onLine){ setDriveStatus('offline'); return; }
-  setDriveStatus('syncing');
-  try {
-    // conflict check: has the remote file changed since we last knew about it?
-    const meta = await driveGetFileMeta(window.__drive.fileId);
-    if (window.__drive.remoteModifiedTime && meta.modifiedTime !== window.__drive.remoteModifiedTime){
-      setDriveStatus('conflict');
-      toast('Data was updated from another device. Please refresh the latest data before continuing.','warn');
-      return;
-    }
-    const res = await driveApi(`https://www.googleapis.com/upload/drive/v3/files/${window.__drive.fileId}?uploadType=media&fields=id,modifiedTime`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshotData())
-    });
-    const json = await res.json();
-    window.__drive.remoteModifiedTime = json.modifiedTime || meta.modifiedTime;
-    window.__drive.pendingChanges = false;
-    await saveSetting('lastSynced', new Date().toISOString());
-    setDriveStatus('idle');
-    maybeCreateDailyBackupSnapshot(); // fire-and-forget: internally checks role + once-per-day, never blocks sync
-  } catch(err){
-    setDriveStatus('error'); window.__drive.lastError = err && err.message ? err.message : String(err);
-    toast('Sync failed: '+window.__drive.lastError,'danger');
-  }
-}
 async function refreshFromDrive(silent){
   if (!window.__drive.signedIn || !window.__drive.fileId){ toast('Connect Google Drive first','warn'); return; }
   const doRefresh = async () => {
@@ -6444,33 +5976,8 @@ function triggerAppLock(){
   document.getElementById('lockError').textContent = '';
   setTimeout(()=>document.getElementById('lockPinInput').focus(), 50);
 }
-async function tryUnlockApp(){
-  const val = document.getElementById('lockPinInput').value;
-  const hash = await sha256Hex(val);
-  if (hash === S.settings.appLockPin){
-    window.__appLock.locked = false;
-    document.getElementById('appLockOverlay').style.display = 'none';
-    armAutoLock();
-  } else {
-    document.getElementById('lockError').textContent = 'Incorrect PIN. Try again.';
-    document.getElementById('lockPinInput').value = '';
-  }
-}
 ['click','keydown','touchstart'].forEach(ev => document.addEventListener(ev, () => { if (!window.__appLock.locked) armAutoLock(); }));
 
-async function setupAppLock(){
-  const pin = document.getElementById('newLockPin').value;
-  const confirm = document.getElementById('newLockPinConfirm').value;
-  if (!/^\d{4,8}$/.test(pin)){ toast('PIN must be 4-8 digits','warn'); return; }
-  if (pin !== confirm){ toast('PINs do not match','warn'); return; }
-  const hash = await sha256Hex(pin);
-  await saveSetting('appLockPin', hash);
-  await saveSetting('appLockEnabled', true);
-  if (!S.settings.autoLockMinutes) await saveSetting('autoLockMinutes', 5);
-  toast('App Lock enabled','ok');
-  armAutoLock();
-  navigate('settings');
-}
 async function disableAppLock(){
   confirmAction('Turn off App Lock? This portal contains client and financial data — anyone with access to this device would be able to open it without a PIN.', async () => {
     await saveSetting('appLockEnabled', false);
@@ -6904,11 +6411,19 @@ async function encryptedBackupDownload(){
 function deviceId(){ try{ let d=localStorage.getItem('deviceId'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,7); localStorage.setItem('deviceId',d);} return d; }catch(e){ return 'device'; } }
 const __snap0 = snapshotData; window.snapshotData = function(){ const s=__snap0(); s.writtenBy=(window.__drive&&window.__drive.email)||'This device'; s.writtenAt=new Date().toISOString(); s.device=deviceId(); return s; };
 async function mergeRemoteIntoLocal(remote){
-  const stamp = r => r.updatedAt || r.createdAt || ''; let added=0, updated=0, clashes=0; window.__suppressReadOnlyCheck = true;
+  const stamp = r => r.updatedAt || r.createdAt || ''; let added=0, updated=0, clashes=0, removed=0; window.__suppressReadOnlyCheck = true;
   try {
+    // merge the "deleted records" list and month locks first, so a deletion made on any device wins over an older copy
+    const rs = remote.settings || {};
+    const log = { ...(rs.deletedLog||{}) }; Object.entries(S.settings.deletedLog||{}).forEach(([k,v])=>{ if (!log[k] || v>log[k]) log[k]=v; });
+    const locks = { ...(S.settings.monthLocks||{}) }; Object.entries(rs.monthLocks||{}).forEach(([k,v])=>{ if (!locks[k] || (v.at||'')>(locks[k].at||'')) locks[k]=v; });
+    await saveSetting('deletedLog', pruneTombstones(log)); await saveSetting('monthLocks', locks);
     for (const store of ['clients','bankAccounts','ipos','ipoPlans','plannedClients','applications','bankUpiIds','payments']){
       const local = new Map((S[store]||[]).map(r=>[r.id,r])); const trashed = new Set((S.trash||[]).filter(t=>t.store===store).map(t=>t.payload.id));
+      const dead = r => { const d = log[tombKey(store,r)]; return d && stamp(r) <= d; };
+      for (const l of local.values()){ if (dead(l)){ await __delRecRaw(store, l.id); removed++; } }
       for (const r of (remote[store]||[])){
+        if (dead(r)) continue;
         const l = local.get(r.id);
         if (!l){ if (trashed.has(r.id)) continue; await putRec(store, r); added++; }
         else if (l.createdAt && r.createdAt && l.createdAt!==r.createdAt){ clashes++; }
@@ -6917,10 +6432,10 @@ async function mergeRemoteIntoLocal(remote){
     }
     const seen = new Set(S.auditLogs.map(a=>a.timestamp+'|'+a.by+'|'+a.action+'|'+a.entityId));
     for (const a of (remote.auditLogs||[])){ if (!seen.has(a.timestamp+'|'+a.by+'|'+a.action+'|'+a.entityId)){ const c={...a}; delete c.id; await putRec('auditLogs', c); } }
-    for (const [k,v] of Object.entries(remote.settings||{})){ if (S.settings[k]===undefined && !isLocalOnlySetting(k)) await saveSetting(k,v); }
+    for (const [k,v] of Object.entries(remote.settings||{})){ if (k==='deletedLog'||k==='monthLocks') continue; if (S.settings[k]===undefined && !isLocalOnlySetting(k)) await saveSetting(k,v); }
     await loadAll();
   } finally { window.__suppressReadOnlyCheck = false; }
-  return { added, updated, clashes };
+  return { added, updated, clashes, removed };
 }
 window.syncToDrive = async function(){
   if (!window.__drive.signedIn || !window.__drive.fileId) return;
@@ -6931,7 +6446,7 @@ window.syncToDrive = async function(){
     if (window.__drive.remoteModifiedTime && meta.modifiedTime !== window.__drive.remoteModifiedTime){
       const res = await driveApi(`https://www.googleapis.com/drive/v3/files/${window.__drive.fileId}?alt=media`); const remote = await res.json();
       merged = await mergeRemoteIntoLocal(remote); window.__drive.lastWriter = { by:remote.writtenBy, at:remote.writtenAt, device:remote.device };
-      toast(`Merged changes saved by ${remote.writtenBy||'another device'}: ${merged.added} new, ${merged.updated} updated${merged.clashes?` · ${merged.clashes} clash(es) kept as on this device`:''}`, merged.clashes?'warn':'ok');
+      toast(`Merged changes saved by ${remote.writtenBy||'another device'}: ${merged.added} new, ${merged.updated} updated${merged.removed?`, ${merged.removed} removed`:''}${merged.clashes?` · ${merged.clashes} clash(es) kept as on this device`:''}`, merged.clashes?'warn':'ok');
     }
     const res = await driveApi(`https://www.googleapis.com/upload/drive/v3/files/${window.__drive.fileId}?uploadType=media&fields=id,modifiedTime`, { method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(snapshotData()) });
     const json = await res.json(); window.__drive.remoteModifiedTime = json.modifiedTime || meta.modifiedTime; window.__drive.pendingChanges = false;
@@ -7139,6 +6654,7 @@ function reportStatements(){
   return `
   <div class="section-card">
     <div class="sc-head" style="flex-wrap:wrap;gap:8px;"><h3>Statement (PDF)</h3><div class="spacer"></div>
+      <button class="btn btn-ghost" ${D.count?'':'disabled'} onclick="stmtWhatsApp()">Share on WhatsApp</button>
       <button class="btn btn-primary" ${D.count?'':'disabled'} onclick="stmtDownload()">Download PDF</button></div>
     <div class="sc-body">
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
@@ -7262,5 +6778,163 @@ function stmtDownload(){
 }
 
 </script>
+<script>
+/* =================== DELETED-RECORD SYNC, MONTH CLOSE, CAPITAL VIEW, WEEKLY REVIEW, WHATSAPP =================== */
+
+/* ---- Deleted-record list ("tombstones"): lets a delete on one device reach the others ---- */
+function tombKey(store, r){ return store+':'+r.id+':'+(r.createdAt||''); }
+function pruneTombstones(log){ const cut = Date.now()-120*86400000, o = {}; Object.entries(log||{}).forEach(([k,v])=>{ if (Date.parse(v) >= cut) o[k]=v; }); return o; }
+async function logTombstone(store, rec){
+  try { const log = { ...(S.settings.deletedLog||{}) }; log[tombKey(store,rec)] = new Date().toISOString(); await saveSetting('deletedLog', pruneTombstones(log)); }
+  catch(e){ console.warn('tombstone', e); }
+}
+async function clearTombstones(pairs){
+  try { const log = { ...(S.settings.deletedLog||{}) }; let ch = false;
+    pairs.forEach(([st,r])=>{ const k = tombKey(st,r); if (log[k]){ delete log[k]; ch = true; } });
+    if (ch) await saveSetting('deletedLog', log); } catch(e){}
+}
+
+/* ---- Month close: a closed month's sales can't be edited or deleted. Recording money received still works. ---- */
+const LOCK_SAFE_FIELDS = new Set(['amountReceiveStatus','receivedDate','receivedViaLedger','updatedAt']);
+function monthLocked(d){ const m = d ? String(d).slice(0,7) : ''; const L = (S.settings.monthLocks||{})[m]; return !!(L && L.closed); }
+function appInClosedMonth(a){ return !!a && a.saleStatus==='Sold' && monthLocked(a.saleDate); }
+function monthClosedBlock(a){
+  toast(`Sales for ${monthLabel((a.saleDate||'').slice(0,7))} are closed. Reopen that month in Reports → Settlement to change them.`, 'danger');
+  throw new Error('MONTH_CLOSED');
+}
+function assertMonthOpen(name, obj){
+  if (name !== 'applications' || window.__suppressReadOnlyCheck) return;
+  if (!Object.keys(S.settings.monthLocks||{}).length) return;
+  const old = obj && obj.id!=null ? S.applications.find(x=>x.id===obj.id) : null;
+  if (!appInClosedMonth(old) && !appInClosedMonth(obj)) return;
+  if (old){
+    const keys = new Set([...Object.keys(old), ...Object.keys(obj)]);
+    const changed = [...keys].filter(k=>!LOCK_SAFE_FIELDS.has(k) && JSON.stringify(old[k])!==JSON.stringify(obj[k]));
+    if (!changed.length) return;
+    monthClosedBlock(appInClosedMonth(old) ? old : obj);
+  }
+  monthClosedBlock(obj);
+}
+function assertMonthOpenForDelete(name, id){
+  if (name !== 'applications' || window.__suppressReadOnlyCheck) return;
+  const a = S.applications.find(x=>x.id===id); if (appInClosedMonth(a)) monthClosedBlock(a);
+}
+async function setMonthClosed(month, closed){
+  const L = { ...(S.settings.monthLocks||{}) }; L[month] = { closed, at:new Date().toISOString() };
+  await saveSetting('monthLocks', L); await audit(closed?'Month Closed':'Month Reopened','Settings', 0, null, { month });
+  toast(closed ? `${monthLabel(month)} closed — its sales are now locked` : `${monthLabel(month)} reopened`, 'ok'); render();
+}
+function toggleMonthClose(month){
+  const closed = !!((S.settings.monthLocks||{})[month]||{}).closed;
+  if (!closed){
+    const pend = S.applications.filter(a=>a.saleStatus==='Sold' && (a.saleDate||'').slice(0,7)===month && recvDue(a)>0.5).length;
+    confirmAction(`Close ${monthLabel(month)}? Its sales can no longer be edited or deleted.${pend?` ${pend} sale(s) are still waiting for money — you can still record the payments.`:''}`, ()=>setMonthClosed(month,true));
+  } else confirmAction(`Reopen ${monthLabel(month)}? Its sales become editable again.`, ()=>setMonthClosed(month,false));
+}
+function monthClosePanelHtml(){
+  const months = new Set(last12MonthKeys ? last12MonthKeys().slice(-6) : []);
+  S.applications.forEach(a=>{ if (a.saleStatus==='Sold' && a.saleDate) months.add(a.saleDate.slice(0,7)); });
+  Object.keys(S.settings.monthLocks||{}).forEach(m=>months.add(m));
+  const list = Array.from(months).sort().reverse().slice(0,8);
+  const rows = list.map(m=>{
+    const closed = monthLocked(m+'-01'); const n = S.applications.filter(a=>a.saleStatus==='Sold' && (a.saleDate||'').slice(0,7)===m).length;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);"><b style="min-width:120px;">${monthLabel(m)}</b>
+      <span class="small-muted" style="flex:1;">${n} sale${n===1?'':'s'}</span>
+      ${closed?'<span class="badge green">🔒 Closed</span>':'<span class="badge gray">Open</span>'}
+      <button class="btn btn-sm ${closed?'btn-ghost':'btn-primary'}" onclick="toggleMonthClose('${m}')">${closed?'Reopen':'Close month'}</button></div>`;
+  }).join('');
+  return `<details class="collapse no-print" style="margin-bottom:14px;"><summary>Month close <span class="small-muted" style="font-weight:500;">lock a month once it is settled</span></summary>
+    <div style="margin-top:8px;">${rows||'<p class="small-muted">No sales yet.</p>'}<p class="hint">Closing a month stops edits and deletes to that month's sales (by sale date) so settled numbers can't change by accident. Payments received can still be recorded.</p></div></details>`;
+}
+
+/* ---- Dashboard: capital view ---- */
+function capitalViewHtml(){
+  const today = todayStr(), in7 = addDaysIso(today, 7);
+  const pend = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
+  const amt = a => Number(a.amountApplied)||0;
+  const blocked = pend.reduce((s,a)=>s+amt(a),0);
+  const ipoDate = a => { const i = findIpo(a.ipoId); return i && i.allotmentDate ? i.allotmentDate : ''; };
+  const overdue = pend.filter(a=>ipoDate(a) && ipoDate(a) < today);
+  const soon = pend.filter(a=>ipoDate(a) >= today && ipoDate(a) <= in7);
+  const collect = S.applications.reduce((s,a)=>s+recvDue(a),0);
+  const byIpo = new Map();
+  soon.concat(overdue).forEach(a=>{ const k = a.ipoId; if (!byIpo.has(k)) byIpo.set(k,{ ipo:findIpo(k), amt:0, n:0 }); const g = byIpo.get(k); g.amt += amt(a); g.n++; });
+  const rows = Array.from(byIpo.values()).sort((x,y)=>(x.ipo.allotmentDate||'').localeCompare(y.ipo.allotmentDate||'')).map(g=>`<tr class="clickable" onclick="openIpoDetail(${g.ipo.id})"><td><b>${escapeHtml(g.ipo.ipoName)}</b></td><td>${fmtDate(g.ipo.allotmentDate)}${g.ipo.allotmentDate<today?' <span class="badge red">result due</span>':''}</td><td>${g.n}</td><td style="text-align:right;">${fmtMoney(g.amt)}</td></tr>`).join('');
+  const sum = l => l.reduce((s,a)=>s+amt(a),0);
+  return `<div class="section-card"><div class="sc-head"><h3>Capital view</h3></div><div class="sc-body">
+    <div class="kpi-grid" style="margin-bottom:10px;">
+      <div class="kpi-card" ${drillAttr('Money blocked in applications', pend)}><div class="lbl">Blocked today</div><div class="val">${fmtMoney(blocked)}</div><div class="small-muted">${pend.length} application${pend.length===1?'':'s'} awaiting result</div></div>
+      <div class="kpi-card" ${drillAttr('Result due in the next 7 days', soon)}><div class="lbl">Result due in 7 days</div><div class="val">${fmtMoney(sum(soon))}</div><div class="small-muted">frees up if not allotted</div></div>
+      <div class="kpi-card" ${drillAttr('Result date passed — enter result', overdue)}><div class="lbl">Result overdue</div><div class="val ${overdue.length?'danger':''}">${fmtMoney(sum(overdue))}</div><div class="small-muted">${overdue.length?'enter these results':'nothing overdue'}</div></div>
+      <div class="kpi-card"><div class="lbl">Still to collect</div><div class="val ${collect>0.5?'danger':''}">${fmtMoney(collect)}</div><div class="small-muted">from clients</div></div>
+    </div>
+    ${rows?`<div class="table-wrap"><table class="dt"><thead><tr><th>IPO</th><th>Result date</th><th>Apps</th><th style="text-align:right;">Money</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
+  </div></div>`;
+}
+
+/* ---- Dashboard: weekly review ---- */
+function weeklyReviewHtml(){
+  const today = todayStr(), in7 = addDaysIso(today, 7), ago7 = addDaysIso(today, -7);
+  const isPend = a => isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending');
+  const dueIpos = S.ipos.filter(i=>i.allotmentDate && i.allotmentDate<=today).map(i=>({ i, n:S.applications.filter(a=>a.ipoId===i.id && isPend(a)).length })).filter(x=>x.n);
+  const upcomingRes = S.ipos.filter(i=>i.allotmentDate>today && i.allotmentDate<=in7).map(i=>({ i, n:S.applications.filter(a=>a.ipoId===i.id && isPend(a)).length })).filter(x=>x.n);
+  const toSell = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').length;
+  const byClient = new Map();
+  S.applications.forEach(a=>{ const d = recvDue(a); if (d<=0.5 || !a.saleDate || a.saleDate>ago7) return; const g = byClient.get(a.clientId) || { id:a.clientId, amt:0, oldest:a.saleDate }; g.amt += d; if (a.saleDate<g.oldest) g.oldest=a.saleDate; byClient.set(a.clientId,g); });
+  const overdue = Array.from(byClient.values()).sort((x,y)=>x.oldest.localeCompare(y.oldest)).slice(0,6);
+  const overdueTotal = Array.from(byClient.values()).reduce((s,g)=>s+g.amt,0);
+  const nextIpos = S.ipos.filter(i=>i.closeDate>=today && i.openDate<=in7 && (i.archiveStatus||'Active')!=='Inactive').map(i=>{
+    const plans = S.ipoPlans.filter(p=>p.ipoId===i.id && p.planStatus!=='Cancelled');
+    const left = plans.reduce((s,p)=>s+planPendingClients(p).filter(x=>!x.done).length,0);
+    return { i, left, plans:plans.length };
+  }).sort((a,b)=>a.i.openDate.localeCompare(b.i.openDate));
+  const weekProfit = profitBetween(ago7, today);
+  const li = (ico, text, go) => `<div class="todo med" ${go?`onclick="${go}"`:''}><span class="ico">${ico}</span><span class="tx">${text}</span>${go?'<span class="go">›</span>':''}</div>`;
+  const pendHtml = [
+    ...dueIpos.map(x=>li('🏆', `Enter result: <b>${escapeHtml(x.i.ipoName)}</b> (${x.n} pending)`, `resultsState={ipoId:${x.i.id},pending:{}};navigate('results')`)),
+    ...upcomingRes.map(x=>li('🗓️', `Result on ${fmtDate(x.i.allotmentDate)}: ${escapeHtml(x.i.ipoName)} (${x.n} apps)`, `openIpoDetail(${x.i.id})`)),
+    toSell ? li('💰', `${toSell} allotted share${toSell===1?'':'s'} waiting to be sold`, `navigate('allotments',{presetFilter:{tableId:'allotTbl',filterVals:{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'}}})`) : ''
+  ].join('') || '<p class="small-muted">Nothing pending.</p>';
+  const overHtml = overdue.map(g=>{ const c = findClient(g.id); const days = dayDiff(g.oldest, today);
+    return li('💵', `<b>${escapeHtml(c?c.clientName:'—')}</b> — ${fmtMoney(g.amt)} <span class="small-muted">(${days} days)</span>`, `navigate('clients',{id:${g.id}})`); }).join('') || '<p class="small-muted">No payment is more than 7 days late.</p>';
+  const nextHtml = nextIpos.map(x=>li(x.i.openDate<=today?'🟢':'📋', `<b>${escapeHtml(x.i.ipoName)}</b> — ${x.i.openDate<=today?'open, closes '+fmtDate(x.i.closeDate):'opens '+fmtDate(x.i.openDate)}${x.plans?` · ${x.left} client${x.left===1?'':'s'} still to apply`:' · no plan yet'}`, `openIpoDetail(${x.i.id})`)).join('') || '<p class="small-muted">No IPO opening in the next 7 days.</p>';
+  const h = t => `<h4 style="margin:12px 0 6px;font-size:13px;">${t}</h4>`;
+  return `<details class="collapse" ${dashOpen('weekly',true)} ontoggle="dashToggle('weekly',this.open)"><summary>Weekly review <span class="small-muted" style="font-weight:500;">last 7 days profit ${fmtMoney(weekProfit)}</span></summary>
+    ${h('1. What is pending')}<div class="todo-list">${pendHtml}</div>
+    ${h(`2. Overdue to collect${overdueTotal>0.5?' — '+fmtMoney(overdueTotal):''}`)}<div class="todo-list">${overHtml}</div>
+    ${h('3. What to apply next')}<div class="todo-list">${nextHtml}</div></details>`;
+}
+
+/* ---- WhatsApp sharing ---- */
+function shareWhatsApp(text){ window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank', 'noopener'); }
+function stmtWhatsApp(){
+  const D = stmtData(); if (!D.count){ toast('No sales in this period','warn'); return; }
+  const lines = [`*${bizName()} — Statement*`, `*${D.title}*`, stmtPeriodText(D.range), '',
+    ...D.groups.map(g=>`• ${g.ipo}: ${g.rows.length} sale${g.rows.length===1?'':'s'}, profit ₹${stmtNum(g.tot.profit)}`), '',
+    `Total sales: ₹${stmtNum(D.total.sales)}`, `Total cost: ₹${stmtNum(D.total.cost)}`, `*Total profit: ₹${stmtNum(D.total.profit)}*`];
+  shareWhatsApp(lines.join('\n'));
+}
+function clientDueWhatsApp(clientId){
+  const c = findClient(clientId); if (!c) return;
+  const dues = clientDues(clientId,'in'), total = clientDueTotal(clientId,'in');
+  if (!dues.length){ toast('Nothing is due from this client','ok'); return; }
+  const lines = [`Hello ${c.clientName},`, `Payment pending from ${bizName()}:`, '',
+    ...dues.slice(0,15).map(a=>{ const i = findIpo(a.ipoId); return `• ${i?i.ipoName:'IPO'} (sold ${fmtDate(a.saleDate)}): ₹${stmtNum(recvDue(a))}`; }),
+    dues.length>15 ? `…and ${dues.length-15} more` : '', '', `*Total due: ₹${stmtNum(total)}*`, 'Please pay at the earliest. Thank you.'];
+  shareWhatsApp(lines.filter((x,i,arr)=>!(x==='' && arr[i-1]==='')).join('\n'));
+}
+
+/* ---- Lock again on return if the app was hidden longer than the auto-lock time (important on mobile) ---- */
+(function(){
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.hidden){ hiddenAt = Date.now(); return; }
+    const mins = Number(S.settings.autoLockMinutes)||0;
+    if (hiddenAt && mins && S.settings.appLockEnabled && S.settings.appLockPin && Date.now()-hiddenAt >= mins*60000 && typeof triggerAppLock==='function') triggerAppLock();
+    hiddenAt = 0;
+  });
+})();
+</script>
+
 </body>
 </html>
