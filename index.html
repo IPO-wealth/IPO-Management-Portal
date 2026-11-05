@@ -978,7 +978,6 @@ const NAV = [
   { id:'settings', label:'Settings', ico:'&#9881;' }
 ];
 const OPS_TABS = [['checklist','Today'],['planning','Planning'],['applications','Applications'],['allotments','Allotments & Sale']];
-function opsBarHtml(){ const cur = S.view==='results' ? 'allotments' : S.view; return `<div class="tabs ops-tabs no-print">${OPS_TABS.map(([v,l])=>`<button class="${v===cur?'active':''}" onclick="navigate('${v}')">${l}</button>`).join('')}</div>`; }
 function renderNav(){
   const el = document.getElementById('navList');
   el.innerHTML = NAV.map(n => `<div class="nav-item ${(S.view===n.id||(n.views&&n.views.includes(S.view)))?'active':''}" onclick="navigate('${n.go||n.id}')"><span class="ico">${n.ico}</span><span>${n.label}</span></div>`).join('');
@@ -2473,9 +2472,9 @@ function viewPlanning(){
 function setPlanningTab(t){ planningTab = t; render(); }
 function afterPlanning(){
   const el = document.getElementById('planningTabBody');
-  if (planningTab==='plans') el.innerHTML = planningPlansTab();
+  if (planningTab==='plans') el.innerHTML = planningUpcomingTab() + planningPlansTab();
   else if (planningTab==='calendar') el.innerHTML = planningCalendarTab();
-  else if (planningTab==='capacity') el.innerHTML = planningCapacityTab() + planningUpcomingTab();
+  else if (planningTab==='capacity') el.innerHTML = planningCapacityTab();
   if (planningTab==='plans') { setTimeout(()=>window.__tableRerender['plansTbl'] && window.__tableRerender['plansTbl'](), 0); }
 }
 
@@ -2862,23 +2861,6 @@ function upcomingPlanningStatus(ipo){
   if (mappedClients >= totalPlannedClients && totalPlannedClients > 0) return 'Planned';
   return 'Partially Planned';
 }
-function planningUpcomingTab(){
-  const upcoming = S.ipos.filter(i => ipoStatus(i) !== 'Closed').sort((a,b)=>a.openDate.localeCompare(b.openDate));
-  const rows = upcoming.map(i=>{
-    const plans = S.ipoPlans.filter(p=>p.ipoId===i.id);
-    const banks = [...new Set(plans.map(p=>{ const b=findBank(p.bankAccountId); return b?b.bankName:''; }))].filter(Boolean).join(', ') || '—';
-    return `<tr><td>${escapeHtml(i.ipoName)}</td><td>${fmtDate(i.openDate)}</td><td>${fmtDate(i.closeDate)}</td><td>${badge(ipoStatus(i))}</td><td>${escapeHtml(banks)}</td><td>${badge(upcomingPlanningStatus(i))}</td>
-      <td><button class="btn btn-sm btn-primary" onclick="quickPlan(${i.id})">Plan</button></td></tr>`;
-  }).join('') || `<tr class="empty-row"><td colspan="7">No upcoming or open IPOs.</td></tr>`;
-  return `
-  <div class="section-card">
-    <div class="sc-head"><h3>Upcoming IPO Planner</h3></div>
-    <div class="sc-body table-wrap">
-      <table class="dt"><thead><tr><th>IPO</th><th>Open</th><th>Close</th><th>Status</th><th>Bank(s) Planned</th><th>Planning Status</th><th></th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div>
-  </div>`;
-}
 function quickPlan(ipoId){
   editPlan();
   setTimeout(()=>{ const sel = document.getElementById('fld_ipoId'); if (sel) sel.value = ipoId; }, 30);
@@ -3192,6 +3174,7 @@ function viewAllotments(){
       <button class="btn btn-ghost btn-sm" onclick="clearAllotSelection()">Clear</button></span>
     </div>
     <div class="sc-body" style="padding-bottom:8px;">
+      ${quickSalePanelHtml()}
       <details class="bulk-box" ${__selectedAllotIds.size?'open':''}><summary>Bulk update selected rows <span class="small-muted">(tick rows in the table first)</span></summary>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;padding:10px 0 14px;">
         <div class="f-group" style="min-width:200px;">
@@ -6112,7 +6095,7 @@ function viewChecklist(){
       <div class="spacer"></div>
       <div style="min-width:180px;flex:0 1 260px;"><div class="small-muted">${done} of ${total} applications done (${pct}%)</div><div class="progress"><div style="width:${pct}%"></div></div></div>
     </div></div>
-    ${cards || `<div class="empty-state"><div class="ico">📋</div><h3>Nothing planned for ${fmtDate(d)}</h3><p>Plans are what feed this checklist: pick an IPO, a bank and the clients who should apply.</p><button class="btn btn-primary" onclick="navigate('planning')">Go to IPO Planning</button></div>`}`;
+    ${cards ? '' : nextPlanHintHtml(d)}${cards || `<div class="empty-state"><div class="ico">📋</div><h3>Nothing planned for ${fmtDate(d)}</h3><p>Plans are what feed this checklist: pick an IPO, a bank and the clients who should apply.</p><button class="btn btn-primary" onclick="navigate('planning')">Go to IPO Planning</button></div>`}`;
 }
 function ckAll(planId, on){ document.querySelectorAll(`.ckChk[data-plan="${planId}"]:not(:disabled)`).forEach(c=>c.checked=on); ckUpdateCount(planId); }
 function ckUpdateCount(planId){ const n=document.querySelectorAll(`.ckChk[data-plan="${planId}"]:checked:not(:disabled)`).length; const b=document.getElementById('ckBtn-'+planId); if(b) b.textContent = n ? `Mark ${n} ticked as Applied` : 'Mark ticked as Applied'; }
@@ -6934,6 +6917,112 @@ function clientDueWhatsApp(clientId){
     hiddenAt = 0;
   });
 })();
+</script>
+
+<script>
+/* =================== OPERATIONS & PLANNING IMPROVEMENTS =================== */
+
+/* ---- counts shown on the Operations tabs ---- */
+function opsCounts(){
+  const today = todayStr();
+  const todo = S.ipoPlans.filter(p=>p.plannedDate===today && p.planStatus!=='Cancelled').reduce((s,p)=>s+planPendingClients(p).filter(x=>!x.done).length,0);
+  const pendApps = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
+  const dueResults = pendApps.filter(a=>{ const i=findIpo(a.ipoId); return i && i.allotmentDate && i.allotmentDate<=today; }).length;
+  const toSell = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').length;
+  return { checklist: todo, allotments: dueResults + toSell };
+}
+function opsBarHtml(){
+  const cur = S.view==='results' ? 'allotments' : S.view, c = opsCounts();
+  return `<div class="tabs ops-tabs no-print">${OPS_TABS.map(([v,l])=>{ const n = c[v]||0;
+    return `<button class="${v===cur?'active':''}" onclick="navigate('${v}')">${l}${n?` <span class="badge ${v==='checklist'?'gold':'red'}" style="margin-left:4px;">${n}</span>`:''}</button>`; }).join('')}</div>`;
+}
+
+/* ---- Today: when nothing is planned, jump to the next day that has a plan ---- */
+function nextPlanHintHtml(d){
+  const upcoming = S.ipoPlans.filter(p=>p.plannedDate>d && p.planStatus!=='Cancelled').map(p=>p.plannedDate).sort();
+  const prevPending = S.ipoPlans.filter(p=>p.plannedDate<d && p.planStatus!=='Cancelled' && planPendingClients(p).some(x=>!x.done)).map(p=>p.plannedDate).sort().reverse();
+  let html = '';
+  if (prevPending.length) html += `<div class="section-card"><div class="sc-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><span>⚠️ <b>${prevPending.length>1?'Earlier plans':'An earlier plan'}</b> still ha${prevPending.length>1?'ve':'s'} clients not marked as applied (latest: ${fmtDate(prevPending[0])}).</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="checklistDate='${prevPending[0]}';navigate('checklist')">Open ${fmtDate(prevPending[0])}</button></div></div>`;
+  if (upcoming.length){ const nd = upcoming[0]; const n = S.ipoPlans.filter(p=>p.plannedDate===nd && p.planStatus!=='Cancelled').reduce((s,p)=>s+planClientCount(p),0);
+    html += `<div class="section-card"><div class="sc-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><span>📅 Next planned day: <b>${fmtDate(nd)}</b> (${n} client${n===1?'':'s'})</span><div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="checklistDate='${nd}';navigate('checklist')">Open that day</button></div></div>`; }
+  return html;
+}
+
+/* ---- Planning: "IPOs to plan" with coverage of your active clients ---- */
+function ipoCoverage(ipo){
+  const plans = S.ipoPlans.filter(p=>p.ipoId===ipo.id && p.planStatus!=='Cancelled');
+  const planIds = new Set(plans.map(p=>p.id));
+  const covered = new Set(S.plannedClients.filter(pc=>planIds.has(pc.planId)).map(pc=>pc.clientId));
+  S.applications.forEach(a=>{ if (a.ipoId===ipo.id && isLiveApp(a)) covered.add(a.clientId); });
+  const active = S.clients.filter(c=>c.status==='Active');
+  const missing = active.filter(c=>!covered.has(c.id));
+  return { plans, covered:active.length-missing.length, active:active.length, missing };
+}
+function planningUpcomingTab(){
+  const list = S.ipos.filter(i=>ipoStatus(i)!=='Closed' && (i.archiveStatus||'Active')!=='Inactive').sort((a,b)=>(a.openDate||'').localeCompare(b.openDate||''));
+  const cards = list.map(i=>{
+    const cv = ipoCoverage(i), full = cv.plans.length && !cv.missing.length;
+    const banks = [...new Set(cv.plans.map(p=>{ const b=findBank(p.bankAccountId); return b?b.bankName:''; }))].filter(Boolean).join(', ');
+    const pct = cv.active ? Math.round(cv.covered/cv.active*100) : 0;
+    return `<div class="ck-plan" style="margin-bottom:10px;"><div class="ck-plan-head" style="flex-wrap:wrap;gap:8px;">
+      <b><a class="lnk" href="javascript:void(0)" onclick="openIpoDetail(${i.id})">${escapeHtml(i.ipoName)}</a></b> ${badge(ipoStatus(i))}
+      <span class="small-muted">${fmtDate(i.openDate)} – ${fmtDate(i.closeDate)}${banks?' · '+escapeHtml(banks):''}</span><div class="spacer"></div>
+      ${cv.plans.length?`<button class="btn btn-ghost btn-sm" onclick="planClients(${cv.plans[0].id})">Add clients</button>`:''}
+      <button class="btn btn-primary btn-sm" onclick="quickPlan(${i.id})">${cv.plans.length?'+ Another plan':'Plan this IPO'}</button></div>
+      <div style="padding:6px 12px 10px;"><div class="small-muted">${full?'✓ Every active client is covered':`<b>${cv.missing.length}</b> of ${cv.active} active client${cv.active===1?'':'s'} not planned or applied yet`} · ${cv.plans.length} plan${cv.plans.length===1?'':'s'}</div>
+      <div class="progress"><div style="width:${pct}%"></div></div>
+      ${cv.missing.length && cv.missing.length<=12 ? `<div class="small-muted" style="margin-top:4px;">Missing: ${cv.missing.map(c=>escapeHtml(c.clientName)).join(', ')}</div>`:''}</div></div>`;
+  }).join('') || '<p class="small-muted">No upcoming or open IPOs. Add one under IPOs.</p>';
+  return `<div class="section-card"><div class="sc-head"><h3>IPOs to plan</h3></div><div class="sc-body">${cards}</div></div>`;
+}
+
+/* ---- Allotments & Sale: quick sale entry (each client can have a different price) ---- */
+function quickSalePanelHtml(){
+  const list = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold' && isLiveApp(a))
+    .sort((a,b)=>(a.ipoId-b.ipoId) || ((findClient(a.clientId)||{}).clientName||'').localeCompare((findClient(b.clientId)||{}).clientName||''));
+  if (!list.length) return '';
+  const rows = list.slice(0,60).map(a=>{ const c=findClient(a.clientId), i=findIpo(a.ipoId);
+    return `<tr><td data-label="Client"><b>${escapeHtml(c?c.clientName:'—')}</b></td><td data-label="IPO">${escapeHtml(i?i.ipoName:'—')}</td>
+      <td data-label="Applied" class="num">${fmtMoney(a.amountApplied)}</td>
+      <td data-label="Sale amount"><input type="number" class="qsAmt" data-id="${a.id}" placeholder="Sale amount" oninput="qsPreview(${a.id})" style="width:130px;"></td>
+      <td data-label="Our profit" id="qsOur-${a.id}" class="small-muted">—</td></tr>`; }).join('');
+  return `<details class="collapse no-print" style="margin-bottom:14px;" ${list.length<=15?'open':''}><summary>Quick sale entry <span class="small-muted" style="font-weight:500;">${list.length} allotted, not sold</span></summary>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:10px 0;">
+      <div class="f-group"><label>Sale date</label><input type="date" id="qsDate" value="${todayStr()}"></div>
+      <div class="f-group"><label>Money from client</label><select id="qsRecv"><option value="Receivable">Receivable (still to collect)</option><option value="Received">Received</option></select></div>
+      <button class="btn btn-primary" onclick="qsSave()">Save sales with an amount</button></div>
+    <div class="table-wrap flat"><table class="dt cards"><thead><tr><th>Client</th><th>IPO</th><th>Applied</th><th>Sale amount (₹)</th><th>Our profit</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${list.length>60?`<p class="hint">Showing the first 60 — save these, then the rest appear.</p>`:''}
+    <p class="hint">Type each client's own sale amount for the full lot. Rows left empty are skipped. Profit uses each application's own share %.</p></details>`;
+}
+function qsPreview(id){
+  const a = findApp(id), el = document.getElementById('qsAmt-'+id) || document.querySelector(`.qsAmt[data-id="${id}"]`), out = document.getElementById('qsOur-'+id); if (!a||!el||!out) return;
+  const v = el.value; if (v==='' ){ out.textContent='—'; return; }
+  const c = calcAllotmentSale({ ...a, saleStatus:'Sold', saleAmount:Number(v), grossReceivedOverridden:false, ourProfitOverridden:false, clientProfitOverridden:false });
+  out.innerHTML = c.applicable ? `<b>${fmtMoney(c.ourFinal)}</b>` : '—';
+}
+async function qsSave(){
+  const date = document.getElementById('qsDate').value, recv = document.getElementById('qsRecv').value;
+  if (!date){ toast('Pick the sale date','warn'); return; }
+  const rows = Array.from(document.querySelectorAll('.qsAmt')).filter(e=>e.value!=='').map(e=>({ id:Number(e.dataset.id), amt:Number(e.value) }));
+  if (!rows.length){ toast('Type a sale amount for at least one row','warn'); return; }
+  if (rows.some(r=>isNaN(r.amt))){ toast('One of the amounts is not a number','warn'); return; }
+  beginUndo(); let n=0;
+  try {
+    for (const r of rows){
+      const a = findApp(r.id); if (!a) continue;
+      const probe = { ...a, saleStatus:'Sold', saleDate:date, saleAmount:r.amt, amountReceiveStatus:recv, grossReceivedOverridden:false, ourProfitOverridden:false, clientProfitOverridden:false };
+      const calc = calcAllotmentSale(probe);
+      const u = { ...a, saleStatus:'Sold', saleDate:date, saleAmount:r.amt, amountReceiveStatus:recv,
+        receivedDate: recv==='Received' ? todayStr() : null, receivedViaLedger:false,
+        calculatedGrossReceived: calc.calculatedGross, calculatedOurProfit: calc.calculatedOur, calculatedClientProfit: calc.calculatedClient,
+        updatedAt:new Date().toISOString() };
+      await putRec('applications', u); const prev = {...a}; Object.assign(a,u);
+      await audit('Allotment Updates','Application', a.id, prev, u); n++;
+    }
+  } finally { await endUndo('Saved sale for'); }
+  toast(`${n} sale${n===1?'':'s'} saved`,'ok'); navigate('allotments');
+}
 </script>
 
 </body>
