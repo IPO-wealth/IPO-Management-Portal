@@ -752,6 +752,20 @@ input[type=checkbox],input[type=radio]{ accent-color:var(--gold); }
   table.dt.cards td{ padding:9px 0; }
 }
 @media (prefers-reduced-motion:reduce){ *{ animation:none !important; transition:none !important; } }
+/* dashboard: compact today panel, mandate strip, calmer cards */
+@media (min-width:901px){ .today-panel .todo-list{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 12px; } .today-panel .sc-body{ padding-top:12px; padding-bottom:12px; } .today-panel .todo{ padding:8px 12px; } }
+@media (min-width:1500px){ .today-panel .todo-list{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+.today-panel .chips{ margin-top:10px; }
+.today-more{ margin-top:8px; }
+.mand-strip{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:9px 14px; margin-bottom:10px; border:1px solid var(--border); border-radius:10px; cursor:pointer; background:var(--table-head-bg); font-size:13px; }
+.mand-strip:hover{ border-color:var(--gold); }
+.mand-strip .ms-title{ font-weight:600; color:var(--heading); font-family:var(--serif); font-size:15px; }
+.mand-strip .ms b{ font-size:15px; font-variant-numeric:tabular-nums; margin-right:2px; }
+.mand-strip .ms.ok{ color:var(--ok); } .mand-strip .ms.blue{ color:#27508f; } .mand-strip .ms.bad{ color:var(--danger); } .mand-strip .ms.dim{ color:var(--text-dim); }
+[data-theme="dark"] .mand-strip .ms.blue{ color:#9bb9f0; }
+.mand-strip .go{ margin-left:auto; color:var(--text-dim); font-size:18px; line-height:1; }
+.money-grid .kpi-card .small-muted{ margin-top:5px; }
+
 @media (min-width:901px){ #clientsTblWrap table.dt th, #clientsTblWrap table.dt td{ padding-left:7px; padding-right:7px; } #clientsTblWrap table.dt td:last-child .btn{ padding:5px 9px; } }
 .ck-table td[data-label="Mandate"] .small-muted{ white-space:nowrap; }
 @media (max-width:640px){ .ck-table td[data-label="Mandate"]{ text-align:right; } .mand-btns{ justify-content:flex-end; } }
@@ -804,6 +818,27 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .bp-tile.inact{ color:var(--text-dim); } .bp-tile.inact>span{ text-decoration:line-through; text-decoration-color:rgba(90,101,115,.55); }
 .bp-tile.blk{ opacity:.45; text-decoration:line-through; cursor:not-allowed; }
 
+
+/* ---- all-tabs polish ---- */
+@media (min-width:901px){
+  table.dt th,table.dt td{padding-left:8px;padding-right:8px;}
+  .ck-table{table-layout:fixed;width:100%;}
+  .ck-table th:nth-child(1){width:40px}.ck-table th:nth-child(2){width:30%}.ck-table th:nth-child(3){width:18%}.ck-table th:nth-child(4){width:24%}
+  .ck-table td input[type=number],.ck-table td select{max-width:100%;width:100%;}
+}
+@media (min-width:1300px){ .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;} .settings-grid>*{margin:0;} }
+@media (max-width:640px){
+  table.dt.cards.ck-table tr{display:grid;grid-template-columns:34px 1fr 1fr;grid-template-areas:"chk name name" ". amt upi" ". mand mand";gap:4px 8px;padding:8px 10px;}
+  table.dt.cards.ck-table td{display:block;padding:0;border:0;text-align:left;}
+  table.dt.cards.ck-table td::before{display:none;}
+  table.dt.cards.ck-table td:nth-child(1){grid-area:chk}
+  table.dt.cards.ck-table td:nth-child(2){grid-area:name;font-weight:600}
+  table.dt.cards.ck-table td:nth-child(3){grid-area:amt}
+  table.dt.cards.ck-table td:nth-child(4){grid-area:upi}
+  table.dt.cards.ck-table td:nth-child(5){grid-area:mand;text-align:left}
+  table.dt.cards.ck-table td input[type=number],table.dt.cards.ck-table td select{width:100%;max-width:100%;}
+  .mand-btns{justify-content:flex-start !important;}
+}
 </style>
 </head>
 <body>
@@ -3580,7 +3615,7 @@ function viewAllotments(){
   return `
   <div class="kpi-grid">
     <div class="kpi-card clickable" ${navAttr('allotments',{allotmentStatus:'Pending'})}><div class="lbl">Awaiting result</div><div class="val">${pending.length}</div><div class="small-muted">${allotted.length} allotted · ${notAllotted.length} not (${allotRate}%)</div></div>
-    <div class="kpi-card clickable" ${navAttr('allotments',{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'})}><div class="lbl">To sell</div><div class="val gold">${pendingToSell.length}</div></div>
+    <div class="kpi-card clickable" ${navAttr('allotments',{allotmentStatus:'Allotted',saleStatus:'Pending to Sell'})}><div class="lbl">To sell</div><div class="val gold">${pendingToSell.length}</div><div class="small-muted">allotted, not yet sold</div></div>
     <div class="kpi-card clickable" ${navAttr('allotments',{amountReceiveStatus:'Receivable'})}><div class="lbl">To collect</div><div class="val ${totalReceivable?'danger':''}">${fmtMoney(totalReceivable)}</div><div class="small-muted">${fmtMoney(totalReceived)} received</div></div>
     <div class="kpi-card"><div class="lbl">Our profit</div><div class="val ok">${fmtMoney(totalOurProfit)}</div><div class="small-muted">Clients' share ${fmtMoney(totalClientProfit)}</div></div>
   </div>
@@ -3923,7 +3958,7 @@ function deltaHtml(cur, prev, opts){
   const label = opts.label || 'previous period';
   if (cur === 0 && prev === 0) return `<div class="small-muted">— no change vs ${label}</div>`;
   const tip = escapeHtml(`${label}: ${money(prev)}`);
-  if (prev === 0) return `<div class="small-muted ${opts.invert?'danger':'ok'}" title="${tip}">▲ new vs ${label}</div>`;
+  if (prev === 0) return `<div class="small-muted ${opts.invert?'danger':'ok'}" title="${tip}">▲ vs ${money(0)} in ${label}</div>`;
   const pct = Math.round((cur - prev) / Math.abs(prev) * 100);
   if (pct === 0) return `<div class="small-muted" title="${tip}">— 0% vs ${label}</div>`;
   const good = opts.invert ? pct < 0 : pct > 0;
@@ -3972,7 +4007,7 @@ function dashboardBody(){
   const monthlyProfit = soldThisMonth.reduce((s,a)=>s+ourOf(a),0), yearlyProfit = soldThisYear.reduce((s,a)=>s+ourOf(a),0);
   const clientOf = a => { const c = calcAllotmentSale(a); return c.applicable ? c.clientFinal : 0; };
   const monthlyClient = soldThisMonth.reduce((s,a)=>s+clientOf(a),0), yearlyClient = soldThisYear.reduce((s,a)=>s+clientOf(a),0);
-  const vsLine = (our, cl, link) => `<div class="small-muted">Clients earned <b>${fmtMoney(cl)}</b> · gap ${our-cl<0?'−':''}${fmtMoney(Math.abs(our-cl))}${link?` · <a href="javascript:void(0)" onclick="event.stopPropagation();goGap()">Compare</a>`:''}</div>`;
+  const vsLine_unused = (our, cl, link) => `<div class="small-muted">Clients earned <b>${fmtMoney(cl)}</b> · gap ${our-cl<0?'−':''}${fmtMoney(Math.abs(our-cl))}${link?` · <a href="javascript:void(0)" onclick="event.stopPropagation();goGap()">Compare</a>`:''}</div>`;
   const dayOfMonth = now.getDate();
   const pmFirst = new Date(now.getFullYear(), now.getMonth()-1, 1), pmDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
   const prevMonthProfit = profitBetween(localDateStr(pmFirst), localDateStr(new Date(pmFirst.getFullYear(), pmFirst.getMonth(), Math.min(dayOfMonth, pmDays))));
@@ -3985,10 +4020,13 @@ function dashboardBody(){
   const monthGoal = Number(S.settings.monthlyProfitGoal)||0, yearGoal = Number(S.settings.yearlyProfitGoal)||0;
   const goalBar = (profit, goal) => { const pct = Math.min(100, Math.round(profit/goal*100)); return `<div class="progress mini"><div style="width:${pct}%"></div></div><div class="small-muted">${Math.round(profit/goal*100)}% of ${fmtMoney(goal)} goal</div>`; };
   const cards = `<div class="kpi-grid money-grid">
-    <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)}><div class="lbl">Profit — this month</div><div class="val gold">${fmtMoney(monthlyProfit)}</div>
-      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${vsLine(monthlyProfit, monthlyClient, false)}${collectLineHtml(soldThisMonth)}${projectionHtml(monthlyProfit)}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
-    <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)}><div class="lbl">Profit — this year</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>
-      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${vsLine(yearlyProfit, yearlyClient, true)}${collectLineHtml(soldThisYear)}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}</div>
+    <div class="kpi-card" ${drillAttr('Sold this month', soldThisMonth)} title="Our profit from sales this month. Clients earned ${fmtMoney(monthlyClient)}. Tap to see the sales.">
+      <div class="lbl">Profit — this month</div><div class="val gold">${fmtMoney(monthlyProfit)}</div>
+      ${monthGoal ? goalBar(monthlyProfit, monthGoal) : `<div class="spark-wrap">${sparkSvg(monthlyProfitSeries(6))}</div>`}${collectLineHtml(soldThisMonth)}${projectionHtml(monthlyProfit)}${deltaHtml(monthlyProfit, prevMonthProfit, {money:true, label:'same days last month'})}</div>
+    <div class="kpi-card" ${drillAttr('Sold this year', soldThisYear)} title="Our profit from sales this year. Clients earned ${fmtMoney(yearlyClient)}. Tap to see the sales.">
+      <div class="lbl">Profit — this year</div><div class="val gold">${fmtMoney(yearlyProfit)}</div>
+      ${yearGoal ? goalBar(yearlyProfit, yearGoal) : ''}${collectLineHtml(soldThisYear)}${deltaHtml(yearlyProfit, prevYearProfit, {money:true, label:'same dates last year'})}
+      <div class="small-muted"><a href="javascript:void(0)" onclick="event.stopPropagation();goGap()">Our vs client profit ›</a></div></div>
     <div class="kpi-card" ${drillAttr('Receivables pending', recvList)}><div class="lbl">Receivables pending</div><div class="val ${recvList.length?'danger':''}">${fmtMoney(toCollect)}</div>
       <div class="small-muted">${recvList.length} sale${recvList.length===1?'':'s'} to collect</div></div>
     <div class="kpi-card" ${drillAttr('Allotted — pending to sell', toSellList)}><div class="lbl">Pending to sell</div><div class="val">${toSellList.length}</div><div class="small-muted">allotted, not yet sold</div></div>
@@ -5028,7 +5066,7 @@ function viewSettings(){
   const used = new Set(SETTINGS_TABS.flatMap(t=>t[2]));
   const leftovers = Object.keys(cards).filter(k=>!used.has(k));
   const body = tab[2].map(k=>cards[k]||'').join('') + (tab[0]==='general' ? leftovers.map(k=>cards[k]).join('') : '');
-  return `<div class="tabs seg-tabs">${SETTINGS_TABS.map(t=>`<button class="${t[0]===tab[0]?'active':''}" onclick="setSettingsTab('${t[0]}')">${t[1]}${t[0]==='data' && S.trash.length ? ` <span class="badge gray">${S.trash.length}</span>`:''}</button>`).join('')}</div>${body}`;
+  return `<div class="tabs seg-tabs">${SETTINGS_TABS.map(t=>`<button class="${t[0]===tab[0]?'active':''}" onclick="setSettingsTab('${t[0]}')">${t[1]}${t[0]==='data' && S.trash.length ? ` <span class="badge gray">${S.trash.length}</span>`:''}</button>`).join('')}</div><div class="settings-grid">${body}</div>`;
 }
 function viewSettingsRaw(){
   const refs = S.settings.references || [];
@@ -6649,12 +6687,27 @@ function firstRunHtml(){
     <div class="sc-body"><div class="progress" style="margin-bottom:10px;"><div style="width:${doneN/steps.length*100}%"></div></div>
     ${steps.filter(s=>!s[1]).map(s=>`<div class="fr-step"><span class="tick">○</span><span>${s[0]}</span><div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="${s[2]}">Do this</button></div>`).join('')}</div></div>`;
 }
+let __todayAll = false;
+function mandateStripHtml(){
+  const today = todayStr(); let a=0, se=0, f=0, td=0, n=0;
+  S.ipoPlans.filter(p=>p.planStatus!=='Cancelled').forEach(p=>{
+    const c = mandateCounts(p); if (!c.total) return;
+    if (p.plannedDate===today || c.failed>0 || c.sent>0){ a+=c.accepted; se+=c.sent; f+=c.failed; td+=c.todo; n+=c.total; }
+  });
+  if (!n) return '';
+  const seg = (v,cls,l) => v ? `<span class="ms ${cls}"><b>${v}</b> ${l}</span>` : '';
+  return `<div class="mand-strip" onclick="checklistDate='${today}';navigate('checklist')" title="Open the checklist"><span class="ms-title">Mandates</span>${seg(a,'ok','accepted')}${seg(se,'blue','sent')}${seg(f,'bad','failed')}${seg(td,'dim','to do')}<span class="go">›</span></div>`;
+}
 function todayPanelHtml(){
   const items = todoDigest();
+  const cap = (typeof isMobileView==='function' && isMobileView()) ? 3 : 99;
+  const shown = (__todayAll || items.length <= cap) ? items : items.slice(0, cap);
+  const more = items.length - shown.length;
   return `<div class="section-card today-panel"><div class="sc-head"><h3>Today — ${fmtDate(todayStr())}</h3><div class="spacer"></div>
       <button class="btn btn-ghost btn-sm" onclick="exportIcs()" title="Download IPO dates as calendar reminders">📅 Calendar</button>
       <button class="btn btn-primary btn-sm" onclick="navigate('checklist')">Open checklist</button></div>
-    <div class="sc-body">${items.length ? `<div class="todo-list">${items.map(i=>`<div class="todo ${i.cls}" onclick="${i.go}"><span class="ico">${i.ico}</span><span class="tx">${escapeHtml(i.text)}</span><span class="go">›</span></div>`).join('')}</div>` : '<div class="small-muted">✓ All caught up — nothing needs you right now.</div>'}
+    <div class="sc-body">${mandateStripHtml()}${items.length ? `<div class="todo-list">${shown.map(i=>`<div class="todo ${i.cls}" onclick="${i.go}"><span class="ico">${i.ico}</span><span class="tx">${escapeHtml(i.text)}</span><span class="go">›</span></div>`).join('')}</div>` : '<div class="small-muted">✓ All caught up — nothing needs you right now.</div>'}
+      ${more>0?`<button class="btn btn-ghost btn-sm today-more" onclick="__todayAll=true;navigate('dashboard')">Show ${more} more</button>`:(__todayAll && items.length>cap && cap<99?`<button class="btn btn-ghost btn-sm today-more" onclick="__todayAll=false;navigate('dashboard')">Show less</button>`:'')}
       ${quickChipsHtml()}</div></div>`;
 }
 
@@ -7459,7 +7512,7 @@ function collectLineHtml(apps){
 function projectionHtml(profitSoFar){
   const now = new Date(), day = now.getDate(), days = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
   if (day < 5 || day >= days || profitSoFar <= 0) return '';
-  return `<div class="small-muted" title="Profit so far ÷ days passed × days in the month. Sales are lumpy, so treat it as a rough guide.">At this pace ≈ <b>${fmtMoney(Math.round(profitSoFar/day*days))}</b> by month end</div>`;
+  return `<div class="small-muted" title="Profit so far ÷ days passed × days in the month. Sales are lumpy, so treat it as a rough guide.">On pace for ≈ <b>${fmtMoney(Math.round(profitSoFar/day*days))}</b> by month end</div>`;
 }
 </script>
 
@@ -7929,6 +7982,99 @@ async function ckUndoAttempt(planId, cid){
   pc.updatedAt = new Date().toISOString();
   try { await putRec('plannedClients', pc); } catch(e){ toast(e.message||'Could not save','danger'); return; }
   navigate('checklist');
+}
+</script>
+<script>
+(function(){const _r=render;render=function(){const r=_r.apply(this,arguments);try{requestAnimationFrame(()=>{const b=document.querySelector('.tabs button.active');if(b&&b.scrollIntoView)b.scrollIntoView({block:'nearest',inline:'center'});});}catch(e){}return r;};})();
+</script>
+<script>
+/* ===== Mandate reminders, client mandate/profit history, month-close checklist ===== */
+function staleHours(){ return Number(S.settings.mandateStaleHours)||3; }
+function sentAgeH(at){ if(!at||!at.sentAt) return 0; const t=new Date(at.sentAt).getTime(); return isNaN(t)?0:(Date.now()-t)/3600000; }
+function staleSentList(){
+  const out=[];
+  S.ipoPlans.filter(p=>p.planStatus!=='Cancelled').forEach(p=>planPendingClients(p).forEach(x=>{
+    if (mandateState(p,x.cid)!=='Sent') return;
+    const at=lastAttempt(pcRec(p.id,x.cid)), h=sentAgeH(at);
+    if (h>=staleHours()) out.push({plan:p,cid:x.cid,h});
+  }));
+  return out;
+}
+function ageText(h){ return h>=24 ? Math.floor(h/24)+'d' : Math.floor(h)+'h'; }
+(function(){
+  const _td=todoDigest;
+  todoDigest=function(){
+    const items=_td.apply(this,arguments); const st=staleSentList();
+    if (st.length){
+      const oldest=st.reduce((a,b)=>b.h>a.h?b:a);
+      const it={ cls:'high', ico:'⏰', text:`${st.length} mandate${st.length===1?'':'s'} sent ${staleHours()}+ hours ago, not accepted yet (oldest ${ageText(oldest.h)}) — check or mark failed`, go:`checklistDate='${oldest.plan.plannedDate}';navigate('checklist')` };
+      const i=items.findIndex(x=>x.ico==='⏳'); if(i>=0) items.splice(i,0,it); else items.unshift(it);
+    }
+    return items;
+  };
+  const _mc=mandateCellHtml;
+  mandateCellHtml=function(plan,cid,st,at,app){
+    let h=_mc.apply(this,arguments);
+    if (st==='Sent'){ const a=sentAgeH(at); if (a>=staleHours()) h+=`<div class="danger small-muted" style="font-weight:600">⏰ waiting ${ageText(a)}</div>`; }
+    return h;
+  };
+  const _vc=viewClientDetail;
+  viewClientDetail=function(id){
+    const base=_vc.apply(this,arguments); const c=findClient(id); if(!c) return base;
+    return base + clientHistoryExtraHtml(c);
+  };
+})();
+function clientHistoryExtraHtml(c){
+  const pcs=S.plannedClients.filter(pc=>pc.clientId===c.id);
+  let att=0, fail=0, firstTry=0, acc=0;
+  const byBank={};
+  pcs.forEach(pc=>{ const a=pc.attempts||[]; if(!a.length) return;
+    att+=a.length; const f=a.filter(x=>x.status==='Failed').length; fail+=f;
+    const plan=findPlan(pc.planId); const ok=plan?S.applications.some(x=>x.planId===pc.planId&&x.clientId===c.id):false;
+    if(ok){ acc++; if(a.length===1) firstTry++; }
+    a.forEach(x=>{ const b=findBank(x.bankId); const n=b?b.bankName:'—'; byBank[n]=byBank[n]||{t:0,f:0}; byBank[n].t++; if(x.status==='Failed') byBank[n].f++; });
+  });
+  const apps=S.applications.filter(a=>a.clientId===c.id);
+  const byYear={};
+  apps.forEach(a=>{ if(a.saleStatus!=='Sold'||!a.saleDate) return; const y=a.saleDate.slice(0,4); const k=calcAllotmentSale(a); if(!k.applicable) return;
+    byYear[y]=byYear[y]||{n:0,our:0,cl:0}; byYear[y].n++; byYear[y].our+=k.ourFinal||0; byYear[y].cl+=(k.grossFinal||0)-(k.ourFinal||0); });
+  const yrs=Object.keys(byYear).sort().reverse();
+  const yearRows=yrs.map(y=>`<tr><td>${y}</td><td>${byYear[y].n}</td><td>${fmtMoney(byYear[y].our)}</td></tr>`).join('');
+  const bankRows=Object.entries(byBank).map(([n,v])=>`<tr><td>${escapeHtml(n)}</td><td>${v.t}</td><td>${v.f?`<b class="danger">${v.f}</b>`:'0'}</td></tr>`).join('');
+  if(!att && !yrs.length) return '';
+  return `<div class="section-card"><div class="sc-head"><h3>Mandate record &amp; yearly profit</h3></div><div class="sc-body">
+    <div class="kpi-grid" style="margin-bottom:12px;">
+      <div class="kpi-card"><div class="lbl">Mandate attempts</div><div class="val">${att}</div></div>
+      <div class="kpi-card"><div class="lbl">Failed attempts</div><div class="val ${fail?'danger':''}">${fail}</div></div>
+      <div class="kpi-card"><div class="lbl">Accepted first try</div><div class="val">${acc?Math.round(firstTry/acc*100)+'%':'—'}</div><div class="small-muted">${firstTry} of ${acc} tracked</div></div>
+    </div>
+    <div class="settings-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;">
+      ${bankRows?`<div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Bank</th><th>Attempts</th><th>Failed</th></tr></thead><tbody>${bankRows}</tbody></table></div>`:''}
+      ${yearRows?`<div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Year</th><th>Sales</th><th>Our profit</th></tr></thead><tbody>${yearRows}</tbody></table></div>`:''}
+    </div></div></div>`;
+}
+function monthCloseChecks(m){
+  const inM=d=>d&&String(d).slice(0,7)===m, end=m+'-31', apps=S.applications;
+  const sold=apps.filter(a=>a.saleStatus==='Sold'&&inM(a.saleDate));
+  const checks=[];
+  const add=(label,n,detail,block)=>checks.push({label,n,detail,block});
+  add('Sales still waiting for money', sold.filter(a=>recvDue(a)>0.5).length, 'You can still record payments after closing.', false);
+  add('Sales with no sale amount', sold.filter(a=>!Number(a.saleAmount)).length, 'Profit will show as zero for these.', true);
+  add('Allotted shares not yet sold (IPO listed by this month)', apps.filter(a=>a.allotmentStatus==='Allotted'&&a.saleStatus!=='Sold'&&(()=>{ const i=findIpo(a.ipoId); const d=i&&(i.listingDate||i.allotmentDate); return d&&String(d)<=end; })()).length, 'Sell or confirm these before locking the month.', true);
+  add('Allotment results not entered (result date passed)', apps.filter(a=>isLiveApp(a)&&(!a.allotmentStatus||a.allotmentStatus==='Pending')&&(()=>{ const i=findIpo(a.ipoId); return i&&i.allotmentDate&&i.allotmentDate<=end; })()).length, 'Enter results in Operations → Results.', true);
+  add('Profit overrides with no reason', sold.filter(a=>{ const k=calcAllotmentSale(a); return (k.grossOverridden||k.ourOverridden)&&!(a.overrideReason||'').trim(); }).length, 'Add a reason so you can explain it later.', false);
+  add('Mandates failed or unconfirmed in this month\'s plans', S.ipoPlans.filter(p=>p.planStatus!=='Cancelled'&&inM(p.plannedDate)).reduce((n,p)=>{ const c=mandateCounts(p); return n+c.failed+c.sent; },0), 'Reapply or resolve them in the checklist.', false);
+  return checks;
+}
+function toggleMonthClose(month){
+  const closed=!!((S.settings.monthLocks||{})[month]||{}).closed;
+  if (closed){ confirmAction(`Reopen ${monthLabel(month)}? Its sales become editable again.`, ()=>setMonthClosed(month,false)); return; }
+  const ch=monthCloseChecks(month), bad=ch.filter(x=>x.n&&x.block).length;
+  const rows=ch.map(x=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
+    <span style="font-size:16px;line-height:1.3">${!x.n?'✅':(x.block?'⚠️':'ℹ️')}</span>
+    <div style="flex:1"><b>${x.label}</b>${x.n?` — <b class="${x.block?'danger':''}">${x.n}</b><div class="small-muted">${x.detail}</div>`:''}</div></div>`).join('');
+  openModal(`Close ${monthLabel(month)}?`, `<p class="small-muted" style="margin-top:0">Closing locks this month's sales (by sale date) against edits and deletes.</p>${rows}${bad?`<p class="danger" style="font-weight:600;margin-bottom:0">${bad} item${bad===1?'':'s'} need attention first — you can still close anyway.</p>`:'<p class="ok" style="font-weight:600;margin-bottom:0">All clear.</p>'}`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="closeModal();setMonthClosed('${month}',true)">${bad?'Close anyway':'Close month'}</button>`);
 }
 </script>
 </body>
