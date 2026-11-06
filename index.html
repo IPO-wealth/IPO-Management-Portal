@@ -839,6 +839,11 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
   table.dt.cards.ck-table td input[type=number],table.dt.cards.ck-table td select{width:100%;max-width:100%;}
   .mand-btns{justify-content:flex-start !important;}
 }
+
+.glance{display:flex;flex-wrap:wrap;gap:6px 18px;padding:9px 14px;margin-bottom:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;font-size:13px;}
+.glance .gl-bit{color:var(--text);text-decoration:none;white-space:nowrap;} .glance .gl-bit b{font-weight:700;} .glance .gl-bit:hover{color:var(--gold,#a87a22);}
+.sum-grid{margin-bottom:12px;} .sum-grid .kpi-card{padding:10px 14px;} .sum-grid .kpi-card .val{font-size:22px;}
+@media (max-width:640px){ .hide-sm{display:none !important;} .sum-grid{grid-template-columns:repeat(3,1fr) !important;gap:8px !important;} .sum-grid .kpi-card{padding:8px 10px;} .sum-grid .kpi-card .lbl{font-size:11px;line-height:1.2;} .sum-grid .kpi-card .val{font-size:18px;} .sum-grid .kpi-card .small-muted{font-size:10.5px;} .glance{font-size:12px;gap:4px 12px;} }
 </style>
 </head>
 <body>
@@ -5120,6 +5125,11 @@ function viewSettingsRaw(){
         <input type="number" id="mandateCapInput" value="${capacityLimit()}" min="1" step="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
         <button class="btn btn-primary btn-sm" onclick="saveMandateCapacity()">Save</button>
       </div>
+      <p class="small-muted" style="margin-top:14px;">Remind me when a sent mandate has not been accepted after this many hours:</p>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="number" id="staleHoursInput" value="${staleHours()}" min="1" step="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;"> <span class="small-muted">hours</span>
+        <button class="btn btn-primary btn-sm" onclick="saveStaleHours()">Save</button>
+      </div>
     </div>
   </div>
 
@@ -8076,6 +8086,74 @@ function toggleMonthClose(month){
   openModal(`Close ${monthLabel(month)}?`, `<p class="small-muted" style="margin-top:0">Closing locks this month's sales (by sale date) against edits and deletes.</p>${rows}${bad?`<p class="danger" style="font-weight:600;margin-bottom:0">${bad} item${bad===1?'':'s'} need attention first — you can still close anyway.</p>`:'<p class="ok" style="font-weight:600;margin-bottom:0">All clear.</p>'}`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="closeModal();setMonthClosed('${month}',true)">${bad?'Close anyway':'Close month'}</button>`);
 }
+</script>
+<script>
+/* ===== Summary counts on every list tab ===== */
+function jumpFilter(view,tableId,key,val){ const fv={}; fv[key]=val; navigate(view,{presetFilter:{tableId,filterVals:fv}}); }
+function sumTile(l,v,cls,sub,click){ return `<div class="kpi-card ${click?'clickable':''}" ${click?`onclick="${click}"`:''}><div class="lbl">${l}</div><div class="val ${cls||''}">${v}</div>${sub?`<div class="small-muted">${sub}</div>`:''}</div>`; }
+function sumGrid(tiles){ return `<div class="kpi-grid sum-grid no-print">${tiles.join('')}</div>`; }
+function refBreakdown(field, tableId, filterKey){
+  const m=new Map();
+  S.clients.forEach(c=>{ const k=(c[field]||'').trim()||'(none)'; const r=m.get(k)||{n:0,act:0,apps:0,our:0,cl:0}; r.n++; if(c.status==='Active') r.act++; const st=clientStats(c.id); r.apps+=st.apps.length; r.our+=st.profit; r.cl+=st.clientProfit; m.set(k,r); });
+  return Array.from(m.entries()).sort((a,b)=>b[1].n-a[1].n);
+}
+function refTableHtml(title, field, filterKey, open){
+  const rows=refBreakdown(field,'clientsTbl',filterKey); if(!rows.length) return '';
+  const tot=rows.reduce((a,[,r])=>({n:a.n+r.n,act:a.act+r.act,apps:a.apps+r.apps,our:a.our+r.our,cl:a.cl+r.cl}),{n:0,act:0,apps:0,our:0,cl:0});
+  const body=rows.map(([k,r])=>`<tr class="clickable" ${k==='(none)'?'':`onclick="jumpFilter('clients','clientsTbl','${filterKey}','${escapeHtml(k).replace(/'/g,"\\'")}')"`}><td><b>${escapeHtml(k)}</b></td><td class="num">${r.n}</td><td class="num">${r.act}</td><td class="num hide-sm">${r.apps}</td><td class="num">${fmtMoney(r.our)}</td><td class="num hide-sm">${fmtMoney(r.cl)}</td></tr>`).join('');
+  return `<details class="collapse no-print" ${open?'open':''} style="margin-bottom:12px;"><summary>${title} <span class="small-muted" style="font-weight:500;">${rows.length} group${rows.length===1?'':'s'}</span></summary>
+    <div class="table-wrap" style="margin-top:8px;"><table class="dt" data-enh="1"><thead><tr><th>${title.replace('Clients by ','')}</th><th class="num">Clients</th><th class="num">Active</th><th class="num hide-sm">Applications</th><th class="num">Our profit</th><th class="num hide-sm">Client profit</th></tr></thead><tbody>${body}
+    <tr style="font-weight:700"><td>Total</td><td class="num">${tot.n}</td><td class="num">${tot.act}</td><td class="num hide-sm">${tot.apps}</td><td class="num">${fmtMoney(tot.our)}</td><td class="num hide-sm">${fmtMoney(tot.cl)}</td></tr></tbody></table></div></details>`;
+}
+function clientsSummaryHtml(){
+  const act=S.clients.filter(c=>c.status==='Active').length, dues=S.clients.filter(c=>clientDueTotal(c.id,'in')>0.5).length;
+  const refs=new Set(S.clients.map(c=>(c.referenceName||'').trim()).filter(Boolean)).size, subs=new Set(S.clients.map(c=>(c.subReference||'').trim()).filter(Boolean)).size;
+  const noApp=S.clients.filter(c=>c.status==='Active'&&!clientStats(c.id).apps.length).length;
+  return sumGrid([ sumTile('Total clients',S.clients.length), sumTile('Active',act,'ok',null,"jumpFilter('clients','clientsTbl','status','Active')"), sumTile('Inactive',S.clients.length-act,'',null,"jumpFilter('clients','clientsTbl','status','Inactive')"),
+    sumTile('References',refs,'',subs+' sub-references'), sumTile('With money due',dues,dues?'danger':'',null,"jumpFilter('clients','clientsTbl','dues','Has dues')"), sumTile('Active, never applied',noApp,noApp?'gold':'') ])
+    + refTableHtml('Clients by Reference','referenceName','referenceName',true) + refTableHtml('Clients by Sub Reference','subReference','subReference',false);
+}
+function iposSummaryHtml(){
+  const c={Upcoming:0,Open:0,Closed:0}; S.ipos.forEach(i=>{ const st=ipoStatus(i); if(c[st]!==undefined) c[st]++; });
+  const arch=S.ipos.filter(i=>(i.archiveStatus||'Active')==='Inactive').length;
+  const noRes=S.ipos.filter(i=>i.allotmentDate&&i.allotmentDate<=todayStr()&&S.applications.some(a=>a.ipoId===i.id&&isLiveApp(a)&&(!a.allotmentStatus||a.allotmentStatus==='Pending'))).length;
+  return sumGrid([ sumTile('Total IPOs',S.ipos.length), sumTile('Open now',c.Open,'ok',null,"jumpFilter('ipos','iposTbl','status','Open')"), sumTile('Upcoming',c.Upcoming,'',null,"jumpFilter('ipos','iposTbl','status','Upcoming')"), sumTile('Closed',c.Closed,'',null,"jumpFilter('ipos','iposTbl','status','Closed')"), sumTile('Archived',arch), sumTile('Result pending',noRes,noRes?'danger':'') ]);
+}
+function banksSummaryHtml(){
+  const act=S.bankAccounts.filter(b=>b.status==='Active').length, today=todayStr();
+  let planned=0,cap=0; S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{ const c=bankCapacity(b.id,today); planned+=c.planned||0; cap+=c.capacity||0; });
+  return sumGrid([ sumTile('Total banks',S.bankAccounts.length), sumTile('Active',act,'ok',null,"jumpFilter('banks','banksTbl','status','Active')"), sumTile('Inactive',S.bankAccounts.length-act), sumTile('UPI IDs',S.bankUpiIds.length), sumTile('Applications',S.applications.length), sumTile('Today planned / limit',planned+' / '+cap,'',null) ]);
+}
+function appsSummaryHtml(){
+  const cnt={}; S.applications.forEach(a=>{ cnt[a.applicationStatus]=(cnt[a.applicationStatus]||0)+1; });
+  const amt=S.applications.filter(isLiveApp).reduce((s,a)=>s+(Number(a.amountApplied)||0),0);
+  const tiles=[sumTile('Total applications',S.applications.length)];
+  APP_STATUSES.forEach(st=>{ if(cnt[st]) tiles.push(sumTile(st,cnt[st],st==='Mandate Failed'?'danger':(st==='Applied'?'ok':''),null,`jumpFilter('applications','appsTbl','applicationStatus','${st}')`)); });
+  tiles.push(sumTile('Amount applied (live)',fmtMoney(amt)));
+  return sumGrid(tiles);
+}
+function plansSummaryHtml(){
+  const pl=S.ipoPlans.filter(p=>p.planStatus!=='Cancelled'), cnt={}; pl.forEach(p=>{ const st=planStatusComputed(p); cnt[st]=(cnt[st]||0)+1; });
+  const clients=pl.reduce((s,p)=>s+planPendingClients(p).length,0);
+  const tiles=[sumTile('Plans',pl.length), sumTile('Planned clients (pending)',clients)];
+  Object.entries(cnt).forEach(([k,v])=>tiles.push(sumTile(k,v,k==='Needs Reapply'?'danger':(k==='Executed'?'ok':''))));
+  return sumGrid(tiles);
+}
+function glanceHtml(){
+  const act=S.clients.filter(c=>c.status==='Active').length, open=S.ipos.filter(i=>ipoStatus(i)==='Open').length, bact=S.bankAccounts.filter(b=>b.status==='Active').length;
+  const refs=new Set(S.clients.map(c=>(c.referenceName||'').trim()).filter(Boolean)).size;
+  const bit=(v,l,go)=>`<a class="gl-bit" href="javascript:void(0)" onclick="navigate('${go}')"><b>${v}</b> ${l}</a>`;
+  return `<div class="glance no-print">${bit(S.clients.length,`clients (${act} active)`,'clients')}${bit(refs,refs===1?'reference':'references','clients')}${bit(S.ipos.length,`IPOs (${open} open)`,'ipos')}${bit(S.bankAccounts.length,`banks (${bact} active)`,'banks')}${bit(S.bankUpiIds.length,'UPI IDs','banks')}${bit(S.applications.length,'applications','applications')}</div>`;
+}
+(function(){
+  const wrap=(name,fn)=>{ const o=window[name]; window[name]=function(){ let h=''; try{ h=fn(); }catch(e){ console.warn(name,e); } return h+o.apply(this,arguments); }; };
+  wrap('viewClients',clientsSummaryHtml); wrap('viewIpos',iposSummaryHtml); wrap('viewBanks',banksSummaryHtml); wrap('viewApplications',appsSummaryHtml);
+  const _vp=viewPlanning; viewPlanning=function(){ let h=''; try{ h=plansSummaryHtml(); }catch(e){} const r=_vp.apply(this,arguments); return planningTab==='plans'? h+r : r; };
+  const _db=dashboardBody; dashboardBody=function(){ let g=''; try{ g=glanceHtml(); }catch(e){} return g+_db.apply(this,arguments); };
+})();
+</script>
+<script>
+async function saveStaleHours(){ const v=Math.floor(Number(document.getElementById('staleHoursInput').value)); if(!(v>=1)){ toast('Enter 1 or more hours','warn'); return; } await saveSetting('mandateStaleHours',v); toast('Reminder set to '+v+' hours','ok'); render(); }
 </script>
 </body>
 </html>
