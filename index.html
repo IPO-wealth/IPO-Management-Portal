@@ -752,6 +752,7 @@ input[type=checkbox],input[type=radio]{ accent-color:var(--gold); }
   table.dt.cards td{ padding:9px 0; }
 }
 @media (prefers-reduced-motion:reduce){ *{ animation:none !important; transition:none !important; } }
+@media (min-width:901px){ #clientsTblWrap table.dt th, #clientsTblWrap table.dt td{ padding-left:7px; padding-right:7px; } #clientsTblWrap table.dt td:last-child .btn{ padding:5px 9px; } }
 .ck-table td[data-label="Mandate"] .small-muted{ white-space:nowrap; }
 @media (max-width:640px){ .ck-table td[data-label="Mandate"]{ text-align:right; } .mand-btns{ justify-content:flex-end; } }
 .mand-btns{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:5px; } .mand-btns a{ font-size:12px; color:var(--text-dim); text-decoration:underline; }
@@ -1914,7 +1915,6 @@ function viewClients(){
         { key:'clientName', label:'Name', render:r=>`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();openClientDetail(${r.id})">${escapeHtml(r.clientName)}</a>` + (getTopClientIds().has(r.id) ? ' <span class="badge gold" title="Top 20% of clients by profit">★ Top</span>' : '') },
         { key:'referenceName', label:'Reference' },
         { hidden:true, key:'subReference', label:'Sub Reference', render:r=>escapeHtml(r.subReference||'—') },
-        { hidden:true, key:'profitSharePct', label:'Our Share', num:true, val:r=>{ const o=clientOwnShare(r); return o!==null?o:defaultProfitShare(); }, render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b>${o}%</b>` : `<span class="small-muted">${defaultProfitShare()}% (default)</span>`; } },
         { hidden:true, key:'ipos', label:'IPOs', num:true, sum:true, val:r=>clientStats(r.id).ipoCount, render:r=>clientStats(r.id).ipoCount },
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>clientStats(r.id).apps.length, render:r=>`<a class="lnk" href="javascript:void(0)" ${navAttr('applications',{clientId:r.clientName},'appsTbl')}>${clientStats(r.id).apps.length}</a>` },
         { key:'allotments', label:'Allotments', num:true, sum:true, val:r=>clientStats(r.id).allotted.length, render:r=>clientStats(r.id).allotted.length },
@@ -1922,6 +1922,7 @@ function viewClients(){
         { key:'lastApplied', label:'Last applied', val:r=>clientLastApplied(r), render:r=>{ const d=clientLastApplied(r); return d?fmtDate(d):'—'; } },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>clientStats(r.id).profit, render:r=>fmtMoney(clientStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>clientStats(r.id).clientProfit, render:r=>fmtMoney(clientStats(r.id).clientProfit) },
+        { key:'profitSharePct', label:'Our Share %', num:true, val:r=>{ const o=clientOwnShare(r); return o!==null?o:defaultProfitShare(); }, render:r=>{ const o=clientOwnShare(r); return o!==null ? `<b title="Custom share for this client">${o}%</b>` : `<span title="Standard share (Settings)">${defaultProfitShare()}%</span>`; } },
         { key:'status', label:'Status', render:r=>badge(r.status) }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editClient(${r.id})">Edit</button>
