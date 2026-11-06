@@ -759,9 +759,6 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 [data-theme="dark"] tr.ck-sent td{ background:rgba(110,150,230,.07); } [data-theme="dark"] tr.ck-failed td{ background:rgba(232,135,126,.08); }
 
 /* bulk plan: every client visible in one frame, grouped by reference > sub-reference */
-.modal-box.xwide{ max-width:min(1280px,96vw); }
-.bp-wrap{ column-width:160px; column-gap:12px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; max-height:calc(100vh - 365px); overflow-y:auto; background:var(--card); }
-.bp-group{ break-inside:avoid; margin-bottom:8px; }
 .bp-ghead{ display:flex; align-items:center; gap:6px; font-size:11.5px; padding:2px 0 3px; margin-bottom:2px; border-bottom:1px solid var(--border); color:var(--heading); }
 .bp-ghead b{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .bp-ghead a{ color:var(--gold); font-size:11px; }
@@ -769,15 +766,27 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .bp-tile span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bp-wrap .bp-tile input{ margin:0; flex:none; width:14px; height:14px; min-height:0; padding:0; box-shadow:none; }
 .bp-wrap .bp-tile{ min-height:0; margin:0; }
-.modal-box.xwide .modal-body{ max-height:calc(100vh - 150px); padding-top:14px; padding-bottom:12px; }
-.modal-box.xwide .form-grid{ grid-template-columns:repeat(3,1fr); gap:8px 14px; }
-.modal-box.xwide .form-grid .f-group:nth-child(4){ grid-column:1/-1; }
-.modal-box.xwide .form-grid .f-group:nth-child(4) label{ display:none; }
-.modal-box.xwide .form-grid .f-group:nth-child(4) .small-muted{ font-size:11.5px; }
-.modal-box.xwide .f-group.span2{ margin-top:6px !important; }
 .modal-box.xwide .f-group.span2>label:first-child{ display:none; }
-.modal-box.xwide .modal-head{ padding:12px 24px 10px; } .modal-box.xwide .modal-foot{ padding:10px 24px; }
-.modal-box.xwide .modal-body{ max-height:calc(100vh - 118px); }
+/* bulk plan = full screen, every client visible without sideways scrolling */
+#modalOverlay.xw{ padding:0; align-items:stretch; overflow:hidden; }
+.modal-box.xwide{ max-width:none; width:100vw; height:100vh; height:100dvh; border-radius:0; border:0; display:flex; flex-direction:column; }
+.modal-box.xwide .modal-head{ padding:8px 20px; } .modal-box.xwide .modal-head h3{ font-size:18px; }
+.modal-box.xwide .modal-foot{ padding:8px 20px; }
+.modal-box.xwide .modal-body{ flex:1; min-height:0; max-height:none; overflow:hidden; display:flex; flex-direction:column; padding:10px 20px 8px; }
+.modal-box.xwide .form-grid{ grid-template-columns:minmax(220px,1fr) minmax(180px,.7fr) 2fr; gap:6px 14px; align-items:end; }
+.modal-box.xwide .form-grid .f-group input,.modal-box.xwide .form-grid .f-group select{ min-height:34px; padding:5px 10px; }
+.modal-box.xwide .form-grid .f-group:nth-child(3) label{ display:none; }
+.modal-box.xwide .f-group.span2{ flex:1; min-height:0; display:flex; flex-direction:column; margin-top:8px !important; }
+.modal-box.xwide .f-group.span2 input[type=text]{ min-height:34px; padding:5px 10px; }
+.bp-wrap{ flex:1; min-height:0; border:1px solid var(--border); border-radius:10px; padding:8px 12px; overflow:auto; background:var(--card); }
+.bp-cols{ column-gap:16px; column-fill:auto; }
+.bp-ref{ break-after:avoid; display:flex; align-items:center; gap:8px; font-weight:700; font-size:12.5px; color:var(--gold); padding:3px 0 2px; margin-top:4px; border-bottom:1.5px solid var(--gold); text-transform:none; }
+.bp-ref:first-child{ margin-top:0; } .bp-ref span{ flex:1; } .bp-ref a{ font-weight:500; font-size:11px; }
+.bp-group{ break-inside:avoid; }
+.bp-ghead{ break-after:avoid; display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:2px 0 1px; margin-top:3px; color:var(--text-dim); }
+.bp-ghead b{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; } .bp-ghead a{ font-size:11px; color:var(--gold); font-weight:500; }
+.bp-ghead+.bp-tile{ padding-left:12px; } .bp-group.multi .bp-tile{ padding-left:12px; }
+@media (max-width:900px){ .modal-box.xwide .form-grid{ grid-template-columns:1fr 1fr; } .modal-box.xwide .form-grid .f-group:nth-child(3){ grid-column:1/-1; } .bp-cols{ column-fill:balance; } .bp-wrap .bp-tile{ padding-top:4px; padding-bottom:4px; font-size:13px; } }
 .bp-banks{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:8px; }
 .bp-bank{ border:1.5px solid var(--bk); color:var(--bk); background:transparent; border-radius:999px; padding:5px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
 .bp-bank b{ font-variant-numeric:tabular-nums; margin-left:4px; }
@@ -788,7 +797,6 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .bp-tile.on{ background:rgba(31,111,92,.13); font-weight:600; }
 .bp-tile.inact{ color:var(--text-dim); font-style:italic; }
 .bp-tile.blk{ opacity:.45; text-decoration:line-through; cursor:not-allowed; }
-@media (max-width:900px){ .modal-box.xwide .form-grid{ grid-template-columns:1fr; } .bp-wrap{ column-width:150px; max-height:none; } .bp-wrap .bp-tile{ padding:5px; font-size:13px; } }
 
 </style>
 </head>
@@ -1499,6 +1507,7 @@ function openModal(title, bodyHtml, footHtml, wide=false){
   document.getElementById('modalFoot').innerHTML = footHtml || '';
   document.getElementById('modalBox').classList.toggle('wide', wide);
   document.getElementById('modalBox').classList.remove('xwide');
+  document.getElementById('modalOverlay').classList.remove('xw');
   document.getElementById('modalOverlay').classList.add('open');
 }
 function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
@@ -3011,7 +3020,8 @@ function bulkPlanClients(){
       <div id="bpClientListWrap" class="bp-wrap"></div>
     </div>`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="submitBulkPlan()">Create Plans &amp; Map Clients</button>`, true);
-  document.getElementById('modalBox').classList.add('xwide');
+  document.getElementById('modalBox').classList.add('xwide'); document.getElementById('modalOverlay').classList.add('xw');
+  if (!window.__bpResize){ window.__bpResize = true; window.addEventListener('resize', ()=>{ if (document.getElementById('bpClientListWrap')) bpFit(); }); }
   const bs = bpBanks(); if (bs.length) __bpBrush = bs[0].id;
   renderBulkPlanClientList();
 }
@@ -3047,21 +3057,52 @@ function renderBulkPlanClientList(){
     if (last && last.r===r && last.sb===sb) last.list.push(c); else __bpGroups.push({ r, sb, list:[c] });
   });
   const isBlocked = c => ipoId && clientAlreadyPlannedForIpo(c.id, ipoId, null);
-  wrap.innerHTML = __bpGroups.map((g,gi)=>{
-    const title = (g.r||'No reference') + (g.sb ? ' › ' + g.sb : '');
+  let lastRef = null;
+  wrap.innerHTML = '<div class="bp-cols">' + (__bpGroups.map((g,gi)=>{
+    let head = '';
+    if (g.r !== lastRef || gi===0){
+      lastRef = g.r;
+      const n = __bpGroups.filter(x=>x.r===g.r).reduce((t,x)=>t+x.list.length,0);
+      head = `<div class="bp-ref"><span>${escapeHtml(g.r||'No reference')} <small class="small-muted">${n}</small></span><a href="javascript:void(0)" onclick="bulkPlanToggleRef(${gi})">all</a></div>`;
+    }
+    const multi = g.list.length > 1 && g.sb;
+    const sub = multi ? `<div class="bp-ghead"><b>${escapeHtml(g.sb)}</b><span class="small-muted">${g.list.length}</span><a href="javascript:void(0)" onclick="bulkPlanToggleGroup(${gi})">all</a></div>` : '';
     const tiles = g.list.map(c=>{
       const blocked = isBlocked(c), inactive = c.status === 'Inactive', bank = __bulkPlanSelected.get(c.id), checked = bank!=null && !blocked;
       const bk = checked ? findBank(bank) : null;
-      const tip = c.clientId + ' — ' + c.clientName + (inactive?' (Inactive)':'') + (blocked?' (already planned for this IPO)':'') + (bk?' → '+bk.bankName:'');
+      const tip = c.clientId + ' \u2014 ' + c.clientName + (g.sb?' ('+g.sb+')':'') + (inactive?' (Inactive)':'') + (blocked?' (already planned for this IPO)':'') + (bk?' \u2192 '+bk.bankName:'');
       return `<label class="bp-tile${checked?' on':''}${blocked?' blk':''}${inactive?' inact':''}" ${checked?`style="--bk:${bpColor(bank)}"`:''} title="${escapeHtml(tip)}">
         <input type="checkbox" class="bulkPlanClient" value="${c.id}" ${blocked?'disabled':''} ${checked?'checked':''} onchange="bpToggleClient(${c.id}, this.checked)">
         <span>${escapeHtml(c.clientName)}</span>${bk?`<i class="bp-bk">${escapeHtml((bk.bankName||'').slice(0,4))}</i>`:''}</label>`;
     }).join('');
-    return `<div class="bp-group"><div class="bp-ghead"><b>${escapeHtml(title)}</b><span class="small-muted">${g.list.length}</span><a href="javascript:void(0)" onclick="bulkPlanToggleGroup(${gi})">all</a></div>${tiles}</div>`;
-  }).join('') || `<div class="small-muted">No clients match.</div>`;
+    return head + `<div class="bp-group${multi?' multi':''}">${sub}${tiles}</div>`;
+  }).join('') || `<div class="small-muted">No clients match.</div>`) + '</div>';
   wrap.scrollTop = keepScroll;
   renderBulkPlanBanks();
+  bpFit();
   updateBulkPlanSelectedCount();
+}
+function bpFit(){
+  const wrap = document.getElementById('bpClientListWrap'); if (!wrap) return;
+  const cols = wrap.querySelector('.bp-cols'); if (!cols) return;
+  if (window.matchMedia('(max-width:900px)').matches){ cols.style.height=''; cols.style.columnCount='2'; cols.style.fontSize=''; return; }
+  const cs = getComputedStyle(wrap), availH = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom), availW = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  cols.style.height = availH + 'px';
+  const sizes = [14,13.5,13,12.5,12,11.5,11,10.5,10];
+  for (const fs of sizes){
+    cols.style.fontSize = fs + 'px';
+    for (let n = 3; n <= 12; n++){
+      if (availW / n < 130) break;
+      cols.style.columnCount = String(n);
+      if (cols.scrollWidth <= cols.clientWidth + 2) return;
+    }
+  }
+}
+function bulkPlanToggleRef(gi){
+  const g = __bpGroups[gi]; if (!g) return;
+  const list = __bpGroups.filter(x=>x.r===g.r).flatMap(x=>x.list);
+  const all = list.every(c => __bulkPlanSelected.get(c.id) === __bpBrush);
+  if (all){ list.forEach(c => __bulkPlanSelected.delete(c.id)); renderBulkPlanClientList(); } else bpPut(list);
 }
 function bpNeedBank(){
   if (!__bpBrush){ toast('Select a bank first','warn'); return false; }
