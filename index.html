@@ -719,7 +719,7 @@ input[type=checkbox],input[type=radio]{ accent-color:var(--gold); }
 .modal-body{ padding:20px 24px; } .modal-foot{ padding:16px 24px; }
 #modalOverlay.open .modal-box{ animation:modalIn .2s cubic-bezier(.2,.8,.3,1); }
 @keyframes modalIn{ from{ opacity:0; transform:translateY(10px) scale(.985); } to{ opacity:1; transform:none; } }
-.toast{ background:#0e1930; border-left:3px solid var(--gold-light); border-radius:12px; padding:13px 18px; font-size:13.5px; box-shadow:var(--shadow-pop); }
+.toast{ color:#f4f6fa; background:#0e1930; border-left:3px solid var(--gold-light); border-radius:12px; padding:13px 18px; font-size:13.5px; box-shadow:var(--shadow-pop); }
 .toast.ok{ background:#12413a; border-left-color:#5fd0b6; } .toast.danger{ background:#5a1c18; border-left-color:#f09a91; } .toast.warn{ background:#4a3410; border-left-color:var(--gold-light); }
 #quickAddMenu{ border-radius:14px; box-shadow:var(--shadow-pop); padding:8px; }
 #quickAddMenu button{ border-radius:9px; font-size:14px; }
@@ -752,6 +752,44 @@ input[type=checkbox],input[type=radio]{ accent-color:var(--gold); }
   table.dt.cards td{ padding:9px 0; }
 }
 @media (prefers-reduced-motion:reduce){ *{ animation:none !important; transition:none !important; } }
+.ck-table td[data-label="Mandate"] .small-muted{ white-space:nowrap; }
+@media (max-width:640px){ .ck-table td[data-label="Mandate"]{ text-align:right; } .mand-btns{ justify-content:flex-end; } }
+.mand-btns{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:5px; } .mand-btns a{ font-size:12px; color:var(--text-dim); text-decoration:underline; }
+tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rgba(158,43,37,.06); }
+[data-theme="dark"] tr.ck-sent td{ background:rgba(110,150,230,.07); } [data-theme="dark"] tr.ck-failed td{ background:rgba(232,135,126,.08); }
+
+/* bulk plan: every client visible in one frame, grouped by reference > sub-reference */
+.modal-box.xwide{ max-width:min(1280px,96vw); }
+.bp-wrap{ column-width:160px; column-gap:12px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; max-height:calc(100vh - 365px); overflow-y:auto; background:var(--card); }
+.bp-group{ break-inside:avoid; margin-bottom:8px; }
+.bp-ghead{ display:flex; align-items:center; gap:6px; font-size:11.5px; padding:2px 0 3px; margin-bottom:2px; border-bottom:1px solid var(--border); color:var(--heading); }
+.bp-ghead b{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.bp-ghead a{ color:var(--gold); font-size:11px; }
+.bp-tile{ display:flex; align-items:center; gap:6px; padding:1.5px 5px; border-radius:6px; font-size:12.5px; line-height:1.35; cursor:pointer; }
+.bp-tile span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bp-wrap .bp-tile input{ margin:0; flex:none; width:14px; height:14px; min-height:0; padding:0; box-shadow:none; }
+.bp-wrap .bp-tile{ min-height:0; margin:0; }
+.modal-box.xwide .modal-body{ max-height:calc(100vh - 150px); padding-top:14px; padding-bottom:12px; }
+.modal-box.xwide .form-grid{ grid-template-columns:repeat(3,1fr); gap:8px 14px; }
+.modal-box.xwide .form-grid .f-group:nth-child(4){ grid-column:1/-1; }
+.modal-box.xwide .form-grid .f-group:nth-child(4) label{ display:none; }
+.modal-box.xwide .form-grid .f-group:nth-child(4) .small-muted{ font-size:11.5px; }
+.modal-box.xwide .f-group.span2{ margin-top:6px !important; }
+.modal-box.xwide .f-group.span2>label:first-child{ display:none; }
+.modal-box.xwide .modal-head{ padding:12px 24px 10px; } .modal-box.xwide .modal-foot{ padding:10px 24px; }
+.modal-box.xwide .modal-body{ max-height:calc(100vh - 118px); }
+.bp-banks{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:8px; }
+.bp-bank{ border:1.5px solid var(--bk); color:var(--bk); background:transparent; border-radius:999px; padding:5px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
+.bp-bank b{ font-variant-numeric:tabular-nums; margin-left:4px; }
+.bp-bank.on{ background:var(--bk); color:#fff; }
+.bp-bk{ margin-left:auto; font-style:normal; font-size:10px; font-weight:700; color:var(--bk); border:1px solid var(--bk); border-radius:4px; padding:0 4px; line-height:15px; }
+.bp-tile.on{ box-shadow:inset 3px 0 0 var(--bk,var(--ok)); }
+.bp-tile:hover{ background:rgba(150,104,26,.08); }
+.bp-tile.on{ background:rgba(31,111,92,.13); font-weight:600; }
+.bp-tile.inact{ color:var(--text-dim); font-style:italic; }
+.bp-tile.blk{ opacity:.45; text-decoration:line-through; cursor:not-allowed; }
+@media (max-width:900px){ .modal-box.xwide .form-grid{ grid-template-columns:1fr; } .bp-wrap{ column-width:150px; max-height:none; } .bp-wrap .bp-tile{ padding:5px; font-size:13px; } }
+
 </style>
 </head>
 <body>
@@ -1123,7 +1161,7 @@ function statusBadgeClass(status){
     'Allotted':'green','Not Allotted':'red','Pending':'gray',
     'Pending to Sell':'gold','Sold':'purple',
     'Received':'green','Receivable':'gold',
-    'Planned':'blue','Partially Executed':'gold','Executed':'green','Cancelled':'red','Cancelled / Withdrawn':'red','Mandate Failed':'red',
+    'Planned':'blue','Partially Executed':'gold','Executed':'green','Awaiting Acceptance':'blue','Needs Reapply':'red','Sent':'blue','Accepted':'green','Failed':'red','To do':'gold','Cancelled':'red','Cancelled / Withdrawn':'red','Mandate Failed':'red',
     'Active':'green','Inactive':'gray',
     'Matched':'green','Bank Changed':'gold','Date Changed':'gold','Under Planned':'red','Over Planned':'blue',
     'Not Planned':'red','Partially Planned':'gold'
@@ -1460,6 +1498,7 @@ function openModal(title, bodyHtml, footHtml, wide=false){
   document.getElementById('modalBody').innerHTML = bodyHtml;
   document.getElementById('modalFoot').innerHTML = footHtml || '';
   document.getElementById('modalBox').classList.toggle('wide', wide);
+  document.getElementById('modalBox').classList.remove('xwide');
   document.getElementById('modalOverlay').classList.add('open');
 }
 function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
@@ -2762,8 +2801,16 @@ function afterPlanning(){
 }
 
 function planStatusComputed(plan){
-  const v = planVariance(plan);
   if (plan.planStatus === 'Cancelled') return 'Cancelled';
+  const v = planVariance(plan);
+  const c = (typeof mandateCounts === 'function') ? mandateCounts(plan) : null;
+  if (c && c.total > 0){
+    if (c.failed > 0) return 'Needs Reapply';           // at least one mandate failed and is not re-sent yet
+    if (c.accepted >= c.total) return 'Executed';       // every client's mandate accepted
+    if (c.sent > 0) return 'Awaiting Acceptance';       // mandates sent, waiting for the bank/client
+    if (c.accepted > 0) return 'Partially Executed';
+    return 'Planned';
+  }
   if (v === 'Pending') return 'Planned';
   if (v === 'Matched' || v === 'Bank Changed' || v === 'Date Changed') return 'Executed';
   return 'Partially Executed';
@@ -2787,6 +2834,7 @@ function planningPlansTab(){
         { key:'bankAccountId', label:'Bank', val:r=>{ const b=findBank(r.bankAccountId); return b?b.bankName:''; }, render:r=>{ const b=findBank(r.bankAccountId); return escapeHtml(b?b.bankName:'—'); } },
         { key:'plannedClientCount', label:'Planned Clients', num:true, sum:true, val:r=>planClientCount(r), render:r=>`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();planClients(${r.id})">${planClientCount(r)}</a>` },
         { key:'status', label:'Status', val:r=>planStatusComputed(r), render:r=>badge(planStatusComputed(r)) },
+        { key:'mandates', label:'Mandates', sortable:false, val:r=>mandateSummaryText(r), render:r=>mandateSummaryHtml(r) },
         { key:'variance', label:'Vs Actual', val:r=>planVariance(r), render:r=>badge(planVariance(r)) },
         { hidden:true, key:'notes', label:'Notes', render:r=>escapeHtml(r.notes||'—') }
       ],
@@ -2927,110 +2975,166 @@ async function togglePlanClient(planId, clientId, checked){
   await syncPlanClientCount(plan);
 }
 
-/* ---- bulk client planning ---- */
+/* ---- bulk client planning (all banks in one go) ----
+   Pick an IPO + date, click a bank chip (the "brush"), then tick clients to put them on that bank.
+   Each client goes to exactly one bank; a bank never takes more than its daily mandate limit. */
 let __bulkPlanSearch = '';
-let __bulkPlanSelected = new Set();
+let __bulkPlanSelected = new Map();   // clientId -> bankAccountId
+let __bpBrush = null;
+let __bpGroups = [];
+const BP_COLORS = ['#1f6f5c','#27508f','#96681a','#8a3f9e','#b3382f','#2a8aa0','#6b7a1f','#c0527a'];
+function bpBanks(){ return S.bankAccounts.filter(b=>b.status==='Active'); }
+function bpColor(bankId){ const i = bpBanks().findIndex(b=>b.id===bankId); return BP_COLORS[(i<0?0:i)%BP_COLORS.length]; }
+function bpAssignedTo(bankId){ let n=0; __bulkPlanSelected.forEach(b=>{ if (b===bankId) n++; }); return n; }
+function bpRoom(bankId){   // free mandate slots on this bank for the chosen date, after what's already assigned here
+  const date = (document.getElementById('bpDate')||{}).value;
+  if (!date) return Infinity;
+  return bankCapacity(bankId, date).available - bpAssignedTo(bankId);
+}
 function bulkPlanClients(){
-  __bulkPlanSearch = '';
-  __bulkPlanSelected = new Set();
+  __bulkPlanSearch = ''; __bulkPlanSelected = new Map(); __bpBrush = null;
   const ipoOpts = sortedActiveIpos().map(i=>`<option value="${i.id}">${escapeHtml(i.ipoName)}</option>`).join('');
-  const bankOpts = S.bankAccounts.filter(b=>b.status==='Active').map(b=>`<option value="${b.id}">${escapeHtml(b.bankName)}</option>`).join('');
   openModal('Bulk Plan Clients',
     `<div class="form-grid">
       <div class="f-group"><label>IPO *</label><select id="bpIpo" onchange="renderBulkPlanClientList()"><option value="">Select IPO</option>${ipoOpts}</select></div>
-      <div class="f-group"><label>Planned Date *</label><input type="date" id="bpDate"></div>
-      <div class="f-group"><label>Bank Account *</label><select id="bpBank"><option value="">Select Bank</option>${bankOpts}</select></div>
-      <div class="f-group"><label>&nbsp;</label><div class="small-muted">${capacityLimit()}-mandate/bank/day capacity rule — each client counts as one mandate, regardless of how many share the same IPO.</div></div>
+      <div class="f-group"><label>Planned Date *</label><input type="date" id="bpDate" onchange="bpRefresh()"></div>
+      <div class="f-group"><label>&nbsp;</label><div class="small-muted">Up to ${capacityLimit()} mandates per bank per day. Each client goes to one bank.</div></div>
     </div>
-    <div class="f-group span2" style="margin-top:12px;">
-      <label>Select Clients</label>
+    <div class="f-group span2" style="margin-top:10px;">
+      <div class="bp-banks" id="bpBanks"></div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
-        <input type="text" id="bpSearch" placeholder="Search by client name or ID..." oninput="__bulkPlanSearch=this.value; renderBulkPlanClientList()" style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:6px;padding:7px 10px;">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="bulkPlanSelectAll()">Select All</button>
+        <input type="text" id="bpSearch" placeholder="Search by client name or ID..." oninput="__bulkPlanSearch=this.value; renderBulkPlanClientList()" style="flex:1;min-width:180px;">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="bulkPlanSelectAll()">Put all shown on selected bank</button>
         <button type="button" class="btn btn-ghost btn-sm" onclick="bulkPlanClearAll()">Clear All</button>
         <span class="small-muted" id="bpSelectedCount">Selected: 0 clients</span>
       </div>
-      <div id="bpClientListWrap" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px 12px;"></div>
+      <div id="bpClientListWrap" class="bp-wrap"></div>
     </div>`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="submitBulkPlan()">Create Plan &amp; Map Clients</button>`, true);
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="submitBulkPlan()">Create Plans &amp; Map Clients</button>`, true);
+  document.getElementById('modalBox').classList.add('xwide');
+  const bs = bpBanks(); if (bs.length) __bpBrush = bs[0].id;
   renderBulkPlanClientList();
+}
+function bpRefresh(){ renderBulkPlanClientList(); }
+function bpSetBrush(id){ __bpBrush = id; renderBulkPlanBanks(); }
+function renderBulkPlanBanks(){
+  const el = document.getElementById('bpBanks'); if (!el) return;
+  const date = (document.getElementById('bpDate')||{}).value;
+  const banks = bpBanks();
+  el.innerHTML = banks.length ? `<span class="small-muted">Selected bank — tick clients to put them on it:</span>` + banks.map(b=>{
+    const n = bpAssignedTo(b.id);
+    const cap = date ? bankCapacity(b.id, date) : null;
+    const lim = cap ? cap.available : capacityLimit();
+    return `<button type="button" class="bp-bank${__bpBrush===b.id?' on':''}" style="--bk:${bpColor(b.id)}" onclick="bpSetBrush(${b.id})" title="${cap?`${cap.planned} already planned on this date`:'Pick a date to include existing plans'}">${escapeHtml(b.bankName)} <b>${n}/${Math.max(lim,0)}</b></button>`;
+  }).join('') : `<span class="small-muted">No active bank accounts.</span>`;
 }
 function renderBulkPlanClientList(){
   const wrap = document.getElementById('bpClientListWrap');
   if (!wrap) return;
   const ipoId = Number(document.getElementById('bpIpo').value) || null;
   const q = (__bulkPlanSearch||'').toLowerCase();
-  // Selection state comes from __bulkPlanSelected, a persistent Set kept independent of
-  // whatever the search currently shows — this is what makes selections survive searching,
-  // filtering, or the IPO changing, instead of being read back from (and lost with) the DOM.
+  const keepScroll = wrap.scrollTop;
+  // drop assignments for clients now blocked for the chosen IPO
+  if (ipoId) [...__bulkPlanSelected.keys()].forEach(id => { if (clientAlreadyPlannedForIpo(id, ipoId, null)) __bulkPlanSelected.delete(id); });
   const visible = S.clients.filter(c => !q || (c.clientId+' '+c.clientName).toLowerCase().includes(q));
-  wrap.innerHTML = visible.map(c=>{
-    const blocked = ipoId && clientAlreadyPlannedForIpo(c.id, ipoId, null);
-    const inactive = c.status === 'Inactive';
-    const checked = __bulkPlanSelected.has(c.id);
-    return `<label class="checkbox-row" style="padding:4px 0;${blocked?'opacity:.5;':''}${inactive&&!blocked?'color:var(--text-dim);':''}">
-      <input type="checkbox" class="bulkPlanClient" value="${c.id}" ${blocked?'disabled':''} ${checked&&!blocked?'checked':''} onchange="toggleBulkPlanClient(${c.id}, this.checked)">
-      ${escapeHtml(c.clientId)} — ${escapeHtml(c.clientName)} ${inactive?'<span class="badge gray">Inactive</span>':''} ${blocked?'<span class="badge gray">Already planned for this IPO</span>':''}
-    </label>`;
+  // Order: reference (blank last) -> sub-reference (blank last) -> name, so each sub-reference sits together.
+  const refKey = c => (c.referenceName||'').trim(), subKey = c => (c.subReference||'').trim();
+  const cmp = (a,b) => (!a&&b) ? 1 : (a&&!b) ? -1 : a.localeCompare(b,undefined,{sensitivity:'base'});
+  const sorted = visible.slice().sort((a,b)=> cmp(refKey(a),refKey(b)) || cmp(subKey(a),subKey(b)) || (a.clientName||'').localeCompare(b.clientName||'',undefined,{sensitivity:'base'}));
+  __bpGroups = [];
+  sorted.forEach(c=>{
+    const r = refKey(c), sb = subKey(c), last = __bpGroups[__bpGroups.length-1];
+    if (last && last.r===r && last.sb===sb) last.list.push(c); else __bpGroups.push({ r, sb, list:[c] });
+  });
+  const isBlocked = c => ipoId && clientAlreadyPlannedForIpo(c.id, ipoId, null);
+  wrap.innerHTML = __bpGroups.map((g,gi)=>{
+    const title = (g.r||'No reference') + (g.sb ? ' › ' + g.sb : '');
+    const tiles = g.list.map(c=>{
+      const blocked = isBlocked(c), inactive = c.status === 'Inactive', bank = __bulkPlanSelected.get(c.id), checked = bank!=null && !blocked;
+      const bk = checked ? findBank(bank) : null;
+      const tip = c.clientId + ' — ' + c.clientName + (inactive?' (Inactive)':'') + (blocked?' (already planned for this IPO)':'') + (bk?' → '+bk.bankName:'');
+      return `<label class="bp-tile${checked?' on':''}${blocked?' blk':''}${inactive?' inact':''}" ${checked?`style="--bk:${bpColor(bank)}"`:''} title="${escapeHtml(tip)}">
+        <input type="checkbox" class="bulkPlanClient" value="${c.id}" ${blocked?'disabled':''} ${checked?'checked':''} onchange="bpToggleClient(${c.id}, this.checked)">
+        <span>${escapeHtml(c.clientName)}</span>${bk?`<i class="bp-bk">${escapeHtml((bk.bankName||'').slice(0,4))}</i>`:''}</label>`;
+    }).join('');
+    return `<div class="bp-group"><div class="bp-ghead"><b>${escapeHtml(title)}</b><span class="small-muted">${g.list.length}</span><a href="javascript:void(0)" onclick="bulkPlanToggleGroup(${gi})">all</a></div>${tiles}</div>`;
   }).join('') || `<div class="small-muted">No clients match.</div>`;
+  wrap.scrollTop = keepScroll;
+  renderBulkPlanBanks();
   updateBulkPlanSelectedCount();
 }
-function toggleBulkPlanClient(id, checked){
-  if (checked) __bulkPlanSelected.add(id); else __bulkPlanSelected.delete(id);
-  updateBulkPlanSelectedCount();
+function bpNeedBank(){
+  if (!__bpBrush){ toast('Select a bank first','warn'); return false; }
+  if (!document.getElementById('bpDate').value){ toast('Pick the planned date first','warn'); return false; }
+  return true;
 }
-function bulkPlanSelectAll(){
-  // Selects everyone matching the CURRENT search/filter — not the entire client base —
-  // consistent with the filtered Select All behaviour used elsewhere in the app.
+function bpToggleClient(id, checked){
+  if (!checked){ __bulkPlanSelected.delete(id); renderBulkPlanClientList(); return; }
+  if (!bpNeedBank()){ renderBulkPlanClientList(); return; }
+  if (bpRoom(__bpBrush) < 1){ toast(`${(findBank(__bpBrush)||{}).bankName||'This bank'} is full for this date (${capacityLimit()} mandates). Pick another bank.`,'warn'); renderBulkPlanClientList(); return; }
+  __bulkPlanSelected.set(id, __bpBrush); renderBulkPlanClientList();
+}
+function bpPut(list){
+  if (!bpNeedBank()) return;
   const ipoId = Number(document.getElementById('bpIpo').value) || null;
-  const q = (__bulkPlanSearch||'').toLowerCase();
-  S.clients
-    .filter(c => (!q || (c.clientId+' '+c.clientName).toLowerCase().includes(q)) && !(ipoId && clientAlreadyPlannedForIpo(c.id, ipoId, null)))
-    .forEach(c => __bulkPlanSelected.add(c.id));
+  let added = 0, skippedFull = 0;
+  list.forEach(c=>{
+    if (ipoId && clientAlreadyPlannedForIpo(c.id, ipoId, null)) return;
+    if (__bulkPlanSelected.has(c.id)) return;   // only unassigned clients; never steal from another bank
+    if (bpRoom(__bpBrush) < 1){ skippedFull++; return; }
+    __bulkPlanSelected.set(c.id, __bpBrush); added++;
+  });
+  if (skippedFull) toast(`${added} added; ${skippedFull} left out because ${(findBank(__bpBrush)||{}).bankName||'the bank'} is full`,'warn');
   renderBulkPlanClientList();
 }
-function bulkPlanClearAll(){ __bulkPlanSelected = new Set(); renderBulkPlanClientList(); }
+function bulkPlanToggleGroup(gi){
+  const g = __bpGroups[gi]; if (!g) return;
+  const allOnBrush = g.list.every(c => __bulkPlanSelected.get(c.id) === __bpBrush);
+  if (allOnBrush){ g.list.forEach(c => __bulkPlanSelected.delete(c.id)); renderBulkPlanClientList(); }
+  else bpPut(g.list);
+}
+function bulkPlanSelectAll(){
+  // Puts everyone matching the CURRENT search on the selected bank (until it is full).
+  const q = (__bulkPlanSearch||'').toLowerCase();
+  bpPut(S.clients.filter(c => !q || (c.clientId+' '+c.clientName).toLowerCase().includes(q)));
+}
+function bulkPlanClearAll(){ __bulkPlanSelected = new Map(); renderBulkPlanClientList(); }
 function updateBulkPlanSelectedCount(){
   const n = __bulkPlanSelected.size;
   const el = document.getElementById('bpSelectedCount');
   if (el) el.textContent = `Selected: ${n} client${n===1?'':'s'}`;
 }
-async function submitBulkPlan(force){
+async function submitBulkPlan(){
   const ipoId = Number(document.getElementById('bpIpo').value);
   const plannedDate = document.getElementById('bpDate').value;
-  const bankAccountId = Number(document.getElementById('bpBank').value);
-  let clientIds = Array.from(__bulkPlanSelected);
-  if (!ipoId || !plannedDate || !bankAccountId){ toast('IPO, date and bank are required','warn'); return; }
-  if (!clientIds.length){ toast('Select at least one client','warn'); return; }
-
-  // defensive re-check against duplicate-client-per-IPO rule
-  const blocked = clientIds.filter(cid => clientAlreadyPlannedForIpo(cid, ipoId, null));
-  clientIds = clientIds.filter(cid => !blocked.includes(cid));
-  if (!clientIds.length){ toast('All selected clients are already planned for this IPO','warn'); return; }
-
-  let plan = S.ipoPlans.find(x=>x.ipoId===ipoId && x.bankAccountId===bankAccountId && x.plannedDate===plannedDate);
-  const cap = bankCapacity(bankAccountId, plannedDate);
-  const projected = cap.planned + clientIds.length;
-  if (projected > cap.capacity && !force){
-    const bank = findBank(bankAccountId);
-    openModal('⚠️ Capacity Warning',
-      `<p style="font-size:13px;line-height:1.6;">${escapeHtml(bank.bankName)} already has <b>${cap.planned}</b> mandate(s) planned for ${fmtDate(plannedDate)}.<br>Adding these ${clientIds.length} client(s) would bring it to <b>${projected}</b>.<br>Maximum recommended capacity: <b>${cap.capacity}</b><br>Available: <b>${cap.available}</b><br><br>Continue anyway?</p>`,
-      `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" onclick="submitBulkPlan(true)">Continue Anyway</button>`);
-    return;
+  if (!ipoId || !plannedDate){ toast('IPO and date are required','warn'); return; }
+  const assign = [...__bulkPlanSelected.entries()].filter(([cid]) => !clientAlreadyPlannedForIpo(cid, ipoId, null));
+  if (!assign.length){ toast('Tick at least one client','warn'); return; }
+  // group clients by bank and re-check each bank's daily limit
+  const byBank = new Map();
+  assign.forEach(([cid,bid])=>{ if(!byBank.has(bid)) byBank.set(bid,[]); byBank.get(bid).push(cid); });
+  for (const [bid, ids] of byBank){
+    const cap = bankCapacity(bid, plannedDate);
+    if (ids.length > cap.available){ toast(`${(findBank(bid)||{}).bankName||'A bank'} can take ${Math.max(cap.available,0)} more on this date, but ${ids.length} are assigned`,'warn'); return; }
   }
-  if (!plan){
-    const rec = { ipoId, plannedDate, bankAccountId, countSynced:true, plannedClientCount: 0, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
-    const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec;
-    await audit('Plan Creation','IPOPlan', id, null, rec);
-  }
-  for (const cid of clientIds){
-    if (!S.plannedClients.some(pc=>pc.planId===plan.id && pc.clientId===cid)){
-      const rec = { planId: plan.id, clientId: cid, createdAt: new Date().toISOString() };
-      const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec);
+  let total = 0; const parts = [];
+  for (const [bid, ids] of byBank){
+    let plan = S.ipoPlans.find(x=>x.ipoId===ipoId && x.bankAccountId===bid && x.plannedDate===plannedDate);
+    if (!plan){
+      const rec = { ipoId, plannedDate, bankAccountId:bid, countSynced:true, plannedClientCount: 0, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+      const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec;
+      await audit('Plan Creation','IPOPlan', id, null, rec);
     }
+    for (const cid of ids){
+      if (!S.plannedClients.some(pc=>pc.planId===plan.id && pc.clientId===cid)){
+        const rec = { planId: plan.id, clientId: cid, createdAt: new Date().toISOString() };
+        const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec); total++;
+      }
+    }
+    await syncPlanClientCount(plan);
+    parts.push(`${(findBank(bid)||{}).bankName||'Bank'} ${ids.length}`);
   }
-  await syncPlanClientCount(plan); // keep the stored count equal to the clients actually mapped
-  toast(`${clientIds.length} client(s) planned for ${findIpo(ipoId).ipoName}${blocked.length?` (${blocked.length} skipped — already planned for this IPO)`:''}`, 'ok');
+  toast(`${total} client(s) planned for ${findIpo(ipoId).ipoName} — ${parts.join(', ')}`, 'ok');
   closeModal(); navigate('planning');
 }
 </script>
@@ -3176,6 +3280,7 @@ function viewApplications(){
         { key:'applicationStatus', label:'Status', render:r=>badge(r.applicationStatus) + (r.notes ? ` <span class="clickable" title="View note" data-note="${escapeHtml(r.notes)}" onclick="showNote(this)">📝</span>` : '') },
         { key:'allotmentStatus', label:'Result', val:r=>isLiveApp(r)?(r.allotmentStatus||'Pending'):'', render:r=>isLiveApp(r)?badge(r.allotmentStatus||'Pending'):'—' },
         { key:'saleStatus', label:'Sale', val:r=>r.saleStatus||'', render:r=>r.saleStatus?badge(r.saleStatus):'—' },
+        { hidden:true, key:'mandateAcceptedAt', label:'Mandate accepted', val:r=>r.mandateAcceptedAt||'', render:r=>r.mandateAcceptedAt?escapeHtml(fmtDT(r.mandateAcceptedAt)):'—' },
         { hidden:true, key:'plan', label:'From Plan', val:r=>r.planId?'Yes':'No', render:r=>r.planId?'Yes':'No' }
       ],
       rowActions: r => `<button class="btn btn-sm btn-ghost" onclick="editApplication(${r.id})">Edit</button>
@@ -6322,7 +6427,7 @@ function planPendingClients(plan){
 function viewChecklist(){
   const d = checklistDate || todayStr();
   const plans = S.ipoPlans.filter(p=>p.plannedDate===d && p.planStatus!=='Cancelled');
-  let total=0, done=0;
+  let total=0, done=0, sentTot=0, failTot=0;
   const byBank = new Map();
   plans.forEach(p=>{ const l=byBank.get(p.bankAccountId)||[]; l.push(p); byBank.set(p.bankAccountId,l); });
   const cards = Array.from(byBank.entries()).map(([bankId, plist])=>{
@@ -6333,22 +6438,31 @@ function viewChecklist(){
       const usedUpis = new Set(S.applications.filter(a=>a.ipoId===p.ipoId && a.upiId!=null && isLiveApp(a)).map(a=>a.upiId));
       const assigned = new Set();
       total += list.length; done += list.filter(x=>x.done).length;
+      const mc = mandateCounts(p); sentTot += mc.sent; failTot += mc.failed;
       const rows = list.map(x=>{
         const c = findClient(x.cid); let upi = null;
-        if (!x.done){ upi = upis.find(u=>!usedUpis.has(u.id) && !assigned.has(u.id)); if (upi) assigned.add(upi.id); }
+        const st = mandateState(p, x.cid), app = S.applications.find(a=>a.planId===p.id && a.clientId===x.cid), at = lastAttempt(pcRec(p.id, x.cid));
+        if (st==='To do'){ upi = upis.find(u=>!usedUpis.has(u.id) && !assigned.has(u.id)); if (upi) assigned.add(upi.id); }
         const opts = `<option value="">— no UPI —</option>` + upis.map(u=>`<option value="${u.id}" ${upi&&upi.id===u.id?'selected':''}>${escapeHtml(u.upiId)}${usedUpis.has(u.id)?' (used)':''}</option>`).join('');
-        return `<tr class="${x.done?'ck-done':''}">
-          <td data-label=""><input type="checkbox" class="ckChk" data-plan="${p.id}" data-cid="${x.cid}" ${x.done?'disabled checked':''} onchange="ckUpdateCount(${p.id})"></td>
+        const locked = st!=='To do';
+        const shownUpi = app ? app.upiId : (at ? at.upiId : null);
+        const amtVal = app ? app.amountApplied : (at && st!=='To do' ? at.amount : ((at&&at.amount)||(ipo?ipo.minimumApplicationAmount||'':'')));
+        return `<tr class="ck-${st.replace(/\s/g,'').toLowerCase()} ${st==='Accepted'?'ck-done':''}">
+          <td data-label=""><input type="checkbox" class="ckChk" data-plan="${p.id}" data-cid="${x.cid}" data-state="${st}" ${st==='Accepted'?'disabled checked':''} onchange="ckUpdateCount(${p.id})"></td>
           <td data-label="Client"><a class="lnk" href="javascript:void(0)" onclick="openClientDetail(${c.id})">${escapeHtml(c.clientName)}</a></td>
-          <td data-label="Amount"><input type="number" class="ckAmt" id="ckAmt-${p.id}-${x.cid}" value="${(S.applications.find(a=>a.planId===p.id&&a.clientId===x.cid)||{}).amountApplied ?? (ipo?ipo.minimumApplicationAmount||'':'')}" ${x.done?'disabled':''} style="width:100px"></td>
-          <td data-label="UPI ID"><select class="ckUpi${!x.done && !upi ? ' ck-noupi' : ''}" id="ckUpi-${p.id}-${x.cid}" ${x.done?'disabled':''} onchange="this.classList.toggle('ck-noupi',!this.value)">${x.done ? `<option>${escapeHtml(((S.bankUpiIds.find(u=>u.id===(S.applications.find(a=>a.planId===p.id&&a.clientId===x.cid)||{}).upiId))||{}).upiId||'—')}</option>` : opts}</select></td>
-          <td data-label="Status">${x.done?'<span class="badge green">Applied ✓</span>':'<span class="badge gold">To do</span>'}</td></tr>`;
+          <td data-label="Amount"><input type="number" class="ckAmt" id="ckAmt-${p.id}-${x.cid}" value="${amtVal}" ${locked?'disabled':''} style="width:100px"></td>
+          <td data-label="UPI ID"><select class="ckUpi${!locked && !upi ? ' ck-noupi' : ''}" id="ckUpi-${p.id}-${x.cid}" ${locked?'disabled':''} onchange="this.classList.toggle('ck-noupi',!this.value)">${locked ? `<option>${escapeHtml(((S.bankUpiIds.find(u=>u.id===shownUpi))||{}).upiId||'—')}</option>` : opts}</select></td>
+          <td data-label="Mandate">${mandateCellHtml(p, x.cid, st, at, app)}</td></tr>`;
       }).join('') || `<tr class="empty-row"><td colspan="5">No clients mapped to this plan yet. <a href="javascript:void(0)" onclick="planClients(${p.id})">Add clients</a></td></tr>`;
       const left = list.filter(x=>!x.done).length;
       return `<div class="ck-plan"><div class="ck-plan-head"><b><a class="lnk" href="javascript:void(0)" onclick="openIpoDetail(${p.ipoId})">${escapeHtml(ipo?ipo.ipoName:'IPO')}</a></b>
-          <span class="small-muted">${list.length-left} of ${list.length} done</span><div class="spacer"></div>
-          ${left?`<button class="btn btn-ghost btn-sm" onclick="ckAll(${p.id},true)">Tick all</button><button class="btn btn-primary btn-sm" id="ckBtn-${p.id}" onclick="ckSubmit(${p.id})">Mark ticked as Applied</button>`:'<span class="badge green">All done ✓</span>'}</div>
-        <div class="table-wrap flat"><table class="dt ck-table cards" data-enh="1"><thead><tr><th style="width:36px"></th><th>Client</th><th>Amount (₹)</th><th>UPI ID</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+          <span class="small-muted">${mc.accepted} of ${list.length} accepted${mc.sent?` · ${mc.sent} sent`:''}${mc.failed?` · <b class="danger">${mc.failed} failed</b>`:''}${mc.todo?` · ${mc.todo} to do`:''}</span><div class="spacer"></div>
+          ${left?`<button class="btn btn-ghost btn-sm" onclick="ckAll(${p.id},true)">Tick all</button>`:''}
+          ${mc.todo?`<button class="btn btn-primary btn-sm" id="ckBtnSent-${p.id}" onclick="ckSend(${p.id})">Mark ticked as Sent</button>`:''}
+          ${mc.sent?`<button class="btn btn-primary btn-sm" id="ckBtnAcc-${p.id}" onclick="ckOpenResolve(${p.id},'Accepted')">Mark ticked Accepted</button><button class="btn btn-ghost btn-sm" id="ckBtnFail-${p.id}" onclick="ckOpenResolve(${p.id},'Failed')">Mark ticked Failed</button>`:''}
+          ${mc.failed?`<button class="btn btn-gold btn-sm" id="ckBtnRe-${p.id}" onclick="ckOpenReapply(${p.id})">Reapply ticked</button>`:''}
+          ${!left?'<span class="badge green">All accepted ✓</span>':''}</div>
+        <div class="table-wrap flat"><table class="dt ck-table cards" data-enh="1"><thead><tr><th style="width:36px"></th><th>Client</th><th>Amount (₹)</th><th>UPI ID</th><th>Mandate</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
     return `<div class="section-card"><div class="sc-head"><h3>${escapeHtml(bank?bank.bankName:'Bank')}</h3><span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity} today</span><div class="spacer"></div><span class="small-muted">${upis.length} UPI ID(s)</span></div><div class="sc-body">${blocks}</div></div>`;
   }).join('');
@@ -6360,37 +6474,16 @@ function viewChecklist(){
       <button class="btn btn-ghost btn-sm" onclick="checklistDate='${next}';navigate('checklist')">▶</button>
       ${d!==todayStr()?`<button class="btn btn-ghost btn-sm" onclick="checklistDate=null;navigate('checklist')">Today</button>`:''}
       <div class="spacer"></div>
-      <div style="min-width:180px;flex:0 1 260px;"><div class="small-muted">${done} of ${total} applications done (${pct}%)</div><div class="progress"><div style="width:${pct}%"></div></div></div>
+      <div style="min-width:180px;flex:0 1 260px;"><div class="small-muted">${done} of ${total} accepted (${pct}%)${sentTot?` · ${sentTot} awaiting acceptance`:''}${failTot?` · <b class="danger">${failTot} failed</b>`:''}</div><div class="progress"><div style="width:${pct}%"></div></div></div>
     </div></div>
     ${cards ? '' : nextPlanHintHtml(d)}${cards || `<div class="empty-state"><div class="ico">📋</div><h3>Nothing planned for ${fmtDate(d)}</h3><p>Plans are what feed this checklist: pick an IPO, a bank and the clients who should apply.</p><button class="btn btn-primary" onclick="navigate('planning')">Go to IPO Planning</button></div>`}`;
 }
 function ckAll(planId, on){ document.querySelectorAll(`.ckChk[data-plan="${planId}"]:not(:disabled)`).forEach(c=>c.checked=on); ckUpdateCount(planId); }
-function ckUpdateCount(planId){ const n=document.querySelectorAll(`.ckChk[data-plan="${planId}"]:checked:not(:disabled)`).length; const b=document.getElementById('ckBtn-'+planId); if(b) b.textContent = n ? `Mark ${n} ticked as Applied` : 'Mark ticked as Applied'; }
-async function ckSubmit(planId, force){
-  const plan = findPlan(planId); if(!plan) return;
-  const ticks = Array.from(document.querySelectorAll(`.ckChk[data-plan="${planId}"]:checked:not(:disabled)`));
-  if (!ticks.length){ toast('Tick at least one client first','warn'); return; }
-  const rows = ticks.map(t=>{ const cid=Number(t.dataset.cid); const amt=Number(document.getElementById(`ckAmt-${planId}-${cid}`).value)||0; const u=document.getElementById(`ckUpi-${planId}-${cid}`).value; return { cid, amt, upiId:u?Number(u):null }; });
-  const bad = rows.filter(r=>!r.amt); if (bad.length){ toast('Enter an amount for every ticked client','warn'); bad.forEach(r=>document.getElementById(`ckAmt-${planId}-${r.cid}`).classList.add('invalid')); return; }
-  // duplicate-UPI check (same UPI twice for one IPO)
-  const used = new Set(S.applications.filter(a=>a.ipoId===plan.ipoId && a.upiId!=null && isLiveApp(a)).map(a=>a.upiId));
-  const seen = new Set(), dups = [];
-  rows.forEach(r=>{ if (r.upiId!=null){ if (used.has(r.upiId) || seen.has(r.upiId)) dups.push(r); seen.add(r.upiId); } });
-  if (dups.length && !force){
-    openModal('Same UPI used twice', `<p style="font-size:13px;line-height:1.5;">${dups.length} application(s) use a UPI ID that is already used for <b>${escapeHtml(findIpo(plan.ipoId)?.ipoName||'this IPO')}</b> (or appears twice in this batch). A UPI ID can normally apply only once per IPO.</p>`,
-      `<button class="btn btn-ghost" onclick="closeModal()">Go back</button><button class="btn btn-danger" onclick="closeModal();ckSubmit(${planId},true)">Save anyway</button>`); return;
-  }
-  for (const r of rows){
-    const rec = { clientId:r.cid, ipoId:plan.ipoId, bankAccountId:plan.bankAccountId, applicationDate:plan.plannedDate, upiId:r.upiId, amountApplied:r.amt,
-      applicationStatus:'Applied', planId, profitSharePct: shareForClient(r.cid), allotmentStatus:'Pending', allotmentDate:null, saleStatus:null, saleDate:null, saleAmount:null,
-      calculatedGrossReceived:null, grossReceived:null, grossReceivedOverridden:false, calculatedOurProfit:null, ourProfit:null, ourProfitOverridden:false,
-      calculatedClientProfit:null, clientProfit:null, clientProfitOverridden:false, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
-    const id = await putRec('applications', rec); rec.id=id; S.applications.push(rec);
-    await audit('Application Creation','Application', id, null, rec);
-  }
-  toast(`${rows.length} application(s) created`,'ok'); navigate('checklist');
+function ckTicked(planId, state){ return Array.from(document.querySelectorAll(`.ckChk[data-plan="${planId}"]:checked:not(:disabled)`)).filter(t=>!state || t.dataset.state===state); }
+function ckUpdateCount(planId){
+  const set = (id, state, word) => { const b=document.getElementById(id+'-'+planId); if(!b) return; const n=ckTicked(planId,state).length; b.textContent = n ? `${word.replace('ticked',n+' ticked')}` : word; };
+  set('ckBtnSent','To do','Mark ticked as Sent'); set('ckBtnAcc','Sent','Mark ticked Accepted'); set('ckBtnFail','Sent','Mark ticked Failed'); set('ckBtnRe','Failed','Reapply ticked');
 }
-
 /* ---------- Allotment Results (original point 27) ---------- */
 let resultsState = { ipoId:null, pending:{} };
 function resultsApps(){ return S.applications.filter(a=>a.ipoId===resultsState.ipoId && isLiveApp(a)).sort((x,y)=>((findClient(x.clientId)||{}).clientName||'').localeCompare((findClient(y.clientId)||{}).clientName||'')); }
@@ -6467,8 +6560,12 @@ function exportIcs(){
 function todoDigest(){
   const today = todayStr(); const items = [];
   const plansToday = S.ipoPlans.filter(p=>p.plannedDate===today && p.planStatus!=='Cancelled');
-  const toApply = plansToday.reduce((s,p)=>s+planPendingClients(p).filter(x=>!x.done).length,0);
+  const toApply = plansToday.reduce((s,p)=>{ const c=mandateCounts(p); return s+c.todo; },0);
   if (toApply) items.push({ cls:'high', ico:'📋', text:`Apply ${toApply} client${toApply===1?'':'s'} today`, go:"navigate('checklist')" });
+  const mOpen = S.ipoPlans.filter(p=>p.planStatus!=='Cancelled'), mFail = mOpen.filter(p=>mandateCounts(p).failed>0), mSent = mOpen.filter(p=>mandateCounts(p).sent>0);
+  const nFail = mFail.reduce((s,p)=>s+mandateCounts(p).failed,0), nSent = mSent.reduce((s,p)=>s+mandateCounts(p).sent,0);
+  if (nFail) items.push({ cls:'high', ico:'⚠️', text:`${nFail} failed mandate${nFail===1?'':'s'} to reapply`, go:`checklistDate='${mFail[0].plannedDate}';navigate('checklist')` });
+  if (nSent) items.push({ cls:'med', ico:'⏳', text:`${nSent} mandate${nSent===1?'':'s'} sent, waiting for acceptance`, go:`checklistDate='${mSent[0].plannedDate}';navigate('checklist')` });
   const closing = S.ipos.filter(i=>i.closeDate===today); closing.forEach(i=>items.push({ cls:'high', ico:'⏰', text:`${i.ipoName} closes today`, go:`openIpoDetail(${i.id})` }));
   const opening = S.ipos.filter(i=>i.openDate===today); opening.forEach(i=>items.push({ cls:'med', ico:'🟢', text:`${i.ipoName} opens today`, go:`openIpoDetail(${i.id})` }));
   const dueRes = S.ipos.filter(i=>i.allotmentDate && i.allotmentDate<=today).map(i=>({ i, n:S.applications.filter(a=>a.ipoId===i.id && isLiveApp(a) && (!a.allotmentStatus||a.allotmentStatus==='Pending')).length })).filter(x=>x.n);
@@ -7188,7 +7285,7 @@ function clientDueWhatsApp(clientId){
 /* ---- counts shown on the Operations tabs ---- */
 function opsCounts(){
   const today = todayStr();
-  const todo = S.ipoPlans.filter(p=>p.plannedDate===today && p.planStatus!=='Cancelled').reduce((s,p)=>s+planPendingClients(p).filter(x=>!x.done).length,0);
+  const todo = S.ipoPlans.filter(p=>(p.plannedDate===today || mandateCounts(p).failed>0) && p.planStatus!=='Cancelled').reduce((s,p)=>{ const c=mandateCounts(p); return s+(p.plannedDate===today?c.todo:0)+c.failed; },0);
   const pendApps = S.applications.filter(a=>isLiveApp(a) && (!a.allotmentStatus || a.allotmentStatus==='Pending'));
   const dueResults = pendApps.filter(a=>{ const i=findIpo(a.ipoId); return i && i.allotmentDate && i.allotmentDate<=today; }).length;
   const toSell = S.applications.filter(a=>a.allotmentStatus==='Allotted' && a.saleStatus!=='Sold').length;
@@ -7631,5 +7728,161 @@ function quickPayPick(){
 document.addEventListener('keydown', e=>{ if (e.key==='Escape') toggleQuickAdd(false); });
 </script>
 
+
+<script>
+/* ===== Mandate tracking: Sent -> Accepted / Failed, per planned client ===== */
+function nowLocalDT(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+function fmtDT(s){ if(!s) return ''; const [d,t]=String(s).split('T'); return fmtDate(d)+(t?', '+t:''); }
+function pcRec(planId,cid){ return S.plannedClients.find(pc=>pc.planId===planId && pc.clientId===cid); }
+function lastAttempt(pc){ const a = pc && pc.attempts; return a && a.length ? a[a.length-1] : null; }
+// Accepted = an application exists for this plan+client (that is what "executed" means). Otherwise the latest attempt decides.
+function mandateState(plan, cid){
+  if (S.applications.some(a=>a.planId===plan.id && a.clientId===cid)) return 'Accepted';
+  const at = lastAttempt(pcRec(plan.id,cid));
+  if (at && at.status==='Sent') return 'Sent';
+  if (at && at.status==='Failed') return 'Failed';
+  return 'To do';
+}
+function mandateCounts(plan){
+  const ids = planPendingClients(plan).map(x=>x.cid), c = { total:ids.length, todo:0, sent:0, accepted:0, failed:0 };
+  ids.forEach(cid=>{ const s=mandateState(plan,cid); if(s==='Accepted') c.accepted++; else if(s==='Sent') c.sent++; else if(s==='Failed') c.failed++; else c.todo++; });
+  return c;
+}
+function mandateSummaryText(plan){ const c=mandateCounts(plan); if(!c.total) return ''; return `${c.accepted} accepted, ${c.sent} sent, ${c.failed} failed, ${c.todo} to do`; }
+function mandateSummaryHtml(plan){
+  const c=mandateCounts(plan); if(!c.total) return '<span class="small-muted">—</span>';
+  const bits=[`<span class="ok">${c.accepted} ✓</span>`]; if(c.sent) bits.push(`<span>${c.sent} sent</span>`); if(c.failed) bits.push(`<b class="danger">${c.failed} failed</b>`); if(c.todo) bits.push(`<span class="small-muted">${c.todo} to do</span>`);
+  return `<span style="white-space:nowrap">${bits.join(' · ')}</span>`;
+}
+function mandateCellHtml(plan, cid, st, at, app){
+  const n = (pcRec(plan.id,cid)||{}).attempts; const att = n && n.length>1 ? ` <span class="small-muted">attempt ${n.length}</span>` : '';
+  if (st==='Accepted'){ const t = (app && app.mandateAcceptedAt) || (at && at.status==='Accepted' && at.resolvedAt) || ''; return `<span class="badge green">Accepted</span>${att}${t?`<div class="small-muted">${escapeHtml(fmtDT(t))}</div>`:''}`; }
+  if (st==='Sent') return `<span class="badge blue">Sent</span>${att}<div class="small-muted">${escapeHtml(fmtDT(at.sentAt))}</div>
+    <div class="mand-btns"><button class="btn btn-sm btn-ghost" onclick="ckOpenResolve(${plan.id},'Accepted',[${cid}])">Accepted</button><button class="btn btn-sm btn-ghost" onclick="ckOpenResolve(${plan.id},'Failed',[${cid}])">Failed</button><a href="javascript:void(0)" onclick="ckUndoAttempt(${plan.id},${cid})">undo</a></div>`;
+  if (st==='Failed') return `<span class="badge red">Failed</span>${att}<div class="small-muted">${escapeHtml(fmtDT(at.resolvedAt))}</div>
+    <div class="mand-btns"><button class="btn btn-sm btn-gold" onclick="ckOpenReapply(${plan.id},[${cid}])">Reapply</button><a href="javascript:void(0)" onclick="ckUndoAttempt(${plan.id},${cid})">undo</a></div>`;
+  return `<span class="badge gold">To do</span>${att}`;
+}
+function ckUsedUpis(ipoId, exceptCid){
+  const used = new Set(S.applications.filter(a=>a.ipoId===ipoId && a.upiId!=null && isLiveApp(a)).map(a=>a.upiId));
+  S.plannedClients.forEach(pc=>{ const pl=findPlan(pc.planId); if(!pl||pl.ipoId!==ipoId||pc.clientId===exceptCid) return; const at=lastAttempt(pc); if(at && at.status==='Sent' && at.upiId!=null) used.add(at.upiId); });
+  return used;
+}
+async function ckSaveAttempt(plan, cid, attempt){
+  const pc = pcRec(plan.id, cid); if(!pc) return;
+  pc.attempts = [...(pc.attempts||[]), attempt]; pc.updatedAt = new Date().toISOString();
+  await putRec('plannedClients', pc);
+}
+/* --- To do -> Sent --- */
+async function ckSend(planId, force){
+  const plan = findPlan(planId); if(!plan) return;
+  const ticks = ckTicked(planId,'To do');
+  if (!ticks.length){ toast('Tick at least one client that is still "To do"','warn'); return; }
+  const rows = ticks.map(t=>{ const cid=Number(t.dataset.cid); const amt=Number(document.getElementById(`ckAmt-${planId}-${cid}`).value)||0; const u=document.getElementById(`ckUpi-${planId}-${cid}`).value; return { cid, amt, upiId:u?Number(u):null }; });
+  const bad = rows.filter(r=>!r.amt); if (bad.length){ toast('Enter an amount for every ticked client','warn'); bad.forEach(r=>document.getElementById(`ckAmt-${planId}-${r.cid}`).classList.add('invalid')); return; }
+  const used = ckUsedUpis(plan.ipoId), seen = new Set(), dups = [];
+  rows.forEach(r=>{ if (r.upiId!=null){ if (used.has(r.upiId) || seen.has(r.upiId)) dups.push(r); seen.add(r.upiId); } });
+  if (dups.length && !force){
+    openModal('Same UPI used twice', `<p style="font-size:13px;line-height:1.5;">${dups.length} mandate(s) use a UPI ID that is already used for <b>${escapeHtml(findIpo(plan.ipoId)?.ipoName||'this IPO')}</b> (applied, sent, or twice in this batch). A UPI ID can normally apply only once per IPO.</p>`,
+      `<button class="btn btn-ghost" onclick="closeModal()">Go back</button><button class="btn btn-danger" onclick="closeModal();ckSend(${planId},true)">Save anyway</button>`); return;
+  }
+  const t = nowLocalDT();
+  try { for (const r of rows) await ckSaveAttempt(plan, r.cid, { bankId:plan.bankAccountId, upiId:r.upiId, amount:r.amt, status:'Sent', sentAt:t, resolvedAt:null }); }
+  catch(e){ toast(e.message||'Could not save','danger'); return; }
+  toast(`${rows.length} mandate(s) marked as Sent`,'ok'); navigate('checklist');
+}
+/* --- Sent -> Accepted / Failed (with the time) --- */
+function ckOpenResolve(planId, kind, cids){
+  const plan = findPlan(planId); if(!plan) return;
+  if (!cids) cids = ckTicked(planId,'Sent').map(t=>Number(t.dataset.cid));
+  cids = cids.filter(cid=>mandateState(plan,cid)==='Sent');
+  if (!cids.length){ toast('Tick at least one client whose mandate is Sent','warn'); return; }
+  const t = nowLocalDT(), ok = kind==='Accepted';
+  const rows = cids.map(cid=>{ const c=findClient(cid), at=lastAttempt(pcRec(planId,cid)); return `<tr><td>${escapeHtml(c?c.clientName:'')}</td><td class="small-muted">sent ${escapeHtml(fmtDT(at.sentAt))}</td><td><input type="datetime-local" class="mdT" data-cid="${cid}" value="${t}"></td></tr>`; }).join('');
+  openModal(ok?'Mandates accepted':'Mandates failed',
+    `<p class="small-muted" style="margin-bottom:8px;">${ok?'Enter when each mandate was accepted.':'Enter when each mandate failed.'} ${ok?'The application is created for each accepted client.':'Failed clients stay in the plan so you can reapply.'}</p>
+     <div class="f-group" style="max-width:260px;margin-bottom:10px;"><label>Same time for all</label><input type="datetime-local" value="${t}" oninput="document.querySelectorAll('.mdT').forEach(i=>i.value=this.value)"></div>
+     <div class="table-wrap flat"><table class="dt" data-enh="1"><thead><tr><th>Client</th><th>Sent</th><th>${ok?'Accepted at':'Failed at'}</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn ${ok?'btn-primary':'btn-danger'}" onclick="ckResolveSave(${planId},'${kind}',[${cids.join(',')}])">Save ${cids.length} as ${kind}</button>`);
+}
+async function ckResolveSave(planId, kind, cids){
+  const plan = findPlan(planId); if(!plan) return;
+  const times = {}; let miss = false;
+  document.querySelectorAll('.mdT').forEach(i=>{ if(!i.value) miss = true; times[Number(i.dataset.cid)] = i.value; });
+  if (miss){ toast('Enter the time for every client','warn'); return; }
+  const ok = kind==='Accepted'; let n = 0;
+  beginUndo();
+  try {
+    for (const cid of cids){
+      const pc = pcRec(planId,cid), at = lastAttempt(pc); if(!at || at.status!=='Sent') continue;
+      at.status = kind; at.resolvedAt = times[cid]; pc.updatedAt = new Date().toISOString();
+      if (ok && !S.applications.some(a=>a.planId===planId && a.clientId===cid)){
+        const now = new Date().toISOString();
+        const rec = { clientId:cid, ipoId:plan.ipoId, bankAccountId:at.bankId||plan.bankAccountId, applicationDate:plan.plannedDate, upiId:at.upiId, amountApplied:at.amount,
+          applicationStatus:'Applied', planId, mandateSentAt:at.sentAt, mandateAcceptedAt:at.resolvedAt, mandateAttempts:(pc.attempts||[]).length, profitSharePct: shareForClient(cid), allotmentStatus:'Pending', allotmentDate:null, saleStatus:null, saleDate:null, saleAmount:null,
+          calculatedGrossReceived:null, grossReceived:null, grossReceivedOverridden:false, calculatedOurProfit:null, ourProfit:null, ourProfitOverridden:false,
+          calculatedClientProfit:null, clientProfit:null, clientProfitOverridden:false, createdAt:now, updatedAt:now };
+        const id = await putRec('applications', rec); rec.id = id; S.applications.push(rec);
+        await audit('Application Creation','Application', id, null, rec);
+      }
+      await putRec('plannedClients', pc); n++;
+    }
+  } catch(e){ toast(e.message||'Could not save','danger'); }
+  finally { await endUndo(ok?'Created':'Updated'); }
+  closeModal(); toast(`${n} mandate(s) marked ${kind}${ok?' — application(s) created':''}`,'ok'); navigate('checklist');
+}
+/* --- Failed -> reapply (same bank/UPI prefilled, both changeable) --- */
+function ckOpenReapply(planId, cids){
+  const plan = findPlan(planId); if(!plan) return;
+  if (!cids) cids = ckTicked(planId,'Failed').map(t=>Number(t.dataset.cid));
+  cids = cids.filter(cid=>mandateState(plan,cid)==='Failed');
+  if (!cids.length){ toast('Tick at least one Failed client','warn'); return; }
+  window.__reapply = { planId, cids };
+  const firstAt = lastAttempt(pcRec(planId,cids[0]));
+  const banks = S.bankAccounts.filter(b=>b.status==='Active'), cur = (firstAt&&firstAt.bankId)||plan.bankAccountId;
+  openModal('Reapply failed mandates',
+    `<div class="f-group" style="max-width:320px;margin-bottom:10px;"><label>Bank for the new attempt</label><select id="raBank" onchange="ckReapplyRows()">${banks.map(b=>`<option value="${b.id}" ${b.id===cur?'selected':''}>${escapeHtml(b.bankName)}</option>`).join('')}</select></div>
+     <div class="table-wrap flat"><table class="dt" data-enh="1"><thead><tr><th>Client</th><th>Amount (₹)</th><th>UPI ID</th></tr></thead><tbody id="raRows"></tbody></table></div>
+     <p class="small-muted" style="margin-top:8px;">The failed attempt stays in the history. The new attempt starts as Sent.</p>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="ckReapplySave()">Reapply ${cids.length} &amp; mark Sent</button>`);
+  ckReapplyRows(true);
+}
+function ckReapplyRows(first){
+  const { planId, cids } = window.__reapply; const plan = findPlan(planId); const bankId = Number(document.getElementById('raBank').value);
+  const upis = S.bankUpiIds.filter(u=>u.bankAccountId===bankId), taken = new Set();
+  const prev = {}; if(!first) cids.forEach(cid=>{ const a=document.getElementById('raAmt-'+cid), u=document.getElementById('raUpi-'+cid); if(a) prev[cid]={amt:a.value}; });
+  document.getElementById('raRows').innerHTML = cids.map(cid=>{
+    const c = findClient(cid), at = lastAttempt(pcRec(planId,cid)), used = ckUsedUpis(plan.ipoId, cid);
+    let pick = null;
+    if (at && at.bankId===bankId && at.upiId!=null && !used.has(at.upiId) && !taken.has(at.upiId)) pick = at.upiId;
+    else { const f = upis.find(u=>!used.has(u.id) && !taken.has(u.id)); pick = f?f.id:null; }
+    if (pick!=null) taken.add(pick);
+    const amt = (prev[cid]&&prev[cid].amt) || (at&&at.amount) || '';
+    return `<tr><td>${escapeHtml(c?c.clientName:'')}</td><td><input type="number" id="raAmt-${cid}" value="${amt}" style="width:100px"></td>
+      <td><select id="raUpi-${cid}"><option value="">— no UPI —</option>${upis.map(u=>`<option value="${u.id}" ${u.id===pick?'selected':''}>${escapeHtml(u.upiId)}${used.has(u.id)?' (used)':''}</option>`).join('')}</select></td></tr>`;
+  }).join('');
+}
+async function ckReapplySave(){
+  const { planId, cids } = window.__reapply; const plan = findPlan(planId); if(!plan) return;
+  const bankId = Number(document.getElementById('raBank').value), t = nowLocalDT();
+  const rows = cids.map(cid=>({ cid, amt:Number(document.getElementById('raAmt-'+cid).value)||0, upiId:(document.getElementById('raUpi-'+cid).value||null) && Number(document.getElementById('raUpi-'+cid).value) }));
+  if (rows.some(r=>!r.amt)){ toast('Enter an amount for every client','warn'); return; }
+  const seen = new Set(); let dup = false; rows.forEach(r=>{ if(r.upiId!=null && r.upiId!==0){ if(seen.has(r.upiId)) dup=true; seen.add(r.upiId); } });
+  if (dup){ toast('Two clients use the same UPI ID','warn'); return; }
+  try { for (const r of rows) await ckSaveAttempt(plan, r.cid, { bankId, upiId:r.upiId||null, amount:r.amt, status:'Sent', sentAt:t, resolvedAt:null }); }
+  catch(e){ toast(e.message||'Could not save','danger'); return; }
+  closeModal(); toast(`${rows.length} mandate(s) re-sent`,'ok'); navigate('checklist');
+}
+/* --- undo a wrong click --- */
+async function ckUndoAttempt(planId, cid){
+  const pc = pcRec(planId,cid), at = lastAttempt(pc); if(!at) return;
+  if (at.status==='Sent') pc.attempts = pc.attempts.slice(0,-1);
+  else if (at.status==='Failed'){ at.status='Sent'; at.resolvedAt=null; }
+  else return;
+  pc.updatedAt = new Date().toISOString();
+  try { await putRec('plannedClients', pc); } catch(e){ toast(e.message||'Could not save','danger'); return; }
+  navigate('checklist');
+}
+</script>
 </body>
 </html>
