@@ -782,10 +782,15 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .bp-cols{ column-gap:16px; column-fill:auto; }
 .bp-ref{ break-after:avoid; display:flex; align-items:center; gap:8px; font-weight:700; font-size:12.5px; color:var(--gold); padding:3px 0 2px; margin-top:4px; border-bottom:1.5px solid var(--gold); text-transform:none; }
 .bp-ref:first-child{ margin-top:0; } .bp-ref span{ flex:1; } .bp-ref a{ font-weight:500; font-size:11px; }
-.bp-group{ break-inside:avoid; }
+.bp-group{ break-inside:avoid; margin:0 0 5px; padding:2px 4px 2px 6px; border-left:3px solid var(--brass); border-radius:0 7px 7px 0; background:rgba(150,104,26,.07); }
+.bp-group.alt{ border-left-color:var(--navy-3); background:rgba(27,42,71,.08); }
+[data-theme="dark"] .bp-group.alt{ border-left-color:#5b78b0; background:rgba(110,150,230,.09); }
+.bp-group.multi{ padding-bottom:3px; }
+.bp-inact{ font-style:normal; font-size:10px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:#7a5a12; background:#f1e2b9; border:1px solid #d9bf7c; border-radius:4px; padding:0 4px; line-height:14px; margin-left:4px; flex:none; }
+[data-theme="dark"] .bp-inact{ color:#e8c57f; background:rgba(214,168,79,.16); border-color:rgba(214,168,79,.4); }
 .bp-ghead{ break-after:avoid; display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:2px 0 1px; margin-top:3px; color:var(--text-dim); }
 .bp-ghead b{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; } .bp-ghead a{ font-size:11px; color:var(--gold); font-weight:500; }
-.bp-ghead+.bp-tile{ padding-left:12px; } .bp-group.multi .bp-tile{ padding-left:12px; }
+.bp-group.multi .bp-tile{ padding-left:10px; }
 @media (max-width:900px){ .modal-box.xwide .form-grid{ grid-template-columns:1fr 1fr; } .modal-box.xwide .form-grid .f-group:nth-child(3){ grid-column:1/-1; } .bp-cols{ column-fill:balance; } .bp-wrap .bp-tile{ padding-top:4px; padding-bottom:4px; font-size:13px; } }
 .bp-banks{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:8px; }
 .bp-bank{ border:1.5px solid var(--bk); color:var(--bk); background:transparent; border-radius:999px; padding:5px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
@@ -795,7 +800,7 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .bp-tile.on{ box-shadow:inset 3px 0 0 var(--bk,var(--ok)); }
 .bp-tile:hover{ background:rgba(150,104,26,.08); }
 .bp-tile.on{ background:rgba(31,111,92,.13); font-weight:600; }
-.bp-tile.inact{ color:var(--text-dim); font-style:italic; }
+.bp-tile.inact{ color:var(--text-dim); } .bp-tile.inact>span{ text-decoration:line-through; text-decoration-color:rgba(90,101,115,.55); }
 .bp-tile.blk{ opacity:.45; text-decoration:line-through; cursor:not-allowed; }
 
 </style>
@@ -3073,9 +3078,9 @@ function renderBulkPlanClientList(){
       const tip = c.clientId + ' \u2014 ' + c.clientName + (g.sb?' ('+g.sb+')':'') + (inactive?' (Inactive)':'') + (blocked?' (already planned for this IPO)':'') + (bk?' \u2192 '+bk.bankName:'');
       return `<label class="bp-tile${checked?' on':''}${blocked?' blk':''}${inactive?' inact':''}" ${checked?`style="--bk:${bpColor(bank)}"`:''} title="${escapeHtml(tip)}">
         <input type="checkbox" class="bulkPlanClient" value="${c.id}" ${blocked?'disabled':''} ${checked?'checked':''} onchange="bpToggleClient(${c.id}, this.checked)">
-        <span>${escapeHtml(c.clientName)}</span>${bk?`<i class="bp-bk">${escapeHtml((bk.bankName||'').slice(0,4))}</i>`:''}</label>`;
+        <span>${escapeHtml(c.clientName)}</span>${inactive?'<i class="bp-inact">Inactive</i>':''}${bk?`<i class="bp-bk">${escapeHtml((bk.bankName||'').slice(0,4))}</i>`:''}</label>`;
     }).join('');
-    return head + `<div class="bp-group${multi?' multi':''}">${sub}${tiles}</div>`;
+    return head + `<div class="bp-group${multi?' multi':''} ${gi%2?'alt':''}">${sub}${tiles}</div>`;
   }).join('') || `<div class="small-muted">No clients match.</div>`) + '</div>';
   wrap.scrollTop = keepScroll;
   renderBulkPlanBanks();
