@@ -866,6 +866,8 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 }
 .bp-tile i.bp-dt{font-style:normal;font-size:.78em;font-weight:700;padding:0 4px;border-radius:4px;background:var(--gold,#b8892b);color:#fff;margin-left:3px;white-space:nowrap;} .bp-tile i.bp-dt.other{background:rgba(0,0,0,.1);color:inherit;}
 .bp-sumchip{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:12px;} .bp-sumchip.cur{background:var(--gold,#b8892b);color:#fff;border-color:transparent;}
+.dtag{font-style:normal;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px;margin-left:4px;vertical-align:middle;white-space:nowrap;} .dtag.weekend{background:rgba(90,100,130,.16);color:var(--muted,#556);} .dtag.holiday{background:rgba(179,38,30,.14);color:var(--danger,#b3261e);}
+.hol-list{display:flex;flex-wrap:wrap;gap:6px;} .hol-chip{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border:1px solid var(--border);border-radius:999px;font-size:12.5px;} .hol-chip a{color:var(--danger,#b3261e);text-decoration:none;font-weight:700;}
 </style>
 </head>
 <body>
@@ -2910,7 +2912,7 @@ function planningPlansTab(){
       pageSize: 10,
       columns: [
         { key:'ipoId', label:'IPO', val:r=>{ const i=findIpo(r.ipoId); return i?i.ipoName:''; }, render:r=>{ const i=findIpo(r.ipoId); return i?`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();openIpoDetail(${i.id})">${escapeHtml(i.ipoName)}</a>`:'—'; } },
-        { key:'plannedDate', label:'Planned Date', render:r=>fmtDate(r.plannedDate) },
+        { key:'plannedDate', label:'Planned Date', render:r=>fmtDate(r.plannedDate)+dayTagHtml(r.plannedDate) },
         { key:'bankAccountId', label:'Bank', val:r=>{ const b=findBank(r.bankAccountId); return b?b.bankName:''; }, render:r=>{ const b=findBank(r.bankAccountId); return escapeHtml(b?b.bankName:'—'); } },
         { key:'plannedClientCount', label:'Planned Clients', num:true, sum:true, val:r=>planClientCount(r), render:r=>`<a class="lnk" href="javascript:void(0)" onclick="event.stopPropagation();planClients(${r.id})">${planClientCount(r)}</a>` },
         { key:'status', label:'Status', val:r=>planStatusComputed(r), render:r=>badge(planStatusComputed(r)) },
@@ -3080,7 +3082,7 @@ function bulkPlanClients(){
   openModal('Bulk Plan Clients',
     `<div class="form-grid">
       <div class="f-group"><label>IPO *</label><select id="bpIpo" onchange="renderBulkPlanClientList()"><option value="">Select IPO</option>${ipoOpts}</select></div>
-      <div class="f-group"><label>Date to plan for *</label><input type="date" id="bpDate" onchange="bpRefresh()"></div>
+      <div class="f-group"><label>Date to plan for * <span id="bpDateTag"></span></label><input type="date" id="bpDate" onchange="bpRefresh()"></div>
       <div class="f-group"><label>&nbsp;</label><div class="small-muted">Pick a date, tick the clients for it, then change the date and tick more. Each client shows the date and bank chosen. Up to ${capacityLimit()} mandates per bank per day.</div></div>
     </div>
     <div class="f-group span2" style="margin-top:10px;">
@@ -3219,7 +3221,7 @@ function updateBulkPlanSelectedCount(){
   const el = document.getElementById('bpSelectedCount');
   if (el) el.textContent = `Selected: ${n} client${n===1?'':'s'}`;
   const sm = document.getElementById('bpDateSum');
-  if (sm){ const m={}; __bulkPlanSelected.forEach((b,id)=>{ const d=__bpDates.get(id); if(d) m[d]=(m[d]||0)+1; }); sm.innerHTML = Object.keys(m).sort().map(d=>` <b class="bp-sumchip${d===bpCurDate()?' cur':''}">${fsShort(d)}: ${m[d]}</b>`).join(''); }
+  if (sm){ const m={}; __bulkPlanSelected.forEach((b,id)=>{ const d=__bpDates.get(id); if(d) m[d]=(m[d]||0)+1; }); sm.innerHTML = Object.keys(m).sort().map(d=>` <b class="bp-sumchip${d===bpCurDate()?' cur':''}">${fsShort(d)}${dayTagHtml(d)}: ${m[d]}</b>`).join(''); const tg=document.getElementById('bpDateTag'); if(tg) tg.innerHTML=dayTagHtml(bpCurDate()); }
 }
 async function submitBulkPlan(){
   const ipoId = Number(document.getElementById('bpIpo').value);
@@ -5163,6 +5165,8 @@ function viewSettingsRaw(){
         <input type="number" id="staleHoursInput" value="${staleHours()}" min="1" step="1" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;"> <span class="small-muted">hours</span>
         <button class="btn btn-primary btn-sm" onclick="saveStaleHours()">Save</button>
       </div>
+      <p class="small-muted" style="margin-top:14px;"><b>Market holidays</b> — Saturdays and Sundays are automatic. Add other days the market is closed; they are tagged while planning (applying is still allowed).</p>
+      <div id="holidayBox">${holidayListHtml()}</div>
     </div>
   </div>
 
@@ -8386,18 +8390,17 @@ function fsRender(){
     return `<tr class="${o.on?'':'fs-off'}"><td><input type="checkbox" ${o.on?'checked':''} onchange="fsBank(${b.id},'on',this.checked)"></td><td><b>${escapeHtml(b.bankName)}</b>${notes}</td><td data-l="Balance (₹)"><input type="number" min="0" value="${o.bal}" onchange="fsBank(${b.id},'bal',this.value)" class="fs-in" style="width:110px">${saved!==''&&Number(saved)!==Number(o.bal)?`<div class="small-muted">saved ${fmtMoney(saved)}</div>`:''}</td><td data-l="Daily limit"><input type="number" min="0" value="${o.lim}" onchange="fsBank(${b.id},'lim',this.value)" class="fs-in" style="width:64px"></td></tr>`; }).join('');
   const kpis=r.per.map(p=>sumTile(escapeHtml(p.ipo.ipoName),`${p.got} / ${p.want}`,p.got<p.want?'danger':'ok',p.got<p.want?`short ${p.want-p.got} · need ${fmtMoney((p.want-p.got)*p.cost)} more`:`blocks ${fmtMoney(p.got*p.cost)}`)).join('');
   const blocks=r.bankInfo.map(bi=>{ const b=bi.b; const rows=r.ids.map(id=>{ const ip=findIpo(id), win=fsWindow(ip); const tot=Object.values(r.alloc[b.id][id]).reduce((a,c)=>a+c,0);
-      const cells=r.days.filter(d=>win.includes(d)).map(d=>{ const key=b.id+'|'+id+'|'+d, v=r.alloc[b.id][id][d]||0, lk=r.locked[key]; return `<label class="fs-cell ${lk?'lk':''}"><span>${fsShort(d)}</span><input type="number" min="0" value="${v||''}" placeholder="0" onchange="fsCell(${b.id},${id},'${d}',this.value)"></label>`; }).join('');
+      const cells=r.days.filter(d=>win.includes(d)).map(d=>{ const key=b.id+'|'+id+'|'+d, v=r.alloc[b.id][id][d]||0, lk=r.locked[key]; return `<label class="fs-cell ${lk?'lk':''}"><span>${fsShort(d)}${dayTagHtml(d)}</span><input type="number" min="0" value="${v||''}" placeholder="0" onchange="fsCell(${b.id},${id},'${d}',this.value)"></label>`; }).join('');
       return `<div class="fs-row"><div class="fs-ipo"><b>${escapeHtml(ip.ipoName)}</b><div class="small-muted">${tot} × ${fmtMoney(fs.ipos[id].cost)} = ${fmtMoney(tot*fs.ipos[id].cost)}</div></div><div class="fs-cells">${cells}</div></div>`; }).join('');
     const dayTot=r.days.map(d=>{ const n=r.dayUsed[b.id][d]||0; return n?`<span class="fs-dt ${n>bi.lim?'bad':''}">${fsShort(d)}: ${n}/${bi.lim}</span>`:''; }).join('');
-    return `<div class="fs-bank"><div class="fs-bh"><b>${escapeHtml(b.bankName)}</b><span>Balance ${fmtMoney(bi.bal)}</span><span>Blocked ${fmtMoney(bi.blocked)}</span><span class="${bi.left<0||bi.neg?'danger':'ok'}"><b>Left ${fmtMoney(bi.left)}</b></span><span class="small-muted">≈ ${(bi.left/fs.rough).toFixed(1)} more mandates</span></div>${rows}<div class="fs-dts">${dayTot||'<span class="small-muted">nothing planned</span>'}${bi.over.length?`<span class="danger small-muted">above the daily limit on ${bi.over.length} day(s)</span>`:''}${bi.neg?`<span class="danger small-muted">not enough money on some day</span>`:''}</div></div>`; }).join('');
-  const dayRows=r.days.map(d=>{ const parts=r.ids.map(id=>{ const n=r.banks.reduce((s,b)=>s+((r.alloc[b.id][id]||{})[d]||0),0); return n?`${escapeHtml(findIpo(id).ipoName)} ${n}`:''; }).filter(Boolean); const tot=r.banks.reduce((s,b)=>s+(r.dayUsed[b.id][d]||0),0); return tot?`<tr><td>${fmtDate(d)}</td><td>${parts.join(' · ')}</td><td class="num"><b>${tot}</b></td></tr>`:''; }).join('');
+    return `<div class="fs-bank"><div class="fs-bh"><b>${escapeHtml(b.bankName)}</b><span>Balance ${fmtMoney(bi.bal)}</span><span>Blocked ${fmtMoney(bi.blocked)}</span><span class="${bi.left<0||bi.neg?'danger':'ok'}"><b>Left ${fmtMoney(bi.left)}</b></span><span class="small-muted">room for ${r.ids.map(id=>`<b>${Math.max(0,Math.floor(bi.left/fs.ipos[id].cost))}</b> more ${escapeHtml(findIpo(id).ipoName)}`).join(' · ')}</span></div>${rows}<div class="fs-dts">${dayTot||'<span class="small-muted">nothing planned</span>'}${bi.over.length?`<span class="danger small-muted">above the daily limit on ${bi.over.length} day(s)</span>`:''}${bi.neg?`<span class="danger small-muted">not enough money on some day</span>`:''}</div></div>`; }).join('');
+  const dayRows=r.days.map(d=>{ const parts=r.ids.map(id=>{ const n=r.banks.reduce((s,b)=>s+((r.alloc[b.id][id]||{})[d]||0),0); return n?`${escapeHtml(findIpo(id).ipoName)} ${n}`:''; }).filter(Boolean); const tot=r.banks.reduce((s,b)=>s+(r.dayUsed[b.id][d]||0),0); return tot?`<tr><td>${fmtDate(d)}${dayTagHtml(d)}</td><td>${parts.join(' · ')}</td><td class="num"><b>${tot}</b></td></tr>`:''; }).join('');
   const short=r.per.filter(p=>p.got<p.want);
   el.innerHTML=`<div class="section-card"><div class="sc-head"><h3>Fund sheet</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="openBalances()">Update saved balances</button></div><div class="sc-body">
     <p class="small-muted" style="margin-top:0">Tick the IPOs running together, set how many applications you want for each, and keep banks' balances current. The portal shares each bank's money and daily limit across all IPOs, returns money the day after an IPO's allotment, and fills IPOs in the order shown (top first).</p>
     <div class="table-wrap"><table class="dt fs-tbl fs-t1" data-enh="1"><thead><tr><th>Use</th><th>IPO</th><th>Applications</th><th>Value of 1 lot (₹)</th><th class="num">Planned</th><th>Priority</th></tr></thead><tbody>${ipoRows}</tbody></table></div>
     <div class="table-wrap" style="margin-top:12px"><table class="dt fs-tbl fs-t2" data-enh="1"><thead><tr><th>Use</th><th>Bank</th><th>Balance (₹)</th><th>Daily limit</th></tr></thead><tbody>${bankRows}</tbody></table></div>
-    <div class="form-grid" style="margin-top:12px"><div class="f-group"><label>Keep this many lots free in every bank (for retrying failed mandates)</label><input type="number" min="0" value="${fs.buffer}" onchange="fsGlobal('buffer',this.value)"></div>
-      <div class="f-group"><label>Rough lot value for "more mandates" (₹)</label><input type="number" min="1" value="${fs.rough}" onchange="fsGlobal('rough',this.value)"></div></div></div></div>
+    <div class="form-grid" style="margin-top:12px"><div class="f-group"><label>Keep this many lots free in every bank (for retrying failed mandates)</label><input type="number" min="0" value="${fs.buffer}" onchange="fsGlobal('buffer',this.value)"></div></div></div></div>
   <div class="section-card"><div class="sc-head"><h3>Plan</h3><div class="spacer"></div>${Object.keys(fs.manual).length?`<button class="btn btn-ghost btn-sm" onclick="fsResetManual()">Clear my edits (${Object.keys(fs.manual).length})</button>`:''}</div><div class="sc-body">
     <div class="kpi-grid sum-grid">${kpis}</div>
     ${short.length?`<div class="fs-alert"><b>Not everything fits.</b> ${short.map(p=>`${escapeHtml(p.ipo.ipoName)} is short by ${p.want-p.got} (about ${fmtMoney((p.want-p.got)*p.cost)} more money, or more days / a higher daily limit)`).join('; ')}.</div>`:`<div class="fs-alert ok-box"><b>Everything fits.</b> Edit any cell to change it; edited cells stay fixed and the rest re-balances.</div>`}
@@ -8429,6 +8432,22 @@ async function fsSaveBalances(){
     return _sb.apply(this,arguments);
   };
 })();
+</script>
+<script>
+/* ===== Weekends & market holidays (tags only; applying is allowed on any day) ===== */
+function holidayList(){ return (S.settings.holidays||[]).slice().sort((a,b)=>a.date<b.date?-1:1); }
+function dayKind(d){ if(!d) return null; const h=holidayList().find(x=>x.date===d); if(h) return {kind:'holiday',label:h.name||'Holiday'}; const w=new Date(d+'T00:00').getDay(); if(w===6) return {kind:'weekend',label:'Sat'}; if(w===0) return {kind:'weekend',label:'Sun'}; return null; }
+function dayTagHtml(d){ const k=dayKind(d); return k?` <em class="dtag ${k.kind}" title="${escapeHtml(k.kind==='holiday'?'Market holiday: '+k.label:'Weekend')}">${escapeHtml(k.label)}</em>`:''; }
+function holidayListHtml(){
+  const l=holidayList(); const rows=l.map(h=>`<span class="hol-chip">${fmtDate(h.date)} · ${escapeHtml(h.name||'Holiday')} <a href="javascript:void(0)" onclick="removeHoliday('${h.date}')" title="Remove">×</a></span>`).join('');
+  return `<div class="hol-list">${rows||'<span class="small-muted">No holidays added yet.</span>'}</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input type="date" id="holDate" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;"><input type="text" id="holName" placeholder="Name (e.g. Diwali)" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;flex:1;min-width:140px;"><button class="btn btn-primary btn-sm" onclick="addHoliday()">Add</button></div>
+  <details style="margin-top:8px;"><summary class="small-muted" style="cursor:pointer">Add many at once</summary><textarea id="holBulk" rows="5" placeholder="One per line: 2026-11-08 Diwali&#10;2026-12-25 Christmas" style="width:100%;margin-top:6px;border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box;"></textarea><button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addHolidaysBulk()">Add these</button></details>`;
+}
+async function saveHolidays(arr){ await saveSetting('holidays',arr); const b=document.getElementById('holidayBox'); if(b) b.innerHTML=holidayListHtml(); }
+async function addHoliday(){ const d=(document.getElementById('holDate')||{}).value, n=((document.getElementById('holName')||{}).value||'').trim(); if(!d){ toast('Pick the date','warn'); return; } const l=holidayList().filter(x=>x.date!==d); l.push({date:d,name:n||'Holiday'}); await saveHolidays(l); toast('Holiday added','ok'); }
+async function addHolidaysBulk(){ const t=((document.getElementById('holBulk')||{}).value||''); const l=holidayList(); let n=0; t.split('\n').forEach(line=>{ const m=line.trim().match(/^(\d{4}-\d{2}-\d{2})\s*(.*)$/); if(m){ const i=l.findIndex(x=>x.date===m[1]); const rec={date:m[1],name:m[2].trim()||'Holiday'}; if(i>=0) l[i]=rec; else l.push(rec); n++; } }); if(!n){ toast('Use lines like 2026-11-08 Diwali','warn'); return; } await saveHolidays(l); toast(n+' holiday(s) saved','ok'); }
+async function removeHoliday(d){ await saveHolidays(holidayList().filter(x=>x.date!==d)); }
 </script>
 </body>
 </html>
