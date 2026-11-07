@@ -844,6 +844,28 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .glance .gl-bit{color:var(--text);text-decoration:none;white-space:nowrap;} .glance .gl-bit b{font-weight:700;} .glance .gl-bit:hover{color:var(--gold,#a87a22);}
 .sum-grid{margin-bottom:12px;} .sum-grid .kpi-card{padding:10px 14px;} .sum-grid .kpi-card .val{font-size:22px;}
 @media (max-width:640px){ .hide-sm{display:none !important;} .sum-grid{grid-template-columns:repeat(3,1fr) !important;gap:8px !important;} .sum-grid .kpi-card{padding:8px 10px;} .sum-grid .kpi-card .lbl{font-size:11px;line-height:1.2;} .sum-grid .kpi-card .val{font-size:18px;} .sum-grid .kpi-card .small-muted{font-size:10.5px;} .glance{font-size:12px;gap:4px 12px;} }
+
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;} .chip-ck{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--card);cursor:pointer;font-size:13px;}
+.fp-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;}
+#fpBody .form-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));} #fpBody .f-group{min-width:0;} #fpBody input,#fpBody select{max-width:100%;box-sizing:border-box;}
+@media (max-width:640px){ #fpBody .table-wrap{overflow-x:visible;} #fpBody table.dt th,#fpBody table.dt td{padding:7px 4px;font-size:12.5px;} #fpBody .chip-ck{padding:5px 8px;font-size:12px;} #fpBody td input[type=number]{width:96px !important;} }
+
+.fs-in{width:80px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;max-width:100%;box-sizing:border-box;} .fs-off{opacity:.5;} .fs-mv .btn{padding:2px 8px;}
+.fs-bank{border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden;background:var(--card);} .fs-bh{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;padding:10px 14px;background:var(--surface-2,rgba(0,0,0,.03));border-bottom:1px solid var(--border);font-size:13.5px;}
+.fs-row{display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 14px;border-bottom:1px solid var(--border);align-items:flex-start;} .fs-ipo{min-width:170px;flex:0 0 190px;} .fs-cells{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0;}
+.fs-cell{display:flex;flex-direction:column;font-size:11px;color:var(--muted,#667);gap:2px;} .fs-cell input{width:54px;border:1px solid var(--border);border-radius:6px;padding:6px 4px;text-align:center;font-size:14px;box-sizing:border-box;} .fs-cell.lk input{border-color:var(--gold,#b8892b);background:rgba(184,137,43,.12);font-weight:700;}
+.fs-dts{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 14px;font-size:12.5px;} .fs-dt.bad{color:var(--danger,#b3261e);font-weight:700;}
+.fs-alert{padding:10px 14px;border:1px solid var(--border);border-left:4px solid var(--danger,#b3261e);border-radius:10px;margin:10px 0;} .fs-alert.ok-box{border-left-color:var(--ok,#1a7f4b);}
+@media (max-width:640px){ .fs-ipo{flex:1 0 100%;} .fs-cell input{width:50px;} .fs-bh{gap:4px 12px;} }
+@media (max-width:640px){
+ .fs-tbl thead{display:none;} .fs-tbl,.fs-tbl tbody{display:block;width:100%;} .fs-tbl tr{display:grid;gap:6px 10px;padding:10px 4px;border-bottom:1px solid var(--border);align-items:center;} .fs-tbl td{display:block;padding:0 !important;border:0 !important;text-align:left !important;min-width:0;}
+ .fs-tbl td[data-l]::before{content:attr(data-l);display:block;font-size:11px;color:var(--muted,#667);margin-bottom:2px;}
+ .fs-t1 tr{grid-template-columns:28px 1fr 1fr;grid-template-areas:"c n n" ". a b" ". p m";} .fs-t1 td:nth-child(1){grid-area:c} .fs-t1 td:nth-child(2){grid-area:n} .fs-t1 td:nth-child(3){grid-area:a} .fs-t1 td:nth-child(4){grid-area:b} .fs-t1 td:nth-child(5){grid-area:p} .fs-t1 td:nth-child(6){grid-area:m}
+ .fs-t2 tr{grid-template-columns:28px 1fr 1fr;grid-template-areas:"c n n" ". a b";} .fs-t2 td:nth-child(1){grid-area:c} .fs-t2 td:nth-child(2){grid-area:n} .fs-t2 td:nth-child(3){grid-area:a} .fs-t2 td:nth-child(4){grid-area:b}
+ .fs-tbl .fs-in{width:100% !important;} .fs-t1 .fs-mv{text-align:right !important;}
+}
+.bp-tile i.bp-dt{font-style:normal;font-size:.78em;font-weight:700;padding:0 4px;border-radius:4px;background:var(--gold,#b8892b);color:#fff;margin-left:3px;white-space:nowrap;} .bp-tile i.bp-dt.other{background:rgba(0,0,0,.1);color:inherit;}
+.bp-sumchip{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:12px;} .bp-sumchip.cur{background:var(--gold,#b8892b);color:#fff;border-color:transparent;}
 </style>
 </head>
 <body>
@@ -2368,6 +2390,7 @@ function viewBanks(){
         { key:'apps', label:'Applications', num:true, sum:true, val:r=>bankStats(r.id).apps.length, render:r=>bankStats(r.id).apps.length },
         { key:'blocked', label:'Blocked now', num:true, sum:'money', val:r=>bankBlockedNow(r.id), render:r=>{ const v=bankBlockedNow(r.id); return v?fmtMoney(v):'<span class="small-muted">—</span>'; } },
         { key:'upis', label:'UPI IDs', num:true, sum:true, val:r=>bankUpis(r.id).length, render:r=>bankUpis(r.id).length },
+        { key:'balance', label:'Balance', num:true, sum:'money', val:r=>Number(r.balance)||0, render:r=>bankBalanceCell(r) },
         { key:'profit', label:'Our Profit', num:true, sum:'money', val:r=>bankStats(r.id).profit, render:r=>fmtMoney(bankStats(r.id).profit) },
         { key:'clientProfit', label:'Client Profit', num:true, sum:'money', val:r=>bankStats(r.id).clientProfit, render:r=>fmtMoney(bankStats(r.id).clientProfit) },
         { key:'today', label:"Today's Utilisation", val:r=>{ const c=bankCapacity(r.id,todayStr()); return c.planned+'/'+c.capacity; }, render:r=>{ const cap = bankCapacity(r.id, todayStr()); return `<span class="cap-cell ${capClass(cap.status)}">${cap.planned}/${cap.capacity}</span>`; } }
@@ -2379,7 +2402,7 @@ function viewBanks(){
   setTimeout(()=>window.__tableRerender['banksTbl'](), 0);
   return `
   <div class="section-card">
-    <div class="sc-head"><h3>Bank Accounts</h3><div class="spacer"></div><button class="btn btn-primary" onclick="editBank()">+ Add Bank Account</button></div>
+    <div class="sc-head"><h3>Bank Accounts</h3><div class="spacer"></div><button class="btn btn-ghost" onclick="openBalances()">Update balances</button><button class="btn btn-primary" onclick="editBank()">+ Add Bank Account</button></div>
     <div class="sc-body" id="banksTblWrap"></div>
   </div>
   <p class="small-muted">Rule: maximum ${capacityLimit()} client mandates may be planned per bank account per day (change it in Settings) (soft warning, not enforced as a hard block).</p>`;
@@ -2843,6 +2866,7 @@ function viewPlanning(){
     <button class="pill ${planningTab==='plans'?'on':''}" onclick="setPlanningTab('plans')">Plans</button>
     <button class="pill ${planningTab==='calendar'?'on':''}" onclick="setPlanningTab('calendar')">Calendar</button>
     <button class="pill ${planningTab==='capacity'?'on':''}" onclick="setPlanningTab('capacity')">Capacity &amp; progress</button>
+    <button class="pill ${planningTab==='funds2'?'on':''}" onclick="setPlanningTab('funds2')">Fund sheet</button>
   </div>
   <div id="planningTabBody"></div>`;
 }
@@ -2852,6 +2876,7 @@ function afterPlanning(){
   if (planningTab==='plans') el.innerHTML = planningUpcomingTab() + planningPlansTab();
   else if (planningTab==='calendar') el.innerHTML = planningCalendarTab();
   else if (planningTab==='capacity') el.innerHTML = planningCapacityTab();
+  else if (planningTab==='funds2') { el.innerHTML = '<div id="fsBody"></div>'; fsRender(); }
   if (planningTab==='plans') { setTimeout(()=>window.__tableRerender['plansTbl'] && window.__tableRerender['plansTbl'](), 0); }
 }
 
@@ -3040,20 +3065,23 @@ let __bpGroups = [];
 const BP_COLORS = ['#1f6f5c','#27508f','#96681a','#8a3f9e','#b3382f','#2a8aa0','#6b7a1f','#c0527a'];
 function bpBanks(){ return S.bankAccounts.filter(b=>b.status==='Active'); }
 function bpColor(bankId){ const i = bpBanks().findIndex(b=>b.id===bankId); return BP_COLORS[(i<0?0:i)%BP_COLORS.length]; }
-function bpAssignedTo(bankId){ let n=0; __bulkPlanSelected.forEach(b=>{ if (b===bankId) n++; }); return n; }
+let __bpDates = new Map();   // clientId -> planned date chosen when the client was ticked
+function bpCurDate(){ return (document.getElementById('bpDate')||{}).value||''; }
+function bpAssignedTo(bankId, date){ const d=date===undefined?bpCurDate():date; let n=0; __bulkPlanSelected.forEach((b,id)=>{ if (b===bankId && __bpDates.get(id)===d) n++; }); return n; }
+function bpOnBrush(id){ return __bulkPlanSelected.get(id)===__bpBrush && __bpDates.get(id)===bpCurDate(); }
 function bpRoom(bankId){   // free mandate slots on this bank for the chosen date, after what's already assigned here
   const date = (document.getElementById('bpDate')||{}).value;
   if (!date) return Infinity;
   return bankCapacity(bankId, date).available - bpAssignedTo(bankId);
 }
 function bulkPlanClients(){
-  __bulkPlanSearch = ''; __bulkPlanSelected = new Map(); __bpBrush = null;
+  __bulkPlanSearch = ''; __bulkPlanSelected = new Map(); __bpDates = new Map(); __bpBrush = null;
   const ipoOpts = sortedActiveIpos().map(i=>`<option value="${i.id}">${escapeHtml(i.ipoName)}</option>`).join('');
   openModal('Bulk Plan Clients',
     `<div class="form-grid">
       <div class="f-group"><label>IPO *</label><select id="bpIpo" onchange="renderBulkPlanClientList()"><option value="">Select IPO</option>${ipoOpts}</select></div>
-      <div class="f-group"><label>Planned Date *</label><input type="date" id="bpDate" onchange="bpRefresh()"></div>
-      <div class="f-group"><label>&nbsp;</label><div class="small-muted">Up to ${capacityLimit()} mandates per bank per day. Each client goes to one bank.</div></div>
+      <div class="f-group"><label>Date to plan for *</label><input type="date" id="bpDate" onchange="bpRefresh()"></div>
+      <div class="f-group"><label>&nbsp;</label><div class="small-muted">Pick a date, tick the clients for it, then change the date and tick more. Each client shows the date and bank chosen. Up to ${capacityLimit()} mandates per bank per day.</div></div>
     </div>
     <div class="f-group span2" style="margin-top:10px;">
       <div class="bp-banks" id="bpBanks"></div>
@@ -3061,7 +3089,7 @@ function bulkPlanClients(){
         <input type="text" id="bpSearch" placeholder="Search by client name or ID..." oninput="__bulkPlanSearch=this.value; renderBulkPlanClientList()" style="flex:1;min-width:180px;">
         <button type="button" class="btn btn-ghost btn-sm" onclick="bulkPlanSelectAll()">Put all shown on selected bank</button>
         <button type="button" class="btn btn-ghost btn-sm" onclick="bulkPlanClearAll()">Clear All</button>
-        <span class="small-muted" id="bpSelectedCount">Selected: 0 clients</span>
+        <span class="small-muted" id="bpSelectedCount">Selected: 0 clients</span><span class="small-muted" id="bpDateSum"></span>
       </div>
       <div id="bpClientListWrap" class="bp-wrap"></div>
     </div>`,
@@ -3115,11 +3143,11 @@ function renderBulkPlanClientList(){
     const sub = multi ? `<div class="bp-ghead"><b>${escapeHtml(g.sb)}</b><span class="small-muted">${g.list.length}</span><a href="javascript:void(0)" onclick="bulkPlanToggleGroup(${gi})">all</a></div>` : '';
     const tiles = g.list.map(c=>{
       const blocked = isBlocked(c), inactive = c.status === 'Inactive', bank = __bulkPlanSelected.get(c.id), checked = bank!=null && !blocked;
-      const bk = checked ? findBank(bank) : null;
-      const tip = c.clientId + ' \u2014 ' + c.clientName + (g.sb?' ('+g.sb+')':'') + (inactive?' (Inactive)':'') + (blocked?' (already planned for this IPO)':'') + (bk?' \u2192 '+bk.bankName:'');
+      const bk = checked ? findBank(bank) : null; const tdt = checked ? __bpDates.get(c.id) : null; const dOther = checked && tdt && tdt!==bpCurDate();
+      const tip = c.clientId + ' \u2014 ' + c.clientName + (g.sb?' ('+g.sb+')':'') + (inactive?' (Inactive)':'') + (blocked?' (already planned for this IPO)':'') + (bk?' \u2192 '+bk.bankName:'') + (tdt?' on '+tdt:'');
       return `<label class="bp-tile${checked?' on':''}${blocked?' blk':''}${inactive?' inact':''}" ${checked?`style="--bk:${bpColor(bank)}"`:''} title="${escapeHtml(tip)}">
         <input type="checkbox" class="bulkPlanClient" value="${c.id}" ${blocked?'disabled':''} ${checked?'checked':''} onchange="bpToggleClient(${c.id}, this.checked)">
-        <span>${escapeHtml(c.clientName)}</span>${inactive?'<i class="bp-inact">Inactive</i>':''}${bk?`<i class="bp-bk">${escapeHtml((bk.bankName||'').slice(0,4))}</i>`:''}</label>`;
+        <span>${escapeHtml(c.clientName)}</span>${inactive?'<i class="bp-inact">Inactive</i>':''}${bk?`<i class="bp-bk">${escapeHtml((bk.bankName||'').slice(0,4))}</i>`:''}${tdt?`<i class="bp-dt${dOther?' other':''}">${fsShort(tdt)}</i>`:''}</label>`;
     }).join('');
     return head + `<div class="bp-group${multi?' multi':''} ${gi%2?'alt':''}">${sub}${tiles}</div>`;
   }).join('') || `<div class="small-muted">No clients match.</div>`) + '</div>';
@@ -3147,7 +3175,7 @@ function bpFit(){
 function bulkPlanToggleRef(gi){
   const g = __bpGroups[gi]; if (!g) return;
   const list = __bpGroups.filter(x=>x.r===g.r).flatMap(x=>x.list);
-  const all = list.every(c => __bulkPlanSelected.get(c.id) === __bpBrush);
+  const all = list.every(c => bpOnBrush(c.id));
   if (all){ list.forEach(c => __bulkPlanSelected.delete(c.id)); renderBulkPlanClientList(); } else bpPut(list);
 }
 function bpNeedBank(){
@@ -3159,7 +3187,7 @@ function bpToggleClient(id, checked){
   if (!checked){ __bulkPlanSelected.delete(id); renderBulkPlanClientList(); return; }
   if (!bpNeedBank()){ renderBulkPlanClientList(); return; }
   if (bpRoom(__bpBrush) < 1){ toast(`${(findBank(__bpBrush)||{}).bankName||'This bank'} is full for this date (${capacityLimit()} mandates). Pick another bank.`,'warn'); renderBulkPlanClientList(); return; }
-  __bulkPlanSelected.set(id, __bpBrush); renderBulkPlanClientList();
+  __bulkPlanSelected.set(id, __bpBrush); __bpDates.set(id, bpCurDate()); renderBulkPlanClientList();
 }
 function bpPut(list){
   if (!bpNeedBank()) return;
@@ -3169,14 +3197,14 @@ function bpPut(list){
     if (ipoId && clientAlreadyPlannedForIpo(c.id, ipoId, null)) return;
     if (__bulkPlanSelected.has(c.id)) return;   // only unassigned clients; never steal from another bank
     if (bpRoom(__bpBrush) < 1){ skippedFull++; return; }
-    __bulkPlanSelected.set(c.id, __bpBrush); added++;
+    __bulkPlanSelected.set(c.id, __bpBrush); __bpDates.set(c.id, bpCurDate()); added++;
   });
   if (skippedFull) toast(`${added} added; ${skippedFull} left out because ${(findBank(__bpBrush)||{}).bankName||'the bank'} is full`,'warn');
   renderBulkPlanClientList();
 }
 function bulkPlanToggleGroup(gi){
   const g = __bpGroups[gi]; if (!g) return;
-  const allOnBrush = g.list.every(c => __bulkPlanSelected.get(c.id) === __bpBrush);
+  const allOnBrush = g.list.every(c => bpOnBrush(c.id));
   if (allOnBrush){ g.list.forEach(c => __bulkPlanSelected.delete(c.id)); renderBulkPlanClientList(); }
   else bpPut(g.list);
 }
@@ -3185,43 +3213,48 @@ function bulkPlanSelectAll(){
   const q = (__bulkPlanSearch||'').toLowerCase();
   bpPut(S.clients.filter(c => !q || (c.clientId+' '+c.clientName).toLowerCase().includes(q)));
 }
-function bulkPlanClearAll(){ __bulkPlanSelected = new Map(); renderBulkPlanClientList(); }
+function bulkPlanClearAll(){ __bulkPlanSelected = new Map(); __bpDates = new Map(); renderBulkPlanClientList(); }
 function updateBulkPlanSelectedCount(){
   const n = __bulkPlanSelected.size;
   const el = document.getElementById('bpSelectedCount');
   if (el) el.textContent = `Selected: ${n} client${n===1?'':'s'}`;
+  const sm = document.getElementById('bpDateSum');
+  if (sm){ const m={}; __bulkPlanSelected.forEach((b,id)=>{ const d=__bpDates.get(id); if(d) m[d]=(m[d]||0)+1; }); sm.innerHTML = Object.keys(m).sort().map(d=>` <b class="bp-sumchip${d===bpCurDate()?' cur':''}">${fsShort(d)}: ${m[d]}</b>`).join(''); }
 }
 async function submitBulkPlan(){
   const ipoId = Number(document.getElementById('bpIpo').value);
-  const plannedDate = document.getElementById('bpDate').value;
-  if (!ipoId || !plannedDate){ toast('IPO and date are required','warn'); return; }
-  const assign = [...__bulkPlanSelected.entries()].filter(([cid]) => !clientAlreadyPlannedForIpo(cid, ipoId, null));
-  if (!assign.length){ toast('Tick at least one client','warn'); return; }
-  // group clients by bank and re-check each bank's daily limit
-  const byBank = new Map();
-  assign.forEach(([cid,bid])=>{ if(!byBank.has(bid)) byBank.set(bid,[]); byBank.get(bid).push(cid); });
-  for (const [bid, ids] of byBank){
-    const cap = bankCapacity(bid, plannedDate);
-    if (ids.length > cap.available){ toast(`${(findBank(bid)||{}).bankName||'A bank'} can take ${Math.max(cap.available,0)} more on this date, but ${ids.length} are assigned`,'warn'); return; }
+  if (!ipoId){ toast('Select the IPO','warn'); return; }
+  const assign = [...__bulkPlanSelected.entries()].filter(([cid]) => !clientAlreadyPlannedForIpo(cid, ipoId, null) && __bpDates.get(cid));
+  if (!assign.length){ toast('Tick at least one client (pick a date first)','warn'); return; }
+  // group by date, then bank; re-check each bank's daily limit per date
+  const groups = new Map();   // date -> Map(bank -> [clientIds])
+  assign.forEach(([cid,bid])=>{ const d=__bpDates.get(cid); if(!groups.has(d)) groups.set(d,new Map()); const m=groups.get(d); if(!m.has(bid)) m.set(bid,[]); m.get(bid).push(cid); });
+  for (const [d,m] of groups) for (const [bid,ids] of m){
+    const cap = bankCapacity(bid, d);
+    if (ids.length > cap.available){ toast(`${(findBank(bid)||{}).bankName||'A bank'} can take ${Math.max(cap.available,0)} more on ${fmtDate(d)}, but ${ids.length} are assigned`,'warn'); return; }
   }
   let total = 0; const parts = [];
-  for (const [bid, ids] of byBank){
-    let plan = S.ipoPlans.find(x=>x.ipoId===ipoId && x.bankAccountId===bid && x.plannedDate===plannedDate);
-    if (!plan){
-      const rec = { ipoId, plannedDate, bankAccountId:bid, countSynced:true, plannedClientCount: 0, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
-      const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec); plan = rec;
-      await audit('Plan Creation','IPOPlan', id, null, rec);
-    }
-    for (const cid of ids){
-      if (!S.plannedClients.some(pc=>pc.planId===plan.id && pc.clientId===cid)){
-        const rec = { planId: plan.id, clientId: cid, createdAt: new Date().toISOString() };
-        const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec); total++;
+  for (const d of [...groups.keys()].sort()){
+    const m = groups.get(d), pb = [];
+    for (const [bid, ids] of m){
+      let plan = S.ipoPlans.find(x=>x.ipoId===ipoId && x.bankAccountId===bid && x.plannedDate===d);
+      if (!plan){
+        const rec = { ipoId, plannedDate:d, bankAccountId:bid, countSynced:true, plannedClientCount: 0, planStatus:'Planned', notes:'', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+        const id = await putRec('ipoPlans', rec); rec.id = id; S.ipoPlans.push(rec);
+        await audit('Plan Creation','IPOPlan', id, null, rec); plan = rec;
       }
+      for (const cid of ids){
+        if (!S.plannedClients.some(pc=>pc.planId===plan.id && pc.clientId===cid)){
+          const rec = { planId: plan.id, clientId: cid, createdAt: new Date().toISOString() };
+          const id = await putRec('plannedClients', rec); rec.id = id; S.plannedClients.push(rec); total++;
+        }
+      }
+      await syncPlanClientCount(plan);
+      pb.push(`${(findBank(bid)||{}).bankName||'Bank'} ${ids.length}`);
     }
-    await syncPlanClientCount(plan);
-    parts.push(`${(findBank(bid)||{}).bankName||'Bank'} ${ids.length}`);
+    parts.push(`${fmtDate(d)}: ${pb.join(', ')}`);
   }
-  toast(`${total} client(s) planned for ${findIpo(ipoId).ipoName} — ${parts.join(', ')}`, 'ok');
+  toast(`${total} client(s) planned for ${findIpo(ipoId).ipoName} — ${parts.join(' | ')}`, 'ok');
   closeModal(); navigate('planning');
 }
 </script>
@@ -8154,6 +8187,248 @@ function glanceHtml(){
 </script>
 <script>
 async function saveStaleHours(){ const v=Math.floor(Number(document.getElementById('staleHoursInput').value)); if(!(v>=1)){ toast('Enter 1 or more hours','warn'); return; } await saveSetting('mandateStaleHours',v); toast('Reminder set to '+v+' hours','ok'); render(); }
+</script>
+<script>
+/* ===== Bank balances + Fund planner ===== */
+function bankBalanceCell(b){
+  if (b.balance===undefined||b.balance===null||b.balance==='') return '<span class="small-muted">not set</span>';
+  const ageD=b.balanceUpdatedAt?Math.floor((Date.now()-new Date(b.balanceUpdatedAt).getTime())/86400000):null;
+  const old=ageD!==null&&ageD>=1;
+  return fmtMoney(b.balance)+(ageD!==null?`<div class="small-muted" style="${old?'color:var(--danger,#b3261e)':''}">${ageD<1?'updated today':'updated '+ageD+'d ago'}</div>`:'');
+}
+async function setBankBalance(id,val){
+  const b=findBank(id); if(!b) return; const before={...b};
+  b.balance = (val===''||val===null)? null : Math.max(0,Number(val)||0); b.balanceUpdatedAt=new Date().toISOString(); b.updatedAt=b.balanceUpdatedAt;
+  await putRec('bankAccounts',b); await audit('Bank Balance','BankAccount',b.id,before,b);
+}
+function openBalances(){
+  const banks=S.bankAccounts.filter(b=>b.status==='Active');
+  const rows=banks.map(b=>`<tr><td><b>${escapeHtml(b.bankName)}</b><div class="small-muted">${escapeHtml(b.accountHolderName||'')}</div></td><td><input type="number" min="0" step="1" id="bal_${b.id}" value="${b.balance??''}" placeholder="0" style="width:140px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;"></td><td>${bankBalanceCell(b)}</td></tr>`).join('');
+  openModal('Bank balances', `<p class="small-muted" style="margin-top:0">Enter the free money in each account that can be used for IPO applications. You update it; the planner uses it.</p><div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Bank</th><th>Balance (₹)</th><th>Last set</th></tr></thead><tbody>${rows||'<tr><td colspan=3>No active banks</td></tr>'}</tbody></table></div>`,
+   `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveBalances()">Save balances</button>`);
+}
+async function saveBalances(){
+  for(const b of S.bankAccounts.filter(b=>b.status==='Active')){ const el=document.getElementById('bal_'+b.id); if(!el) continue; const v=el.value; const cur=(b.balance===undefined||b.balance===null)?'':String(b.balance); if(v!==cur) await setBankBalance(b.id,v); }
+  closeModal(); toast('Balances saved','ok'); render();
+}
+
+const fp={ ipoId:null, cost:0, n:0, days:null, banks:new Map(), result:null };
+function fpIpos(){ return sortedIpos().filter(i=>(i.archiveStatus||'Active')==='Active' && i.closeDate && i.closeDate>=todayStr()); }
+function fpDaysFor(ipo){ const out=[]; if(!ipo||!ipo.openDate||!ipo.closeDate) return out; let d=ipo.openDate,g=0; while(d<=ipo.closeDate&&g++<31){ out.push(d); d=addDaysIso(d,1); } return out; }
+function fpInit(force){
+  const list=fpIpos(); if(!fp.ipoId||!findIpo(fp.ipoId)||force){ fp.ipoId=list.length?list[0].id:null; fp.days=null; }
+  const ipo=findIpo(fp.ipoId); if(!ipo) return;
+  if(force||!fp.cost) fp.cost=Number(ipo.minimumApplicationAmount)||0;
+  if(!fp.days){ const ds=fpDaysFor(ipo), fut=ds.filter(d=>d>=todayStr()); fp.days=new Set(fut.length?fut:ds); }
+  S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{ if(!fp.banks.has(b.id)) fp.banks.set(b.id,{on:true,bal:bankEffectiveBalance(b),lim:bankMandateCap(b.id)}); });
+  if(!fp.n) fp.n=S.clients.filter(c=>c.status==='Active').length;
+}
+function bankEffectiveBalance(b){
+  if (b.balance===undefined||b.balance===null||b.balance==='') return '';
+  const since=b.balanceUpdatedAt||'';
+  const after=S.applications.filter(a=>a.bankAccountId===b.id&&isLiveApp(a)&&a.mandateAcceptedAt&&(a.createdAt||'')>since).reduce((x,a)=>x+(Number(a.amountApplied)||0),0);
+  return Number(b.balance)-after;
+}
+function bankUnblockDate(ipo){ return ipo&&ipo.allotmentDate?addDaysIso(ipo.allotmentDate,1):null; }
+function fpEvents(b, ipoId){
+  const ex=id=>Array.isArray(ipoId)?ipoId.includes(id):id===ipoId;
+  // money movements on this bank caused by OTHER IPOs: [{date,delta,why}]
+  const ev=[], today=todayStr();
+  S.applications.filter(a=>a.bankAccountId===b.id&&!ex(a.ipoId)&&isLiveApp(a)&&(!a.allotmentStatus||a.allotmentStatus==='Pending')).forEach(a=>{
+    const ip=findIpo(a.ipoId), u=bankUnblockDate(ip); if(u&&u>today) ev.push({date:u,delta:Number(a.amountApplied)||0,why:'frees after '+(ip.ipoName||'IPO')+' allotment'}); });
+  S.ipoPlans.filter(p=>p.bankAccountId===b.id&&!ex(p.ipoId)&&p.planStatus!=='Cancelled'&&p.plannedDate>=today).forEach(p=>{
+    const ip=findIpo(p.ipoId); const cost=Number(((S.settings.fundTargets||{})[p.ipoId]||{}).cost)||Number(ip&&ip.minimumApplicationAmount)||0; const u=bankUnblockDate(ip);
+    const pend=planPendingClients(p).filter(x=>mandateState(p,x.cid)!=='Accepted').length; if(!pend||!cost) return;
+    ev.push({date:p.plannedDate,delta:-pend*cost,why:'planned for '+(ip?ip.ipoName:'another IPO')}); if(u) ev.push({date:u,delta:pend*cost,why:'frees after '+(ip.ipoName||'IPO')+' allotment'}); });
+  return ev;
+}
+function fpCompute(){
+  const ipo=findIpo(fp.ipoId); if(!ipo||!(fp.cost>0)) return null;
+  const days=[...fp.days].sort(); const banks=S.bankAccounts.filter(b=>b.status==='Active'&&(fp.banks.get(b.id)||{}).on);
+  const info=new Map();
+  banks.forEach(b=>{ const o=fp.banks.get(b.id); const bal=Number(o.bal)||0; const lim=o.lim===''||o.lim===undefined?bankMandateCap(b.id):Math.max(0,Math.floor(Number(o.lim)||0)); const ev=fpEvents(b,ipo.id);
+    const free=d=>bal+ev.filter(e=>e.date<=d).reduce((x,e)=>x+e.delta,0);
+    const other=d=>S.ipoPlans.filter(p=>p.bankAccountId===b.id&&p.plannedDate===d&&p.planStatus!=='Cancelled'&&p.ipoId!==ipo.id).reduce((x,p)=>x+planClientCount(p),0);
+    info.set(b.id,{bal,lim,ev,free,other}); });
+  const sim=need=>{ const used=new Map(banks.map(b=>[b.id,0])), alloc={}; days.forEach(d=>{ alloc[d]={};
+      const order=banks.map(b=>{ const i=info.get(b.id); const room=Math.min(Math.max(0,i.lim-i.other(d)), Math.floor(Math.max(0,i.free(d)-used.get(b.id)*fp.cost)/fp.cost)); return {b,room}; }).filter(x=>x.room>0).sort((x,y)=>y.room-x.room);
+      order.forEach(x=>{ if(need<=0) return; const k=Math.min(x.room,need); alloc[d][x.b.id]=k; used.set(x.b.id,used.get(x.b.id)+k); need-=k; }); });
+    return {alloc,used,left:need}; };
+  const want=Math.max(0,Math.floor(fp.n)); const full=sim(Infinity?1e9:1e9); const totalCap=[...full.used.values()].reduce((a,c)=>a+c,0);
+  const r=sim(want); const st=new Map(); banks.forEach(b=>{ const i=info.get(b.id); st.set(b.id,{bal:i.bal,lim:i.lim,used:r.used.get(b.id),maxTotal:full.used.get(b.id),ev:i.ev}); });
+  return { ipo, days, banks, st, alloc:r.alloc, want, planned:want-r.left, short:r.left, totalCap };
+}
+function fpSet(k,v){ if(k==='ipo'){ fp.ipoId=Number(v); fp.days=null; fp.cost=0; fpInit(false); } else if(k==='cost') fp.cost=Number(v)||0; else if(k==='n') fp.n=Math.max(0,Math.floor(Number(v)||0)); fpRender(); }
+function fpDay(d,on){ if(on) fp.days.add(d); else fp.days.delete(d); fpRender(); }
+function fpBank(id,k,v){ const o=fp.banks.get(id); if(!o) return; if(k==='on') o.on=!!v; else if(k==='lim') o.lim=v===''?'':Math.max(0,Math.floor(Number(v)||0)); else o.bal=v===''?'':Math.max(0,Number(v)||0); fpRender(); }
+function fpAllDays(){ fp.days=new Set(fpDaysFor(findIpo(fp.ipoId))); fpRender(); }
+function fpRender(){
+  const el=document.getElementById('fpBody'); if(!el) return; fpInit(false);
+  const ipos=fpIpos();
+  if(!ipos.length){ el.innerHTML='<div class="empty-state"><div class="ico">💰</div><h3>No open or upcoming IPO</h3><p>Add an IPO with open and close dates to plan funds for it.</p></div>'; return; }
+  const ipo=findIpo(fp.ipoId), ds=fpDaysFor(ipo), r=fpCompute();
+  const act=S.bankAccounts.filter(b=>b.status==='Active');
+  const dayChips=ds.map(d=>`<label class="chip-ck"><input type="checkbox" ${fp.days.has(d)?'checked':''} onchange="fpDay('${d}',this.checked)"> ${fmtDate(d)} <span class="small-muted">${new Date(d+'T00:00').toLocaleDateString('en-IN',{weekday:'short'})}</span></label>`).join('');
+  const bankRows=act.map(b=>{ const o=fp.banks.get(b.id)||{on:true,bal:'',lim:bankMandateCap(b.id)}; const inf=(r&&r.st.get(b.id)); const cnt=(Number(o.bal)||0)>0&&fp.cost>0?Math.floor(o.bal/fp.cost):0;
+    const notes=inf?Object.values(inf.ev.filter(e=>e.date>=todayStr()).reduce((m,e)=>{ const k=e.date+'|'+e.why+'|'+(e.delta>0); (m[k]=m[k]||{...e,delta:0}).delta+=e.delta; return m; },{})).sort((x,y)=>x.date<y.date?-1:1).map(e=>`<div class="small-muted">${fmtDate(e.date)}: ${e.delta>0?'+':'−'}${fmtMoney(Math.abs(e.delta))} ${e.why}</div>`).join(''):'';
+    const stored=b.balance!==undefined&&b.balance!==null&&b.balance!==''?bankEffectiveBalance(b):null;
+    return `<tr><td><input type="checkbox" ${o.on?'checked':''} onchange="fpBank(${b.id},'on',this.checked)"></td><td><b>${escapeHtml(b.bankName)}</b>${notes}</td><td><input type="number" min="0" value="${o.bal}" onchange="fpBank(${b.id},'bal',this.value)" style="width:120px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;">${stored!==null&&Number(stored)!==Number(o.bal)?`<div class="small-muted">saved: ${fmtMoney(stored)}</div>`:''}</td><td class="num">${cnt}</td><td class="num"><input type="number" min="0" value="${o.lim}" onchange="fpBank(${b.id},'lim',this.value)" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;"></td></tr>`; }).join('');
+  let out='';
+  if(r){
+    const head=r.days.map(d=>`<th class="num">${fmtDate(d)}</th>`).join('');
+    const rows=r.banks.map(b=>{ const s=r.st.get(b.id); const cells=r.days.map(d=>{ const v=(r.alloc[d]||{})[b.id]||0; return `<td class="num">${v||'<span class="small-muted">—</span>'}</td>`; }).join('');
+      return `<tr><td><b>${escapeHtml(b.bankName)}</b></td>${cells}<td class="num"><b>${s.used}</b> <span class="small-muted">of ${s.maxTotal}</span></td><td class="num">${fmtMoney(s.used*fp.cost)}</td><td class="num">${fmtMoney(s.bal-s.used*fp.cost)}</td></tr>`; }).join('');
+    const tot=r.days.map(d=>`<td class="num"><b>${Object.values(r.alloc[d]||{}).reduce((a,c)=>a+c,0)}</b></td>`).join('');
+    out=`<div class="kpi-grid sum-grid">${sumTile('Total possible',r.totalCap,'',`funds + daily limit`)}${sumTile('You want',r.want)}${sumTile('Planned',r.planned,r.short?'':'ok')}${sumTile('Short by',r.short,r.short?'danger':'ok',r.short?'add balance or days':'all covered')}${sumTile('Money to block',fmtMoney(r.planned*fp.cost))}</div>
+    ${r.short?`<div class="warn-box" style="padding:10px 14px;border:1px solid var(--border);border-left:4px solid var(--danger,#b3261e);border-radius:10px;margin-bottom:12px;">Only <b>${r.planned}</b> of ${r.want} applications are possible. Add money to a bank, tick another day, or lower the count to ${r.totalCap}.</div>`:''}
+    <div class="table-wrap"><table class="dt" data-enh="1"><thead><tr><th>Bank</th>${head}<th class="num">Total</th><th class="num">Money blocked</th><th class="num">Balance left</th></tr></thead><tbody>${rows}<tr style="font-weight:700"><td>Total</td>${tot}<td class="num">${r.planned}</td><td class="num">${fmtMoney(r.planned*fp.cost)}</td><td></td></tr></tbody></table></div>
+    <div class="fp-actions"><button class="btn btn-primary" onclick="fpSaveTarget()">Save as plan targets</button><button class="btn btn-ghost" onclick="fpSaveBalances(false)">Save typed balances</button><button class="btn btn-ghost" onclick="fpSaveBalances(true)">Set balances to what is left after this plan</button><button class="btn btn-ghost" onclick="bulkPlanClients()">Open Bulk Plan Clients</button></div>
+    <p class="small-muted">Rule used: fill the earliest day first, banks with the most room first. A bank's total for the IPO is limited by its balance ÷ cost and by its daily limit × days.</p>`;
+  }
+  el.innerHTML=`<div class="section-card"><div class="sc-head"><h3>Fund planner</h3></div><div class="sc-body">
+    <div class="form-grid">
+      <div class="f-group"><label>IPO</label><select onchange="fpSet('ipo',this.value)">${ipos.map(i=>`<option value="${i.id}" ${i.id===fp.ipoId?'selected':''}>${escapeHtml(i.ipoName)} (${fmtDate(i.openDate)} – ${fmtDate(i.closeDate)})</option>`).join('')}</select></div>
+      <div class="f-group"><label>Value of 1 lot (₹)</label><input type="number" min="1" value="${fp.cost}" onchange="fpSet('cost',this.value)"><div class="small-muted">Filled from the IPO's minimum amount; type the real value of 1 lot.</div></div>
+      <div class="f-group"><label>How many applications this time?</label><input type="number" min="0" value="${fp.n}" onchange="fpSet('n',this.value)"><div class="small-muted">${S.clients.filter(c=>c.status==='Active').length} active clients</div></div>
+    </div>
+    <div class="f-group" style="margin-top:10px"><label>Days to apply <button class="btn btn-ghost btn-sm" onclick="fpAllDays()">All days</button></label><div class="chip-row">${dayChips}</div></div>
+    <div class="table-wrap" style="margin-top:10px"><table class="dt" data-enh="1"><thead><tr><th>Use</th><th>Bank</th><th>Balance (₹)</th><th class="num">Lots it can fund today</th><th class="num">Daily limit (this IPO)</th></tr></thead><tbody>${bankRows}</tbody></table></div>
+    <p class="small-muted">Balances start from the saved balance on the Banks tab, less anything accepted since you saved it. Money used by another IPO stays blocked until the day after its allotment date: it is added back from that day, and mandates planned for other IPOs are deducted from their plan date. Daily limits can differ per bank for this IPO.</p>
+  </div></div>${r?`<div class="section-card"><div class="sc-head"><h3>Plan</h3></div><div class="sc-body">${out}</div></div>`:''}`;
+}
+async function fpSaveTarget(){
+  const r=fpCompute(); if(!r) return; const all={...(S.settings.fundTargets||{})};
+  const t={}; r.days.forEach(d=>{ if(Object.keys(r.alloc[d]||{}).length) t[d]=r.alloc[d]; }); all[r.ipo.id]={cost:fp.cost,total:r.planned,days:t,savedAt:new Date().toISOString()};
+  const ov=JSON.parse(JSON.stringify(S.settings.capOverrides||{}));
+  r.banks.forEach(b=>{ const lim=r.st.get(b.id).lim; ov[b.id]=ov[b.id]||{}; r.days.forEach(d=>{ if(lim!==bankMandateCap(b.id)) ov[b.id][d]=lim; else delete ov[b.id][d]; }); });
+  await saveSetting('fundTargets',all); await saveSetting('capOverrides',ov); toast('Targets saved — Bulk Plan will show them','ok');
+}
+async function fpSaveBalances(left){
+  const r=fpCompute(); for(const b of S.bankAccounts.filter(b=>b.status==='Active')){ const o=fp.banks.get(b.id); if(!o||o.bal==='') continue; let v=Number(o.bal); if(left&&r&&r.st.has(b.id)) v=r.st.get(b.id).bal-r.st.get(b.id).used*fp.cost; await setBankBalance(b.id,v); if(left) o.bal=v; }
+  toast(left?'Balances set to what is left':'Balances saved','ok'); fpRender();
+}
+(function(){
+  const _bc=bankCapacity;
+  bankCapacity=function(id,date){ const r=_bc.apply(this,arguments); const o=((S.settings.capOverrides||{})[id]||{})[date]; if(o===undefined||o===null) return r;
+    const capacity=Number(o), available=capacity-r.planned; let status='Available'; if(r.planned>capacity) status='Over Capacity'; else if(r.planned===capacity) status='Full'; else if(r.planned>=capacity-Math.max(1,Math.round(capacity/3))) status='Near Capacity';
+    return Object.assign({},r,{capacity,available,utilisation:capacity?Math.round(r.planned/capacity*1000)/10:(r.planned?100:0),status}); };
+  const _fi=fpInit; fpInit=function(force){ const had=fp.cost; _fi.apply(this,arguments); const t=(S.settings.fundTargets||{})[fp.ipoId]; if(!had&&t&&t.cost) fp.cost=t.cost; };
+})();
+(function(){
+  const _r=renderBulkPlanBanks;
+  renderBulkPlanBanks=function(){
+    const x=_r.apply(this,arguments);
+    try{
+      const ipoId=Number((document.getElementById('bpIpo')||{}).value), date=(document.getElementById('bpDate')||{}).value;
+      const t=(S.settings.fundTargets||{})[ipoId]; const day=t&&t.days&&t.days[date];
+      const have=bid=>S.ipoPlans.filter(p=>p.ipoId===ipoId&&p.plannedDate===date&&p.bankAccountId===bid&&p.planStatus!=='Cancelled').reduce((n,p)=>n+planClientCount(p),0);
+      let bad=0, tgtSum=0;
+      document.querySelectorAll('#bpBanks .bp-bank').forEach(btn=>{ const m=(btn.getAttribute('onclick')||'').match(/bpSetBrush\((\d+)\)/); if(!m) return; const bid=Number(m[1]); const n=day?(day[bid]||0):0; if(!day) return;
+        const got=have(bid)+bpAssignedTo(bid); tgtSum+=n; if(!n&&!got) return;
+        const ok=got===n; if(!ok) bad++;
+        btn.insertAdjacentHTML('beforeend',` <small style="font-weight:700;${ok?'':'color:#ffd27a'}">· ${got}/${n} ${ok?'✓':'⚠'}</small>`); });
+      const host=document.getElementById('bpBanks'); const old=document.getElementById('bpTargetNote'); if(old) old.remove();
+      if(day&&host) host.insertAdjacentHTML('beforeend',`<span id="bpTargetNote" class="small-muted" style="margin-left:8px">${bad?`<b class="danger">${bad} bank(s) differ from your Fund sheet target</b>`:'All banks match your Fund sheet target'} (target ${tgtSum} for this day)</span>`);
+    }catch(e){}
+    return x;
+  };
+})();
+</script>
+<script>
+/* ===== Fund sheet: joint plan across IPOs, banks and days ===== */
+const fs={ loaded:false, order:[], ipos:{}, banks:{}, buffer:0, rough:15000, manual:{} };
+function fsInit(){
+  const today=todayStr(), live=S.ipos.filter(i=>(i.archiveStatus||'Active')==='Active'&&i.closeDate&&i.closeDate>=today).sort((a,b)=>(a.openDate||'')<(b.openDate||'')?-1:1);
+  if(!fs.loaded){ fs.loaded=true; const sv=S.settings.fundSheet||{}; fs.buffer=Number(sv.buffer)||0; fs.rough=Number(sv.rough)||15000; fs.manual=sv.manual||{}; fs.order=(sv.order||[]).filter(id=>findIpo(id)); fs.svIpos=sv.ipos||{}; fs.svBanks=sv.banks||{}; }
+  live.forEach(i=>{ if(!fs.ipos[i.id]){ const sv=(fs.svIpos||{})[i.id]; const t=(S.settings.fundTargets||{})[i.id];
+      fs.ipos[i.id]=sv?{...sv}:{on:true,n:S.clients.filter(c=>c.status==='Active').length,cost:(t&&t.cost)||Number(i.minimumApplicationAmount)||0}; if(!fs.order.includes(i.id)) fs.order.push(i.id); } });
+  fs.order=fs.order.filter(id=>fs.ipos[id]&&live.some(i=>i.id===id));
+  S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{ if(!fs.banks[b.id]){ const sv=(fs.svBanks||{})[b.id]; fs.banks[b.id]={on:sv?sv.on!==false:true,bal:bankEffectiveBalance(b),lim:sv&&sv.lim!==undefined&&sv.lim!==''?sv.lim:bankMandateCap(b.id)}; } });
+}
+function fsPersist(){ saveSetting('fundSheet',{buffer:fs.buffer,rough:fs.rough,manual:fs.manual,order:fs.order,ipos:fs.ipos,banks:Object.fromEntries(Object.entries(fs.banks).map(([k,v])=>[k,{on:v.on,lim:v.lim}]))}); }
+function fsWindow(i){ const t=todayStr(); let ds=[],d=i.openDate,g=0; while(d<=i.closeDate&&g++<31){ ds.push(d); d=addDaysIso(d,1); } const fut=ds.filter(x=>x>=t); return fut.length?fut:ds; }
+function fsCompute(){
+  const ids=fs.order.filter(id=>fs.ipos[id].on&&fs.ipos[id].cost>0); const ipos=ids.map(id=>findIpo(id));
+  const days=[...new Set(ipos.flatMap(i=>fsWindow(i)))].sort().slice(0,14);
+  const banks=S.bankAccounts.filter(b=>b.status==='Active'&&fs.banks[b.id]&&fs.banks[b.id].on);
+  const led=new Map(), dayUsed={}, alloc={}, used={}, locked={};
+  banks.forEach(b=>{ const o=fs.banks[b.id]; led.set(b.id,{bal:Number(o.bal)||0,ev:fpEvents(b,ids).map(e=>({date:e.date,delta:e.delta})),lim:Math.max(0,Math.floor(Number(o.lim)||0)),minFree:Infinity}); dayUsed[b.id]={}; alloc[b.id]={}; ids.forEach(id=>alloc[b.id][id]={}); });
+  ids.forEach(id=>used[id]=0);
+  const free=(b,d)=>{ const l=led.get(b.id); return l.bal+l.ev.filter(e=>e.date<=d).reduce((x,e)=>x+e.delta,0); };
+  const put=(b,id,d,k)=>{ const ip=findIpo(id), cost=fs.ipos[id].cost, l=led.get(b.id); alloc[b.id][id][d]=(alloc[b.id][id][d]||0)+k; dayUsed[b.id][d]=(dayUsed[b.id][d]||0)+k; used[id]+=k; l.ev.push({date:d,delta:-k*cost}); const u=bankUnblockDate(ip); if(u) l.ev.push({date:u,delta:k*cost}); };
+  // locked cells first
+  Object.entries(fs.manual).forEach(([key,v])=>{ const [bid,id,d]=key.split('|'); const b=banks.find(x=>x.id===Number(bid)); if(!b||!ids.includes(Number(id))||!days.includes(d)) return; const ip=findIpo(Number(id)); if(!fsWindow(ip).includes(d)) return; const k=Math.max(0,Math.floor(Number(v)||0)); locked[key]=true; if(k) put(b,Number(id),d,k); });
+  days.forEach(d=>ids.forEach(id=>{ const ip=findIpo(id); if(!fsWindow(ip).includes(d)) return; let need=Math.max(0,Math.floor(Number(fs.ipos[id].n)||0))-used[id]; if(need<=0) return; const cost=fs.ipos[id].cost;
+    const order=banks.filter(b=>!locked[b.id+'|'+id+'|'+d]).map(b=>{ const l=led.get(b.id); const room=Math.min(Math.max(0,l.lim-(dayUsed[b.id][d]||0)),Math.floor(Math.max(0,free(b,d)-fs.buffer*cost)/cost)); return {b,room}; }).filter(x=>x.room>0).sort((x,y)=>y.room-x.room);
+    order.forEach(x=>{ if(need<=0) return; const k=Math.min(x.room,need); put(x.b,id,d,k); need-=k; }); }));
+  // diagnostics
+  const bankInfo=banks.map(b=>{ const l=led.get(b.id); const blocked=ids.reduce((s,id)=>s+Object.values(alloc[b.id][id]).reduce((a,c)=>a+c,0)*fs.ipos[id].cost,0); let neg=false; days.forEach(d=>{ if(free(b,d)<-0.5) neg=true; if((dayUsed[b.id][d]||0)>l.lim) neg=neg; });
+    const over=days.filter(d=>(dayUsed[b.id][d]||0)>l.lim); return {b,bal:l.bal,blocked,left:l.bal-blocked,neg,over,lim:l.lim}; });
+  const per=ids.map(id=>({id,ipo:findIpo(id),want:Math.max(0,Math.floor(Number(fs.ipos[id].n)||0)),got:used[id],cost:fs.ipos[id].cost}));
+  return {ids,ipos,days,banks,alloc,per,bankInfo,dayUsed,locked};
+}
+function fsSet(id,k,v){ const o=fs.ipos[id]; if(k==='on') o.on=!!v; else if(k==='n') o.n=Math.max(0,Math.floor(Number(v)||0)); else if(k==='cost') o.cost=Math.max(0,Number(v)||0); fsPersist(); fsRender(); }
+function fsMove(id,dir){ const i=fs.order.indexOf(id), j=i+dir; if(j<0||j>=fs.order.length) return; [fs.order[i],fs.order[j]]=[fs.order[j],fs.order[i]]; fsPersist(); fsRender(); }
+function fsBank(id,k,v){ const o=fs.banks[id]; if(k==='on') o.on=!!v; else if(k==='lim') o.lim=v===''?'':Math.max(0,Math.floor(Number(v)||0)); else o.bal=v===''?0:Math.max(0,Number(v)||0); fsPersist(); fsRender(); }
+function fsGlobal(k,v){ if(k==='buffer') fs.buffer=Math.max(0,Math.floor(Number(v)||0)); else fs.rough=Math.max(1,Number(v)||15000); fsPersist(); fsRender(); }
+function fsCell(bid,id,d,v){ const key=bid+'|'+id+'|'+d; if(v==='') delete fs.manual[key]; else fs.manual[key]=Math.max(0,Math.floor(Number(v)||0)); fsPersist(); fsRender(); }
+function fsResetManual(){ fs.manual={}; fsPersist(); fsRender(); }
+function fsShort(d){ return new Date(d+'T00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'}); }
+function fsRender(){
+  const el=document.getElementById('fsBody'); if(!el) return; fsInit();
+  if(!fs.order.length){ el.innerHTML='<div class="empty-state"><div class="ico">💰</div><h3>No open or upcoming IPO</h3><p>Add an IPO with open and close dates to plan funds for it.</p></div>'; return; }
+  const r=fsCompute(), act=S.bankAccounts.filter(b=>b.status==='Active'), activeClients=S.clients.filter(c=>c.status==='Active').length;
+  const ipoRows=fs.order.map((id,ix)=>{ const i=findIpo(id), o=fs.ipos[id]; const p=r.per.find(x=>x.id===id); const warn=o.on&&o.n>activeClients?`<div class="danger small-muted">more than your ${activeClients} active clients</div>`:'';
+    return `<tr class="${o.on?'':'fs-off'}"><td><input type="checkbox" ${o.on?'checked':''} onchange="fsSet(${id},'on',this.checked)"></td><td><b>${escapeHtml(i.ipoName)}</b><div class="small-muted">${fmtDate(i.openDate)} – ${fmtDate(i.closeDate)}${i.allotmentDate?` · allot ${fmtDate(i.allotmentDate)}`:''}</div></td>
+      <td data-l="Applications"><input type="number" min="0" value="${o.n}" onchange="fsSet(${id},'n',this.value)" class="fs-in">${warn}</td><td data-l="1 lot (₹)"><input type="number" min="0" value="${o.cost}" onchange="fsSet(${id},'cost',this.value)" class="fs-in" style="width:90px"></td>
+      <td class="num" data-l="Planned">${p?`<b class="${p.got<p.want?'danger':'ok'}">${p.got}</b> / ${p.want}`:'—'}</td><td class="fs-mv"><button class="btn btn-ghost btn-sm" onclick="fsMove(${id},-1)" ${ix?'':'disabled'}>▲</button><button class="btn btn-ghost btn-sm" onclick="fsMove(${id},1)" ${ix<fs.order.length-1?'':'disabled'}>▼</button></td></tr>`; }).join('');
+  const bankRows=act.map(b=>{ const o=fs.banks[b.id]; const saved=bankEffectiveBalance(b); const notes=Object.values(fpEvents(b,r.ids).filter(e=>e.date>=todayStr()).reduce((m,e)=>{ const k=e.date+'|'+e.why+'|'+(e.delta>0); (m[k]=m[k]||{...e,delta:0}).delta+=e.delta; return m; },{})).sort((x,y)=>x.date<y.date?-1:1).map(e=>`<div class="small-muted">${fmtDate(e.date)}: ${e.delta>0?'+':'−'}${fmtMoney(Math.abs(e.delta))} ${e.why}</div>`).join('');
+    return `<tr class="${o.on?'':'fs-off'}"><td><input type="checkbox" ${o.on?'checked':''} onchange="fsBank(${b.id},'on',this.checked)"></td><td><b>${escapeHtml(b.bankName)}</b>${notes}</td><td data-l="Balance (₹)"><input type="number" min="0" value="${o.bal}" onchange="fsBank(${b.id},'bal',this.value)" class="fs-in" style="width:110px">${saved!==''&&Number(saved)!==Number(o.bal)?`<div class="small-muted">saved ${fmtMoney(saved)}</div>`:''}</td><td data-l="Daily limit"><input type="number" min="0" value="${o.lim}" onchange="fsBank(${b.id},'lim',this.value)" class="fs-in" style="width:64px"></td></tr>`; }).join('');
+  const kpis=r.per.map(p=>sumTile(escapeHtml(p.ipo.ipoName),`${p.got} / ${p.want}`,p.got<p.want?'danger':'ok',p.got<p.want?`short ${p.want-p.got} · need ${fmtMoney((p.want-p.got)*p.cost)} more`:`blocks ${fmtMoney(p.got*p.cost)}`)).join('');
+  const blocks=r.bankInfo.map(bi=>{ const b=bi.b; const rows=r.ids.map(id=>{ const ip=findIpo(id), win=fsWindow(ip); const tot=Object.values(r.alloc[b.id][id]).reduce((a,c)=>a+c,0);
+      const cells=r.days.filter(d=>win.includes(d)).map(d=>{ const key=b.id+'|'+id+'|'+d, v=r.alloc[b.id][id][d]||0, lk=r.locked[key]; return `<label class="fs-cell ${lk?'lk':''}"><span>${fsShort(d)}</span><input type="number" min="0" value="${v||''}" placeholder="0" onchange="fsCell(${b.id},${id},'${d}',this.value)"></label>`; }).join('');
+      return `<div class="fs-row"><div class="fs-ipo"><b>${escapeHtml(ip.ipoName)}</b><div class="small-muted">${tot} × ${fmtMoney(fs.ipos[id].cost)} = ${fmtMoney(tot*fs.ipos[id].cost)}</div></div><div class="fs-cells">${cells}</div></div>`; }).join('');
+    const dayTot=r.days.map(d=>{ const n=r.dayUsed[b.id][d]||0; return n?`<span class="fs-dt ${n>bi.lim?'bad':''}">${fsShort(d)}: ${n}/${bi.lim}</span>`:''; }).join('');
+    return `<div class="fs-bank"><div class="fs-bh"><b>${escapeHtml(b.bankName)}</b><span>Balance ${fmtMoney(bi.bal)}</span><span>Blocked ${fmtMoney(bi.blocked)}</span><span class="${bi.left<0||bi.neg?'danger':'ok'}"><b>Left ${fmtMoney(bi.left)}</b></span><span class="small-muted">≈ ${(bi.left/fs.rough).toFixed(1)} more mandates</span></div>${rows}<div class="fs-dts">${dayTot||'<span class="small-muted">nothing planned</span>'}${bi.over.length?`<span class="danger small-muted">above the daily limit on ${bi.over.length} day(s)</span>`:''}${bi.neg?`<span class="danger small-muted">not enough money on some day</span>`:''}</div></div>`; }).join('');
+  const dayRows=r.days.map(d=>{ const parts=r.ids.map(id=>{ const n=r.banks.reduce((s,b)=>s+((r.alloc[b.id][id]||{})[d]||0),0); return n?`${escapeHtml(findIpo(id).ipoName)} ${n}`:''; }).filter(Boolean); const tot=r.banks.reduce((s,b)=>s+(r.dayUsed[b.id][d]||0),0); return tot?`<tr><td>${fmtDate(d)}</td><td>${parts.join(' · ')}</td><td class="num"><b>${tot}</b></td></tr>`:''; }).join('');
+  const short=r.per.filter(p=>p.got<p.want);
+  el.innerHTML=`<div class="section-card"><div class="sc-head"><h3>Fund sheet</h3><div class="spacer"></div><button class="btn btn-ghost btn-sm" onclick="openBalances()">Update saved balances</button></div><div class="sc-body">
+    <p class="small-muted" style="margin-top:0">Tick the IPOs running together, set how many applications you want for each, and keep banks' balances current. The portal shares each bank's money and daily limit across all IPOs, returns money the day after an IPO's allotment, and fills IPOs in the order shown (top first).</p>
+    <div class="table-wrap"><table class="dt fs-tbl fs-t1" data-enh="1"><thead><tr><th>Use</th><th>IPO</th><th>Applications</th><th>Value of 1 lot (₹)</th><th class="num">Planned</th><th>Priority</th></tr></thead><tbody>${ipoRows}</tbody></table></div>
+    <div class="table-wrap" style="margin-top:12px"><table class="dt fs-tbl fs-t2" data-enh="1"><thead><tr><th>Use</th><th>Bank</th><th>Balance (₹)</th><th>Daily limit</th></tr></thead><tbody>${bankRows}</tbody></table></div>
+    <div class="form-grid" style="margin-top:12px"><div class="f-group"><label>Keep this many lots free in every bank (for retrying failed mandates)</label><input type="number" min="0" value="${fs.buffer}" onchange="fsGlobal('buffer',this.value)"></div>
+      <div class="f-group"><label>Rough lot value for "more mandates" (₹)</label><input type="number" min="1" value="${fs.rough}" onchange="fsGlobal('rough',this.value)"></div></div></div></div>
+  <div class="section-card"><div class="sc-head"><h3>Plan</h3><div class="spacer"></div>${Object.keys(fs.manual).length?`<button class="btn btn-ghost btn-sm" onclick="fsResetManual()">Clear my edits (${Object.keys(fs.manual).length})</button>`:''}</div><div class="sc-body">
+    <div class="kpi-grid sum-grid">${kpis}</div>
+    ${short.length?`<div class="fs-alert"><b>Not everything fits.</b> ${short.map(p=>`${escapeHtml(p.ipo.ipoName)} is short by ${p.want-p.got} (about ${fmtMoney((p.want-p.got)*p.cost)} more money, or more days / a higher daily limit)`).join('; ')}.</div>`:`<div class="fs-alert ok-box"><b>Everything fits.</b> Edit any cell to change it; edited cells stay fixed and the rest re-balances.</div>`}
+    ${blocks}
+    <div class="table-wrap" style="margin-top:12px"><table class="dt" data-enh="1"><thead><tr><th>Day</th><th>Mandates by IPO</th><th class="num">Total</th></tr></thead><tbody>${dayRows||'<tr><td colspan=3>Nothing planned</td></tr>'}</tbody></table></div>
+    <div class="fp-actions"><button class="btn btn-primary" onclick="fsSave()">Save as plan targets</button><button class="btn btn-ghost" onclick="fsSaveBalances()">Set saved balances to what is left</button><button class="btn btn-ghost" onclick="bulkPlanClients()">Open Bulk Plan Clients</button></div>
+    <p class="small-muted">Saving targets shows "target N" on each bank in Bulk Plan Clients for that IPO and day, and allows daily limits above the default where you chose them.</p></div></div>`;
+}
+async function fsSave(){
+  const r=fsCompute(); const all={...(S.settings.fundTargets||{})};
+  r.ids.forEach(id=>{ const t={}; r.days.forEach(d=>{ const o={}; r.banks.forEach(b=>{ const n=(r.alloc[b.id][id]||{})[d]||0; if(n) o[b.id]=n; }); if(Object.keys(o).length) t[d]=o; }); all[id]={cost:fs.ipos[id].cost,total:r.per.find(p=>p.id===id).got,days:t,savedAt:new Date().toISOString()}; });
+  const ov=JSON.parse(JSON.stringify(S.settings.capOverrides||{}));
+  r.banks.forEach(b=>{ const lim=Math.floor(Number(fs.banks[b.id].lim)||0); ov[b.id]=ov[b.id]||{}; r.days.forEach(d=>{ const tot=r.dayUsed[b.id][d]||0, def=bankMandateCap(b.id); const v=Math.max(lim,tot); if(v!==def&&(tot||lim!==def)) ov[b.id][d]=v; else delete ov[b.id][d]; }); });
+  await saveSetting('fundTargets',all); await saveSetting('capOverrides',ov); fsPersist(); toast('Targets saved — Bulk Plan will show them','ok');
+}
+async function fsSaveBalances(){
+  const r=fsCompute(); for(const bi of r.bankInfo) await setBankBalance(bi.b.id,Math.max(0,bi.left)), fs.banks[bi.b.id].bal=Math.max(0,bi.left);
+  toast('Saved balances updated','ok'); fsRender();
+}
+(function(){
+  const _sb=submitBulkPlan;
+  submitBulkPlan=function(){
+    try{
+      const ipoId=Number((document.getElementById('bpIpo')||{}).value);
+      const t=(S.settings.fundTargets||{})[ipoId]; const dates=[...new Set([...__bulkPlanSelected.keys()].map(id=>__bpDates.get(id)).filter(Boolean))].sort();
+      if(t&&t.days){ const diffs=[]; dates.forEach(d=>{ const day=t.days[d]; if(!day) return; S.bankAccounts.forEach(b=>{ const n=day[b.id]||0; const got=S.ipoPlans.filter(p=>p.ipoId===ipoId&&p.plannedDate===d&&p.bankAccountId===b.id&&p.planStatus!=='Cancelled').reduce((x,p)=>x+planClientCount(p),0)+bpAssignedTo(b.id,d); if(got!==n) diffs.push(fsShort(d)+' · '+b.bankName+': '+got+' planned, target '+n); }); });
+        if(diffs.length && !window.confirm('This does not match your Fund sheet target:\n\n'+diffs.join('\n')+'\n\nPlan anyway?')) return; }
+    }catch(e){}
+    return _sb.apply(this,arguments);
+  };
+})();
 </script>
 </body>
 </html>
