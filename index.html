@@ -868,6 +868,16 @@ tr.ck-sent td{ background:rgba(39,80,143,.045); } tr.ck-failed td{ background:rg
 .bp-sumchip{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:12px;} .bp-sumchip.cur{background:var(--gold,#b8892b);color:#fff;border-color:transparent;}
 .dtag{font-style:normal;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px;margin-left:4px;vertical-align:middle;white-space:nowrap;} .dtag.weekend{background:rgba(90,100,130,.16);color:var(--muted,#556);} .dtag.holiday{background:rgba(179,38,30,.14);color:var(--danger,#b3261e);}
 .hol-list{display:flex;flex-wrap:wrap;gap:6px;} .hol-chip{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border:1px solid var(--border);border-radius:999px;font-size:12.5px;} .hol-chip a{color:var(--danger,#b3261e);text-decoration:none;font-weight:700;}
+
+@media (min-width:900px){
+ .fs-banks{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:10px;align-items:start;margin-top:8px;}
+ .fs-banks .fs-bank{margin:0;}
+ .fs-banks .fs-bh{padding:7px 10px;gap:2px 10px;font-size:12.5px;} .fs-banks .fs-bh b:first-child{font-size:14px;flex:0 0 100%;}
+ .fs-banks .fs-row{padding:6px 10px;gap:4px 10px;flex-wrap:nowrap;align-items:center;} .fs-banks .fs-ipo{flex:0 0 92px;min-width:0;font-size:12.5px;} .fs-banks .fs-ipo .small-muted{font-size:11px;line-height:1.25;}
+ .fs-banks .fs-cells{gap:4px;} .fs-banks .fs-cell{font-size:10px;} .fs-banks .fs-cell input{width:40px;padding:4px 2px;font-size:13px;}
+ .fs-banks .fs-dts{padding:5px 10px;font-size:11.5px;gap:3px 10px;}
+ .fs-banks .fs-cell .dtag{display:none;}
+}
 </style>
 </head>
 <body>
@@ -8347,8 +8357,10 @@ function fsInit(){
   live.forEach(i=>{ if(!fs.ipos[i.id]){ const sv=(fs.svIpos||{})[i.id]; const t=(S.settings.fundTargets||{})[i.id];
       fs.ipos[i.id]=sv?{...sv}:{on:true,n:S.clients.filter(c=>c.status==='Active').length,cost:(t&&t.cost)||Number(i.minimumApplicationAmount)||0}; if(!fs.order.includes(i.id)) fs.order.push(i.id); } });
   fs.order=fs.order.filter(id=>fs.ipos[id]&&live.some(i=>i.id===id));
-  S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{ if(!fs.banks[b.id]){ const sv=(fs.svBanks||{})[b.id]; fs.banks[b.id]={on:sv?sv.on!==false:true,bal:bankEffectiveBalance(b),lim:sv&&sv.lim!==undefined&&sv.lim!==''?sv.lim:bankMandateCap(b.id)}; } });
+  S.bankAccounts.filter(b=>b.status==='Active').forEach(b=>{ if(!fs.banks[b.id]){ const sv=(fs.svBanks||{})[b.id]; fs.banks[b.id]={on:sv?sv.on!==false:true,bal:0,lim:sv&&sv.lim!==undefined&&sv.lim!==''?sv.lim:bankMandateCap(b.id)}; } });
 }
+function fsSyncBalances(){ Object.entries(fs.banks).forEach(([id,o])=>{ const b=findBank(Number(id)); if(b) o.bal=(b.balance===undefined||b.balance===null||b.balance==='')?0:Number(b.balance); }); }
+async function fsDeduct(id){ const b=findBank(id); const e=bankEffectiveBalance(b); if(e==='') return; await setBankBalance(id,Math.max(0,e)); fsSyncBalances(); fsRender(); toast('Balance reduced by what was accepted since','ok'); }
 function fsPersist(){ saveSetting('fundSheet',{buffer:fs.buffer,rough:fs.rough,manual:fs.manual,order:fs.order,ipos:fs.ipos,banks:Object.fromEntries(Object.entries(fs.banks).map(([k,v])=>[k,{on:v.on,lim:v.lim}]))}); }
 function fsWindow(i){ const t=todayStr(); let ds=[],d=i.openDate,g=0; while(d<=i.closeDate&&g++<31){ ds.push(d); d=addDaysIso(d,1); } const fut=ds.filter(x=>x>=t); return fut.length?fut:ds; }
 function fsCompute(){
@@ -8373,13 +8385,13 @@ function fsCompute(){
 }
 function fsSet(id,k,v){ const o=fs.ipos[id]; if(k==='on') o.on=!!v; else if(k==='n') o.n=Math.max(0,Math.floor(Number(v)||0)); else if(k==='cost') o.cost=Math.max(0,Number(v)||0); fsPersist(); fsRender(); }
 function fsMove(id,dir){ const i=fs.order.indexOf(id), j=i+dir; if(j<0||j>=fs.order.length) return; [fs.order[i],fs.order[j]]=[fs.order[j],fs.order[i]]; fsPersist(); fsRender(); }
-function fsBank(id,k,v){ const o=fs.banks[id]; if(k==='on') o.on=!!v; else if(k==='lim') o.lim=v===''?'':Math.max(0,Math.floor(Number(v)||0)); else o.bal=v===''?0:Math.max(0,Number(v)||0); fsPersist(); fsRender(); }
+async function fsBank(id,k,v){ const o=fs.banks[id]; if(k==='on') o.on=!!v; else if(k==='lim') o.lim=v===''?'':Math.max(0,Math.floor(Number(v)||0)); else { await setBankBalance(id,v===''?0:v); fsSyncBalances(); } fsPersist(); fsRender(); }
 function fsGlobal(k,v){ if(k==='buffer') fs.buffer=Math.max(0,Math.floor(Number(v)||0)); else fs.rough=Math.max(1,Number(v)||15000); fsPersist(); fsRender(); }
 function fsCell(bid,id,d,v){ const key=bid+'|'+id+'|'+d; if(v==='') delete fs.manual[key]; else fs.manual[key]=Math.max(0,Math.floor(Number(v)||0)); fsPersist(); fsRender(); }
 function fsResetManual(){ fs.manual={}; fsPersist(); fsRender(); }
 function fsShort(d){ return new Date(d+'T00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'}); }
 function fsRender(){
-  const el=document.getElementById('fsBody'); if(!el) return; fsInit();
+  const el=document.getElementById('fsBody'); if(!el) return; fsInit(); fsSyncBalances();
   if(!fs.order.length){ el.innerHTML='<div class="empty-state"><div class="ico">💰</div><h3>No open or upcoming IPO</h3><p>Add an IPO with open and close dates to plan funds for it.</p></div>'; return; }
   const r=fsCompute(), act=S.bankAccounts.filter(b=>b.status==='Active'), activeClients=S.clients.filter(c=>c.status==='Active').length;
   const ipoRows=fs.order.map((id,ix)=>{ const i=findIpo(id), o=fs.ipos[id]; const p=r.per.find(x=>x.id===id); const warn=o.on&&o.n>activeClients?`<div class="danger small-muted">more than your ${activeClients} active clients</div>`:'';
@@ -8387,7 +8399,7 @@ function fsRender(){
       <td data-l="Applications"><input type="number" min="0" value="${o.n}" onchange="fsSet(${id},'n',this.value)" class="fs-in">${warn}</td><td data-l="1 lot (₹)"><input type="number" min="0" value="${o.cost}" onchange="fsSet(${id},'cost',this.value)" class="fs-in" style="width:90px"></td>
       <td class="num" data-l="Planned">${p?`<b class="${p.got<p.want?'danger':'ok'}">${p.got}</b> / ${p.want}`:'—'}</td><td class="fs-mv"><button class="btn btn-ghost btn-sm" onclick="fsMove(${id},-1)" ${ix?'':'disabled'}>▲</button><button class="btn btn-ghost btn-sm" onclick="fsMove(${id},1)" ${ix<fs.order.length-1?'':'disabled'}>▼</button></td></tr>`; }).join('');
   const bankRows=act.map(b=>{ const o=fs.banks[b.id]; const saved=bankEffectiveBalance(b); const notes=Object.values(fpEvents(b,r.ids).filter(e=>e.date>=todayStr()).reduce((m,e)=>{ const k=e.date+'|'+e.why+'|'+(e.delta>0); (m[k]=m[k]||{...e,delta:0}).delta+=e.delta; return m; },{})).sort((x,y)=>x.date<y.date?-1:1).map(e=>`<div class="small-muted">${fmtDate(e.date)}: ${e.delta>0?'+':'−'}${fmtMoney(Math.abs(e.delta))} ${e.why}</div>`).join('');
-    return `<tr class="${o.on?'':'fs-off'}"><td><input type="checkbox" ${o.on?'checked':''} onchange="fsBank(${b.id},'on',this.checked)"></td><td><b>${escapeHtml(b.bankName)}</b>${notes}</td><td data-l="Balance (₹)"><input type="number" min="0" value="${o.bal}" onchange="fsBank(${b.id},'bal',this.value)" class="fs-in" style="width:110px">${saved!==''&&Number(saved)!==Number(o.bal)?`<div class="small-muted">saved ${fmtMoney(saved)}</div>`:''}</td><td data-l="Daily limit"><input type="number" min="0" value="${o.lim}" onchange="fsBank(${b.id},'lim',this.value)" class="fs-in" style="width:64px"></td></tr>`; }).join('');
+    return `<tr class="${o.on?'':'fs-off'}"><td><input type="checkbox" ${o.on?'checked':''} onchange="fsBank(${b.id},'on',this.checked)"></td><td><b>${escapeHtml(b.bankName)}</b>${notes}</td><td data-l="Balance (₹)"><input type="number" min="0" value="${o.bal}" onchange="fsBank(${b.id},'bal',this.value)" class="fs-in" style="width:110px">${saved!==''&&Number(saved)!==Number(o.bal)?`<div class="small-muted">${fmtMoney(Number(o.bal)-Number(saved))} accepted since you saved this · <a href="javascript:void(0)" onclick="fsDeduct(${b.id})">deduct it</a></div>`:`<div class="small-muted">saved until you change it</div>`}</td><td data-l="Daily limit"><input type="number" min="0" value="${o.lim}" onchange="fsBank(${b.id},'lim',this.value)" class="fs-in" style="width:64px"></td></tr>`; }).join('');
   const kpis=r.per.map(p=>sumTile(escapeHtml(p.ipo.ipoName),`${p.got} / ${p.want}`,p.got<p.want?'danger':'ok',p.got<p.want?`short ${p.want-p.got} · need ${fmtMoney((p.want-p.got)*p.cost)} more`:`blocks ${fmtMoney(p.got*p.cost)}`)).join('');
   const blocks=r.bankInfo.map(bi=>{ const b=bi.b; const rows=r.ids.map(id=>{ const ip=findIpo(id), win=fsWindow(ip); const tot=Object.values(r.alloc[b.id][id]).reduce((a,c)=>a+c,0);
       const cells=r.days.filter(d=>win.includes(d)).map(d=>{ const key=b.id+'|'+id+'|'+d, v=r.alloc[b.id][id][d]||0, lk=r.locked[key]; return `<label class="fs-cell ${lk?'lk':''}"><span>${fsShort(d)}${dayTagHtml(d)}</span><input type="number" min="0" value="${v||''}" placeholder="0" onchange="fsCell(${b.id},${id},'${d}',this.value)"></label>`; }).join('');
@@ -8404,7 +8416,7 @@ function fsRender(){
   <div class="section-card"><div class="sc-head"><h3>Plan</h3><div class="spacer"></div>${Object.keys(fs.manual).length?`<button class="btn btn-ghost btn-sm" onclick="fsResetManual()">Clear my edits (${Object.keys(fs.manual).length})</button>`:''}</div><div class="sc-body">
     <div class="kpi-grid sum-grid">${kpis}</div>
     ${short.length?`<div class="fs-alert"><b>Not everything fits.</b> ${short.map(p=>`${escapeHtml(p.ipo.ipoName)} is short by ${p.want-p.got} (about ${fmtMoney((p.want-p.got)*p.cost)} more money, or more days / a higher daily limit)`).join('; ')}.</div>`:`<div class="fs-alert ok-box"><b>Everything fits.</b> Edit any cell to change it; edited cells stay fixed and the rest re-balances.</div>`}
-    ${blocks}
+    <div class="fs-banks">${blocks}</div>
     <div class="table-wrap" style="margin-top:12px"><table class="dt" data-enh="1"><thead><tr><th>Day</th><th>Mandates by IPO</th><th class="num">Total</th></tr></thead><tbody>${dayRows||'<tr><td colspan=3>Nothing planned</td></tr>'}</tbody></table></div>
     <div class="fp-actions"><button class="btn btn-primary" onclick="fsSave()">Save as plan targets</button><button class="btn btn-ghost" onclick="fsSaveBalances()">Set saved balances to what is left</button><button class="btn btn-ghost" onclick="bulkPlanClients()">Open Bulk Plan Clients</button></div>
     <p class="small-muted">Saving targets shows "target N" on each bank in Bulk Plan Clients for that IPO and day, and allows daily limits above the default where you chose them.</p></div></div>`;
